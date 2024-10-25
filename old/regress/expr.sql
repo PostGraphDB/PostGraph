@@ -32,6 +32,23 @@ SET bytea_output = 'escape';
 SELECT tobytea('"\xDEADBEEF"');
 SELECT tobytea('"abc \153\154\155 \052\251\124"');
 
+SET bytea_output = 'hex';
+
+SELECT * FROM cypher('expr', $$RETURN sha224('Hello World') $$) AS r(c gtype);
+SELECT * FROM cypher('expr', $$RETURN sha224('Hello World 2') $$) AS r(c gtype);
+
+SELECT * FROM cypher('expr', $$RETURN sha256('Hello World') $$) AS r(c gtype);
+SELECT * FROM cypher('expr', $$RETURN sha256('Hello World 2') $$) AS r(c gtype);
+
+SELECT * FROM cypher('expr', $$RETURN sha384('Hello World') $$) AS r(c gtype);
+SELECT * FROM cypher('expr', $$RETURN sha384('Hello World 2') $$) AS r(c gtype);
+
+SELECT * FROM cypher('expr', $$RETURN sha512('Hello World') $$) AS r(c gtype);
+SELECT * FROM cypher('expr', $$RETURN sha512('Hello World 2') $$) AS r(c gtype);
+
+SELECT * FROM cypher('expr', $$RETURN md5('Hello World') $$) AS r(c gtype);
+SELECT * FROM cypher('expr', $$RETURN md5('Hello World 2') $$) AS r(c gtype);
+
 SELECT '{"Hello", "World"}'::text[]::gtype;
 
 SELECT '{1, 2, 3, 4, 5, 6}'::int2[]::gtype;
@@ -56,23 +73,6 @@ SELECT '{"07:37:16.00+00", "17:45:32.21+00"}'::time[]::gtype;
 SELECT '{"07:37:16.00+04", "17:45:32.21+08"}'::timetz[]::gtype;
 
 SELECT '{"5 Days", "1 Month", "2 Years Ago"}'::interval[]::gtype;
-
-SET bytea_output = 'hex';
-
-SELECT * FROM cypher('expr', $$RETURN sha224('Hello World') $$) AS r(c gtype);
-SELECT * FROM cypher('expr', $$RETURN sha224('Hello World 2') $$) AS r(c gtype);
-
-SELECT * FROM cypher('expr', $$RETURN sha256('Hello World') $$) AS r(c gtype);
-SELECT * FROM cypher('expr', $$RETURN sha256('Hello World 2') $$) AS r(c gtype);
-
-SELECT * FROM cypher('expr', $$RETURN sha384('Hello World') $$) AS r(c gtype);
-SELECT * FROM cypher('expr', $$RETURN sha384('Hello World 2') $$) AS r(c gtype);
-
-SELECT * FROM cypher('expr', $$RETURN sha512('Hello World') $$) AS r(c gtype);
-SELECT * FROM cypher('expr', $$RETURN sha512('Hello World 2') $$) AS r(c gtype);
-
-SELECT * FROM cypher('expr', $$RETURN md5('Hello World') $$) AS r(c gtype);
-SELECT * FROM cypher('expr', $$RETURN md5('Hello World 2') $$) AS r(c gtype);
 
 --
 -- map literal
@@ -128,7 +128,7 @@ SELECT * FROM cypher('expr', $$RETURN 1.0 + 'str'$$) AS r(c gtype);
 SELECT * FROM cypher('expr', $$ RETURN (-(3 * 2 - 4.0) ^ ((10 / 5) + 1)) % -3 $$) AS r(result gtype);
 
 --
--- a bunch of comparison operators
+--  comparison operators
 --
 SELECT * FROM cypher('expr', $$ RETURN 1 = 1.0 $$) AS r(result boolean);
 SELECT * FROM cypher('expr', $$ RETURN 1 > -1.0 $$) AS r(result boolean);
@@ -584,6 +584,14 @@ SELECT * from cypher('expr', $$ RETURN cbrt(null) $$) as (result gtype);
 SELECT * from cypher('expr', $$ RETURN cbrt("1") $$) as (result gtype);
 -- factorial
 SELECT * FROM cypher('expr', $$ RETURN factorial(10) $$) AS (results gtype);
+
+
+SELECT * from cypher('expr', $$ RETURN 'test' LIKE 'test' $$) as (result boolean);
+SELECT * from cypher('expr', $$ RETURN 'test' NOT LIKE 'test' $$) as (result boolean);
+
+SELECT * from cypher('expr', $$ RETURN 'TEST' ILIKE 'test' $$) as (result boolean);
+SELECT * from cypher('expr', $$ RETURN 'TEST' NOT ILIKE 'test' $$) as (result boolean);
+
 --CASE
 SELECT create_graph('case_statement');
 SELECT * FROM cypher('case_statement', $$CREATE ({i: 1, j: null})$$) AS (result gtype);
@@ -593,11 +601,7 @@ SELECT * FROM cypher('case_statement', $$CREATE ({i: true, j: false})$$) AS (res
 SELECT * FROM cypher('case_statement', $$CREATE ({i: [], j: [0,1,2]})$$) AS (result gtype);
 SELECT * FROM cypher('case_statement', $$CREATE ({i: {}, j: {i:1}})$$) AS (result gtype);
 
-SELECT * from cypher('expr', $$ RETURN 'test' LIKE 'test' $$) as (result boolean);
-SELECT * from cypher('expr', $$ RETURN 'test' NOT LIKE 'test' $$) as (result boolean);
 
-SELECT * from cypher('expr', $$ RETURN 'TEST' ILIKE 'test' $$) as (result boolean);
-SELECT * from cypher('expr', $$ RETURN 'TEST' NOT ILIKE 'test' $$) as (result boolean);
 
 
 --CASE WHEN condition THEN result END

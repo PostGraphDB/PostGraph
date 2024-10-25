@@ -209,6 +209,1638 @@ RETURN false XOR false;
  f
 (1 row)
 
+--
+-- String Concat
+--
+RETURN 'str' + 'str';
+ ?column? 
+----------
+ "strstr"
+(1 row)
+
+RETURN 'str' + 1;
+ ?column? 
+----------
+ "str1"
+(1 row)
+
+RETURN 'str' + 1.0;
+ ?column? 
+----------
+ "str1"
+(1 row)
+
+RETURN 1 + 'str';
+ ?column? 
+----------
+ "1str"
+(1 row)
+
+RETURN 1.0 + 'str';
+ ?column? 
+----------
+ "1str"
+(1 row)
+
+--
+-- Operator Precedence
+--
+RETURN (-(3 * 2 - 4.0) ^ ((10 / 5) + 1)) % -3;
+ERROR:  operator does not exist: integer postgraph.^ postgraph.gtype
+LINE 1: RETURN (-(3 * 2 - 4.0) ^ ((10 / 5) + 1)) % -3;
+                               ^
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+--
+-- indirection object.property, object['property'], and array[element]
+--
+RETURN [ 1, { bool: true, int: 3, array: [ 9, 11, { boom: false, float: 3.14 }, 13 ] }, 5, 7, 9 ][1].array[2]['float'];
+ERROR:  syntax error at or near "["
+LINE 1: ...1, { boom: false, float: 3.14 }, 13 ] }, 5, 7, 9 ][1].array[...
+                                                             ^
+-- coalesce
+RETURN coalesce(null, 1, null, null);
+ coalesce 
+----------
+ 1
+(1 row)
+
+RETURN coalesce(null, -3.14, null, null);
+ coalesce 
+----------
+ -3.14
+(1 row)
+
+RETURN coalesce(null, 'string', null, null);
+ coalesce 
+----------
+ "string"
+(1 row)
+
+RETURN coalesce(null, null, null, []);
+ERROR:  syntax error at or near "["
+LINE 1: RETURN coalesce(null, null, null, []);
+                                          ^
+RETURN coalesce(null, null, null, {});
+ERROR:  syntax error at or near "{"
+LINE 1: RETURN coalesce(null, null, null, {});
+                                          ^
+RETURN coalesce(null);
+ coalesce 
+----------
+ 
+(1 row)
+
+--
+-- STARTS WITH, ENDS WITH, and CONTAINS
+--
+RETURN 'abcdefghijklmnopqrstuvwxyz' STARTS WITH 'abcd';
+ ?column? 
+----------
+ true
+(1 row)
+
+RETURN 'abcdefghijklmnopqrstuvwxyz' ENDS WITH 'wxyz';
+ ?column? 
+----------
+ true
+(1 row)
+
+RETURN 'abcdefghijklmnopqrstuvwxyz' CONTAINS 'klmn';
+ ?column? 
+----------
+ true
+(1 row)
+
+RETURN 'abcdefghijklmnopqrstuvwxyz' STARTS WITH 'bcde';
+ ?column? 
+----------
+ false
+(1 row)
+
+RETURN 'abcdefghijklmnopqrstuvwxyz' ENDS WITH 'vwxy';
+ ?column? 
+----------
+ false
+(1 row)
+
+RETURN 'abcdefghijklmnopqrstuvwxyz' CONTAINS 'klmo';
+ ?column? 
+----------
+ false
+(1 row)
+
+RETURN 'abcdefghijklmnopqrstuvwxyz' STARTS WITH NULL;
+ ?column? 
+----------
+ 
+(1 row)
+
+RETURN 'abcdefghijklmnopqrstuvwxyz' ENDS WITH NULL;
+ ?column? 
+----------
+ 
+(1 row)
+
+RETURN 'abcdefghijklmnopqrstuvwxyz' CONTAINS NULL;
+ ?column? 
+----------
+ 
+(1 row)
+
+-- size() of a string
+RETURN size('12345');
+ size 
+------
+ 5
+(1 row)
+
+RETURN size('1234567890');
+ size 
+------
+ 10
+(1 row)
+
+-- reverse
+RETURN reverse('gnirts a si siht');
+      reverse       
+--------------------
+ "this is a string"
+(1 row)
+
+RETURN reverse(null);
+ reverse 
+---------
+ 
+(1 row)
+
+RETURN reverse([4923, 'abc', 521, NULL, 487]);
+            reverse            
+-------------------------------
+ [487, null, 521, "abc", 4923]
+(1 row)
+
+RETURN reverse([4923]);
+ reverse 
+---------
+ [4923]
+(1 row)
+
+RETURN reverse([4923, 257]);
+   reverse   
+-------------
+ [257, 4923]
+(1 row)
+
+RETURN reverse([4923, 257, null]);
+      reverse      
+-------------------
+ [null, 257, 4923]
+(1 row)
+
+RETURN reverse([4923, 257, 'tea']);
+      reverse       
+--------------------
+ ["tea", 257, 4923]
+(1 row)
+
+RETURN reverse([[1, 4, 7], 4923, [1, 2, 3], 'abc', 521, NULL, 487, ['fgt', 7, 10]]);
+                               reverse                               
+---------------------------------------------------------------------
+ [["fgt", 7, 10], 487, null, 521, "abc", [1, 2, 3], 4923, [1, 4, 7]]
+(1 row)
+
+RETURN reverse([4923, 257, {test1: 'key'}]);
+            reverse            
+-------------------------------
+ [{"test1": "key"}, 257, 4923]
+(1 row)
+
+RETURN reverse([4923, 257, {test2: [1, 2, 3]}]);
+              reverse              
+-----------------------------------
+ [{"test2": [1, 2, 3]}, 257, 4923]
+(1 row)
+
+RETURN reverse(true);
+ reverse 
+---------
+ "eurt"
+(1 row)
+
+RETURN reverse(3.14);
+ reverse 
+---------
+ "41.3"
+(1 row)
+
+-- toUpper
+RETURN toUpper('to uppercase');
+    toupper     
+----------------
+ "TO UPPERCASE"
+(1 row)
+
+RETURN toUpper(null);
+ toupper 
+---------
+ 
+(1 row)
+
+RETURN toUpper('');
+ toupper 
+---------
+ ""
+(1 row)
+
+RETURN toUpper(true);
+ toupper 
+---------
+ "TRUE"
+(1 row)
+
+-- toLower
+RETURN toLower('TO LOWERCASE');
+    tolower     
+----------------
+ "to lowercase"
+(1 row)
+
+RETURN toLower(null);
+ tolower 
+---------
+ 
+(1 row)
+
+RETURN toLower(true);
+ tolower 
+---------
+ "true"
+(1 row)
+
+-- lTrim
+RETURN lTrim('  string   ');
+    ltrim    
+-------------
+ "string   "
+(1 row)
+
+RETURN lTrim(null);
+ ltrim 
+-------
+ 
+(1 row)
+
+RETURN lTrim(true);
+ ltrim  
+--------
+ "true"
+(1 row)
+
+-- rtrim
+RETURN rTrim('  string   ');
+   rtrim    
+------------
+ "  string"
+(1 row)
+
+RETURN rTrim(null);
+ rtrim 
+-------
+ 
+(1 row)
+
+RETURN rTrim(true);
+ rtrim  
+--------
+ "true"
+(1 row)
+
+-- trim
+RETURN trim('  string   ');
+ERROR:  syntax error at or near "("
+LINE 1: RETURN trim('  string   ');
+                   ^
+RETURN trim(null);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN trim(null);
+                   ^
+RETURN trim(true);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN trim(true);
+                   ^
+-- left
+RETURN left('123456789', 1);
+ left 
+------
+ "1"
+(1 row)
+
+RETURN left('123456789', 3);
+ left  
+-------
+ "123"
+(1 row)
+
+RETURN left('123456789', 0);
+ left 
+------
+ ""
+(1 row)
+
+RETURN left(null, 1);
+ left 
+------
+ 
+(1 row)
+
+RETURN left(null, null);
+ left 
+------
+ 
+(1 row)
+
+RETURN left('123456789', null);
+ left 
+------
+ 
+(1 row)
+
+RETURN left('123456789', -1);
+    left    
+------------
+ "12345678"
+(1 row)
+
+--right
+RETURN right('123456789', 1);
+ right 
+-------
+ "9"
+(1 row)
+
+RETURN right('123456789', 3);
+ right 
+-------
+ "789"
+(1 row)
+
+RETURN right('123456789', 0);
+ right 
+-------
+ ""
+(1 row)
+
+RETURN right(null, 1);
+ right 
+-------
+ 
+(1 row)
+
+RETURN right(null, null);
+ right 
+-------
+ 
+(1 row)
+
+RETURN right('123456789', null);
+ right 
+-------
+ 
+(1 row)
+
+RETURN right('123456789', -1);
+   right    
+------------
+ "23456789"
+(1 row)
+
+-- substring
+RETURN substring('0123456789', 0, 1);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring('0123456789', 0, 1);
+                        ^
+RETURN substring('0123456789', 1, 3);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring('0123456789', 1, 3);
+                        ^
+RETURN substring('0123456789', 3);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring('0123456789', 3);
+                        ^
+RETURN substring('0123456789', 0);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring('0123456789', 0);
+                        ^
+RETURN substring(null, null, null);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring(null, null, null);
+                        ^
+RETURN substring(null, null);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring(null, null);
+                        ^
+RETURN substring(null, 1);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring(null, 1);
+                        ^
+RETURN substring('123456789', null);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring('123456789', null);
+                        ^
+RETURN substring('123456789', 0, -1);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring('123456789', 0, -1);
+                        ^
+RETURN substring('123456789', -1);
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring('123456789', -1);
+                        ^
+RETURN substring('123456789');
+ERROR:  syntax error at or near "("
+LINE 1: RETURN substring('123456789');
+                        ^
+-- split
+RETURN split('a,b,c,d,e,f', ',');
+             split              
+--------------------------------
+ ["a", "b", "c", "d", "e", "f"]
+(1 row)
+
+RETURN split('a,b,c,d,e,f', '');
+                          split                          
+---------------------------------------------------------
+ ["a", ",", "b", ",", "c", ",", "d", ",", "e", ",", "f"]
+(1 row)
+
+RETURN split('a,b,c,d,e,f', ' ');
+      split      
+-----------------
+ ["a,b,c,d,e,f"]
+(1 row)
+
+RETURN split('a,b,cd  e,f', ' ');
+         split         
+-----------------------
+ ["a,b,cd", "", "e,f"]
+(1 row)
+
+RETURN split('a,b,cd  e,f', '  ');
+       split       
+-------------------
+ ["a,b,cd", "e,f"]
+(1 row)
+
+RETURN split('a,b,c,d,e,f', 'c,');
+       split       
+-------------------
+ ["a,b,", "d,e,f"]
+(1 row)
+
+RETURN split(null, null);
+ split 
+-------
+ 
+(1 row)
+
+RETURN split('a,b,c,d,e,f', null);
+ split 
+-------
+ 
+(1 row)
+
+RETURN split(null, ',');
+ split 
+-------
+ 
+(1 row)
+
+RETURN split(123456789, ',');
+     split     
+---------------
+ ["123456789"]
+(1 row)
+
+RETURN split('a,b,c,d,e,f', -1);
+      split      
+-----------------
+ ["a,b,c,d,e,f"]
+(1 row)
+
+RETURN split('a,b,c,d,e,f');
+ERROR:  function postgraph.split(postgraph.gtype) does not exist
+LINE 1: RETURN split('a,b,c,d,e,f');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+-- replace
+RETURN replace('Hello', 'lo', 'p');
+ replace 
+---------
+ "Help"
+(1 row)
+
+RETURN replace('Hello', 'hello', 'Good bye');
+ replace 
+---------
+ "Hello"
+(1 row)
+
+RETURN replace('abcabcabc', 'abc', 'a');
+ replace 
+---------
+ "aaa"
+(1 row)
+
+RETURN replace('abcabcabc', 'ab', '');
+ replace 
+---------
+ "ccc"
+(1 row)
+
+RETURN replace('ababab', 'ab', 'ab');
+ replace  
+----------
+ "ababab"
+(1 row)
+
+RETURN replace(null, null, null);
+ replace 
+---------
+ 
+(1 row)
+
+RETURN replace('Hello', null, null);
+ replace 
+---------
+ 
+(1 row)
+
+RETURN replace('Hello', '', null);
+ replace 
+---------
+ 
+(1 row)
+
+RETURN replace('', '', '');
+ replace 
+---------
+ ""
+(1 row)
+
+RETURN replace('Hello', 'Hello', '');
+ replace 
+---------
+ ""
+(1 row)
+
+RETURN replace('', 'Hello', 'Mellow');
+ replace 
+---------
+ ""
+(1 row)
+
+RETURN replace('Hello');
+ERROR:  function postgraph.replace(postgraph.gtype) does not exist
+LINE 1: RETURN replace('Hello');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+RETURN replace('Hello', null);
+ERROR:  function postgraph.replace(postgraph.gtype, postgraph.gtype) does not exist
+LINE 1: RETURN replace('Hello', null);
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+RETURN replace('Hello', 'e', 1);
+ replace 
+---------
+ "H1llo"
+(1 row)
+
+RETURN replace('Hello', 1, 'e');
+ replace 
+---------
+ "Hello"
+(1 row)
+
+-- initCap
+RETURN initCap('hello world');
+    initcap    
+---------------
+ "Hello World"
+(1 row)
+
+--
+-- Math
+--
+-- sin
+RETURN sin(0);
+ sin 
+-----
+ 0.0
+(1 row)
+
+-- cos
+RETURN cos(null);
+ cos 
+-----
+ 
+(1 row)
+
+RETURN cos(0);
+ cos 
+-----
+ 1.0
+(1 row)
+
+-- tan
+RETURN tan(null);
+ tan 
+-----
+ 
+(1 row)
+
+RETURN tan(0);
+ tan 
+-----
+ 0.0
+(1 row)
+
+-- cot
+RETURN cot(null);
+ cot 
+-----
+ 
+(1 row)
+
+RETURN cot(0);
+   cot    
+----------
+ Infinity
+(1 row)
+
+-- asin
+RETURN asin(1)*2;
+     ?column?      
+-------------------
+ 3.141592653589793
+(1 row)
+
+RETURN asin(1.1);
+ERROR:  input is out of range
+RETURN asin(-1.1);
+ERROR:  input is out of range
+RETURN asin(null);
+ asin 
+------
+ 
+(1 row)
+
+RETURN asin('0');
+ asin 
+------
+ 0.0
+(1 row)
+
+-- acos
+RETURN acos(0)*2;
+     ?column?      
+-------------------
+ 3.141592653589793
+(1 row)
+
+RETURN acos(1.1);
+ERROR:  input is out of range
+RETURN acos(-1.1);
+ERROR:  input is out of range
+RETURN acos(null);
+ acos 
+------
+ 
+(1 row)
+
+RETURN acos('0');
+        acos        
+--------------------
+ 1.5707963267948966
+(1 row)
+
+-- atan
+RETURN atan(1)*4;
+     ?column?      
+-------------------
+ 3.141592653589793
+(1 row)
+
+RETURN atan(null);
+ atan 
+------
+ 
+(1 row)
+
+RETURN atan('0');
+ atan 
+------
+ 0.0
+(1 row)
+
+-- atan2
+RETURN atan2(1, 1)*4;
+     ?column?      
+-------------------
+ 3.141592653589793
+(1 row)
+
+RETURN atan2(null, null);
+ atan2 
+-------
+ 
+(1 row)
+
+RETURN atan2(null, 1);
+ atan2 
+-------
+ 
+(1 row)
+
+RETURN atan2(1, null);
+ atan2 
+-------
+ 
+(1 row)
+
+RETURN atan2('0', 1);
+       atan2        
+--------------------
+ 1.5707963267948966
+(1 row)
+
+RETURN atan2(0, '1');
+       atan2        
+--------------------
+ 1.5707963267948966
+(1 row)
+
+-- pi
+RETURN pi();
+        pi         
+-------------------
+ 3.141592653589793
+(1 row)
+
+RETURN sin(pi());
+          sin           
+------------------------
+ 1.2246467991473532e-16
+(1 row)
+
+RETURN sin(pi()/4);
+        sin         
+--------------------
+ 0.7071067811865475
+(1 row)
+
+RETURN cos(pi());
+ cos  
+------
+ -1.0
+(1 row)
+
+RETURN cos(pi()/2);
+          cos          
+-----------------------
+ 6.123233995736766e-17
+(1 row)
+
+RETURN sin(pi()/2);
+ sin 
+-----
+ 1.0
+(1 row)
+
+-- radians
+RETURN radians(0);
+ radians 
+---------
+ 0.0
+(1 row)
+
+RETURN radians(360);
+      radians      
+-------------------
+ 6.283185307179586
+(1 row)
+
+RETURN radians(180);
+      radians      
+-------------------
+ 3.141592653589793
+(1 row)
+
+RETURN radians(90);
+      radians       
+--------------------
+ 1.5707963267948966
+(1 row)
+
+RETURN radians(null);
+ radians 
+---------
+ 
+(1 row)
+
+RETURN radians('1');
+       radians        
+----------------------
+ 0.017453292519943295
+(1 row)
+
+-- degrees
+RETURN degrees(0);
+ degrees 
+---------
+ 0.0
+(1 row)
+
+RETURN degrees(2*pi());
+ degrees 
+---------
+ 360.0
+(1 row)
+
+RETURN degrees(pi());
+ degrees 
+---------
+ 180.0
+(1 row)
+
+RETURN degrees(pi()/2);
+ degrees 
+---------
+ 90.0
+(1 row)
+
+RETURN degrees(null);
+ degrees 
+---------
+ 
+(1 row)
+
+RETURN degrees('1');
+      degrees      
+-------------------
+ 57.29577951308232
+(1 row)
+
+--sinh
+RETURN sinh(3.1415);
+        sinh        
+--------------------
+ 11.547665370743681
+(1 row)
+
+RETURN sinh(pi());
+        sinh        
+--------------------
+ 11.548739357257748
+(1 row)
+
+RETURN sinh(0);
+ sinh 
+------
+ 0.0
+(1 row)
+
+RETURN sinh(1);
+        sinh        
+--------------------
+ 1.1752011936438014
+(1 row)
+
+--cosh
+RETURN cosh(3.1415);
+        cosh        
+--------------------
+ 11.590883293117605
+(1 row)
+
+RETURN cosh(pi());
+        cosh        
+--------------------
+ 11.591953275521519
+(1 row)
+
+RETURN cosh(0);
+ cosh 
+------
+ 1.0
+(1 row)
+
+RETURN cosh(1);
+        cosh        
+--------------------
+ 1.5430806348152437
+(1 row)
+
+--tanh
+RETURN tanh(3.1415);
+        tanh        
+--------------------
+ 0.9962713866337016
+(1 row)
+
+RETURN tanh(pi());
+       tanh       
+------------------
+ 0.99627207622075
+(1 row)
+
+RETURN tanh(0);
+ tanh 
+------
+ 0.0
+(1 row)
+
+RETURN tanh(1);
+        tanh        
+--------------------
+ 0.7615941559557649
+(1 row)
+
+--asinh
+RETURN asinh(3.1415);
+       asinh        
+--------------------
+ 1.8622676397599716
+(1 row)
+
+RETURN asinh(pi());
+       asinh        
+--------------------
+ 1.8622957433108482
+(1 row)
+
+RETURN asinh(0);
+ asinh 
+-------
+ 0.0
+(1 row)
+
+RETURN asinh(1);
+       asinh       
+-------------------
+ 0.881373587019543
+(1 row)
+
+--acosh
+RETURN acosh(3.1415);
+       acosh        
+--------------------
+ 1.8114951612258219
+(1 row)
+
+RETURN acosh(pi());
+       acosh       
+-------------------
+ 1.811526272460853
+(1 row)
+
+RETURN acosh(0);
+ERROR:  input is out of range
+RETURN acosh(1);
+ acosh 
+-------
+ 0.0
+(1 row)
+
+--atanh
+RETURN atanh(3.1415);
+ERROR:  input is out of range
+RETURN atanh(pi());
+ERROR:  input is out of range
+RETURN atanh(0);
+ atanh 
+-------
+ 0.0
+(1 row)
+
+RETURN atanh(1);
+  atanh   
+----------
+ Infinity
+(1 row)
+
+-- abs
+RETURN abs(0);
+ abs 
+-----
+ 0
+(1 row)
+
+RETURN abs(10);
+ abs 
+-----
+ 10
+(1 row)
+
+RETURN abs(-10);
+ abs 
+-----
+ 10
+(1 row)
+
+RETURN abs(null);
+ abs 
+-----
+ 
+(1 row)
+
+-- ceil
+RETURN ceil(0);
+ ceil 
+------
+ 0.0
+(1 row)
+
+RETURN ceil(1);
+ ceil 
+------
+ 1.0
+(1 row)
+
+RETURN ceil(-1);
+ ceil 
+------
+ -1.0
+(1 row)
+
+RETURN ceil(1.01);
+ ceil 
+------
+ 2.0
+(1 row)
+
+RETURN ceil(-1.01);
+ ceil 
+------
+ -1.0
+(1 row)
+
+RETURN ceiling(-1.01);
+ ceiling 
+---------
+ -1.0
+(1 row)
+
+RETURN ceil(-1.01::numeric);
+ERROR:  function postgraph.ceil(integer) does not exist
+LINE 1: RETURN ceil(-1.01::numeric);
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+RETURN ceil('1');
+ ceil 
+------
+ 1.0
+(1 row)
+
+RETURN ceil(null);
+ ceil 
+------
+ 
+(1 row)
+
+-- floor
+RETURN floor(0);
+ floor 
+-------
+ 0.0
+(1 row)
+
+RETURN floor(1);
+ floor 
+-------
+ 1.0
+(1 row)
+
+RETURN floor(-1);
+ floor 
+-------
+ -1.0
+(1 row)
+
+RETURN floor(1.01);
+ floor 
+-------
+ 1.0
+(1 row)
+
+RETURN floor(-1.01);
+ floor 
+-------
+ -2.0
+(1 row)
+
+RETURN floor(null);
+ floor 
+-------
+ 
+(1 row)
+
+RETURN floor('1');
+ floor 
+-------
+ 1.0
+(1 row)
+
+-- round
+RETURN round(0);
+ round 
+-------
+ 0.0
+(1 row)
+
+RETURN round(4.49999999);
+ round 
+-------
+ 4.0
+(1 row)
+
+RETURN round(4.5);
+ round 
+-------
+ 4.0
+(1 row)
+
+RETURN round(-4.49999999);
+ round 
+-------
+ -4.0
+(1 row)
+
+RETURN round(-4.5);
+ round 
+-------
+ -4.0
+(1 row)
+
+RETURN round(7.4163, 3);
+     round      
+----------------
+ 7.416::numeric
+(1 row)
+
+RETURN round(7.416343479, 8);
+        round        
+---------------------
+ 7.41634348::numeric
+(1 row)
+
+RETURN round(7.416343479, NULL);
+ round 
+-------
+ 
+(1 row)
+
+RETURN round('1');
+ round 
+-------
+ 1.0
+(1 row)
+
+RETURN round(NULL, 7);
+ round 
+-------
+ 
+(1 row)
+
+RETURN round(7, 2);
+     round     
+---------------
+ 7.00::numeric
+(1 row)
+
+RETURN round(7.4342, 2.1123);
+     round     
+---------------
+ 7.43::numeric
+(1 row)
+
+RETURN round(NULL, NULL);
+ round 
+-------
+ 
+(1 row)
+
+-- sign
+RETURN sign(10);
+ sign 
+------
+ 1.0
+(1 row)
+
+RETURN sign(-10);
+ sign 
+------
+ -1.0
+(1 row)
+
+RETURN sign(0);
+ sign 
+------
+ 0.0
+(1 row)
+
+RETURN sign('1');
+ sign 
+------
+ 1.0
+(1 row)
+
+RETURN sign(null);
+ sign 
+------
+ 
+(1 row)
+
+-- gcd
+RETURN gcd(10, 5);
+ gcd 
+-----
+ 5
+(1 row)
+
+RETURN gcd(10.0, 5.0);
+    gcd     
+------------
+ 5::numeric
+(1 row)
+
+RETURN gcd(10.0, 5);
+    gcd     
+------------
+ 5::numeric
+(1 row)
+
+RETURN gcd(10, 5::numeric);
+    gcd     
+------------
+ 5::numeric
+(1 row)
+
+RETURN gcd('10', 5);
+ gcd 
+-----
+ 5
+(1 row)
+
+-- lcm
+RETURN lcm(10, 5);
+ lcm 
+-----
+ 10
+(1 row)
+
+RETURN lcm(10.0, 5.0);
+     lcm     
+-------------
+ 10::numeric
+(1 row)
+
+RETURN lcm(10.0, 5);
+     lcm     
+-------------
+ 10::numeric
+(1 row)
+
+RETURN lcm('10', 5);
+ lcm 
+-----
+ 10
+(1 row)
+
+RETURN lcm(10::numeric, '5');
+     lcm     
+-------------
+ 10::numeric
+(1 row)
+
+-- log (ln) 
+RETURN log(2.718281828459045);
+ log 
+-----
+ 1.0
+(1 row)
+
+RETURN log(10);
+        log        
+-------------------
+ 2.302585092994046
+(1 row)
+
+RETURN log(null);
+ log 
+-----
+ 
+(1 row)
+
+RETURN log(0);
+ERROR:  cannot take logarithm of zero
+RETURN log(-1);
+ERROR:  cannot take logarithm of a negative number
+-- log10
+RETURN log10(10);
+ log10 
+-------
+ 1.0
+(1 row)
+
+RETURN log10(null);
+ log10 
+-------
+ 
+(1 row)
+
+RETURN log10(0);
+ERROR:  cannot take logarithm of zero
+RETURN log10(-1);
+ERROR:  cannot take logarithm of a negative number
+-- e
+RETURN e();
+         e         
+-------------------
+ 2.718281828459045
+(1 row)
+
+RETURN log(e());
+ log 
+-----
+ 1.0
+(1 row)
+
+-- exp
+RETURN exp(1);
+        exp        
+-------------------
+ 2.718281828459045
+(1 row)
+
+RETURN exp(0);
+ exp 
+-----
+ 1.0
+(1 row)
+
+RETURN exp(null);
+ exp 
+-----
+ 
+(1 row)
+
+RETURN exp('1');
+        exp        
+-------------------
+ 2.718281828459045
+(1 row)
+
+-- sqrt()
+RETURN sqrt(25);
+ sqrt 
+------
+ 5.0
+(1 row)
+
+RETURN sqrt(1);
+ sqrt 
+------
+ 1.0
+(1 row)
+
+RETURN sqrt(0);
+ sqrt 
+------
+ 0.0
+(1 row)
+
+RETURN sqrt(-1);
+ERROR:  cannot take square root of a negative number
+RETURN sqrt(null);
+ sqrt 
+------
+ 
+(1 row)
+
+RETURN sqrt('1');
+ sqrt 
+------
+ 1.0
+(1 row)
+
+-- cbrt()
+RETURN cbrt(125);
+ cbrt 
+------
+ 5.0
+(1 row)
+
+RETURN cbrt(1);
+ cbrt 
+------
+ 1.0
+(1 row)
+
+RETURN cbrt(0);
+ cbrt 
+------
+ 0.0
+(1 row)
+
+RETURN cbrt(-1);
+ cbrt 
+------
+ -1.0
+(1 row)
+
+RETURN cbrt(null);
+ cbrt 
+------
+ 
+(1 row)
+
+RETURN cbrt('1');
+ cbrt 
+------
+ 1.0
+(1 row)
+
+-- factorial
+RETURN factorial(10);
+    factorial     
+------------------
+ 3628800::numeric
+(1 row)
+
+--
+-- Typecasting Functions
+--
+-- toBoolean
+RETURN toBoolean(true);
+ toboolean 
+-----------
+ true
+(1 row)
+
+RETURN toBoolean(false);
+ toboolean 
+-----------
+ false
+(1 row)
+
+RETURN toBoolean('true');
+ toboolean 
+-----------
+ true
+(1 row)
+
+RETURN toBoolean('false');
+ toboolean 
+-----------
+ false
+(1 row)
+
+RETURN toBoolean('falze');
+ERROR:  cannot cast gtype string to type boolean
+RETURN toBoolean(null);
+ toboolean 
+-----------
+ 
+(1 row)
+
+RETURN toBoolean(1);
+ERROR:  cannot cast gtype integer to type boolean
+-- toFloat
+RETURN toFloat(1);
+ tofloat 
+---------
+ 1.0
+(1 row)
+
+RETURN toFloat(1.2);
+ tofloat 
+---------
+ 1.2
+(1 row)
+
+RETURN toFloat('1');
+ tofloat 
+---------
+ 1.0
+(1 row)
+
+RETURN toFloat('1.2');
+ tofloat 
+---------
+ 1.2
+(1 row)
+
+RETURN toFloat('1.2'::numeric);
+ tofloat 
+---------
+ 1.2
+(1 row)
+
+RETURN toFloat('falze');
+ERROR:  invalid input syntax for type double precision: "falze"
+RETURN toFloat(null);
+ tofloat 
+---------
+ 
+(1 row)
+
+RETURN toFloat(true);
+ERROR:  cannot cast gtype boolean to type float8
+-- toInteger
+RETURN toInteger(1);
+ tointeger 
+-----------
+ 1
+(1 row)
+
+RETURN toInteger(1.2);
+ tointeger 
+-----------
+ 1
+(1 row)
+
+RETURN toInteger('1');
+ tointeger 
+-----------
+ 1
+(1 row)
+
+RETURN toInteger('1.2');
+ERROR:  invalid input syntax for type bigint: "1.2"
+RETURN toInteger('1.2'::numeric);
+ tointeger 
+-----------
+ 1
+(1 row)
+
+RETURN toInteger('falze');
+ERROR:  invalid input syntax for type bigint: "falze"
+RETURN toInteger(null);
+ tointeger 
+-----------
+ 
+(1 row)
+
+RETURN toInteger(true);
+ERROR:  cannot cast gtype boolean to type int8
+-- toString
+RETURN toString(3);
+ tostring 
+----------
+ "3"
+(1 row)
+
+RETURN toString(3.14);
+ tostring 
+----------
+ "3.14"
+(1 row)
+
+RETURN toString(3.14::float);
+ tostring 
+----------
+ "3.14"
+(1 row)
+
+RETURN toString(3.14::numeric);
+ tostring 
+----------
+ "3.14"
+(1 row)
+
+RETURN toString(true);
+ tostring 
+----------
+ "true"
+(1 row)
+
+RETURN toString(false);
+ tostring 
+----------
+ "false"
+(1 row)
+
+RETURN toString('a string');
+  tostring  
+------------
+ "a string"
+(1 row)
+
+RETURN toString(null);
+ tostring 
+----------
+ 
+(1 row)
+
 DROP GRAPH expr;
 ERROR:  syntax error at or near ";"
 LINE 1: DROP GRAPH expr;

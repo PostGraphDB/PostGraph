@@ -181,6 +181,7 @@ SET enable_mergejoin = ON;
 SET enable_hashjoin = OFF;
 SET enable_nestloop = OFF;
 
+EXPLAIN (COSTS OFF)
 SELECT COUNT(*) FROM cypher('cypher_index', $$
     MATCH (a:Country)<-[e:has_city]-()
     RETURN e
@@ -190,6 +191,7 @@ SET enable_mergejoin = OFF;
 SET enable_hashjoin = ON;
 SET enable_nestloop = OFF;
 
+EXPLAIN (COSTS OFF)
 SELECT COUNT(*) FROM cypher('cypher_index', $$
     MATCH (a:Country)<-[e:has_city]-()
     RETURN e
@@ -199,6 +201,7 @@ SET enable_mergejoin = OFF;
 SET enable_hashjoin = OFF;
 SET enable_nestloop = ON;
 
+EXPLAIN (COSTS OFF)
 SELECT COUNT(*) FROM cypher('cypher_index', $$
     MATCH (a:Country)<-[e:has_city]-()
     RETURN e

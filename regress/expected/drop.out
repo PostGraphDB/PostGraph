@@ -1,0 +1,325 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+LOAD 'postgraph';
+SET search_path TO postgraph;
+SELECT create_graph('drop');
+NOTICE:  graph "drop" has been created
+ create_graph 
+--------------
+ 
+(1 row)
+
+DROP EXTENSION postgraph;
+ERROR:  cannot drop extension postgraph because other objects depend on it
+DETAIL:  column id of table expr._ag_label_vertex depends on type graphid
+column end_id of table expr._ag_label_edge depends on type graphid
+column start_id of table expr._ag_label_edge depends on type graphid
+column id of table expr._ag_label_edge depends on type graphid
+column id of table range._ag_label_vertex depends on type graphid
+column end_id of table range._ag_label_edge depends on type graphid
+column start_id of table range._ag_label_edge depends on type graphid
+column id of table range._ag_label_edge depends on type graphid
+column id of table cypher_delete._ag_label_vertex depends on type graphid
+column end_id of table cypher_delete._ag_label_edge depends on type graphid
+column start_id of table cypher_delete._ag_label_edge depends on type graphid
+column id of table cypher_delete._ag_label_edge depends on type graphid
+column id of table cypher_delete.v depends on type graphid
+column end_id of table cypher_delete.e depends on type graphid
+column start_id of table cypher_delete.e depends on type graphid
+column id of table cypher_delete.e depends on type graphid
+column end_id of table cypher_delete.e2 depends on type graphid
+column start_id of table cypher_delete.e2 depends on type graphid
+column id of table cypher_delete.e2 depends on type graphid
+column id of table cypher_merge._ag_label_vertex depends on type graphid
+column end_id of table cypher_merge._ag_label_edge depends on type graphid
+column start_id of table cypher_merge._ag_label_edge depends on type graphid
+column id of table cypher_merge._ag_label_edge depends on type graphid
+column end_id of table cypher_merge.e depends on type graphid
+column start_id of table cypher_merge.e depends on type graphid
+column id of table cypher_merge.e depends on type graphid
+column id of table cypher_merge.v depends on type graphid
+column id of table cypher_vle._ag_label_vertex depends on type graphid
+column end_id of table cypher_vle._ag_label_edge depends on type graphid
+column start_id of table cypher_vle._ag_label_edge depends on type graphid
+column id of table cypher_vle._ag_label_edge depends on type graphid
+column id of table cypher_vle.begin depends on type graphid
+column end_id of table cypher_vle.edge depends on type graphid
+column start_id of table cypher_vle.edge depends on type graphid
+column id of table cypher_vle.edge depends on type graphid
+column id of table cypher_vle.middle depends on type graphid
+column id of table cypher_vle."end" depends on type graphid
+column end_id of table cypher_vle.self_loop depends on type graphid
+column start_id of table cypher_vle.self_loop depends on type graphid
+column id of table cypher_vle.self_loop depends on type graphid
+column end_id of table cypher_vle.alternate_edge depends on type graphid
+column start_id of table cypher_vle.alternate_edge depends on type graphid
+column id of table cypher_vle.alternate_edge depends on type graphid
+column end_id of table cypher_vle.bypass_edge depends on type graphid
+column start_id of table cypher_vle.bypass_edge depends on type graphid
+column id of table cypher_vle.bypass_edge depends on type graphid
+column id of table set_op._ag_label_vertex depends on type graphid
+column end_id of table set_op._ag_label_edge depends on type graphid
+column start_id of table set_op._ag_label_edge depends on type graphid
+column id of table set_op._ag_label_edge depends on type graphid
+column id of table drop._ag_label_vertex depends on type graphid
+column end_id of table drop._ag_label_edge depends on type graphid
+column start_id of table drop._ag_label_edge depends on type graphid
+column id of table drop._ag_label_edge depends on type graphid
+column properties of table expr._ag_label_vertex depends on type gtype
+column properties of table expr._ag_label_edge depends on type gtype
+column properties of table range._ag_label_vertex depends on type gtype
+column properties of table range._ag_label_edge depends on type gtype
+column properties of table cypher_delete._ag_label_vertex depends on type gtype
+column properties of table cypher_delete._ag_label_edge depends on type gtype
+column properties of table cypher_delete.v depends on type gtype
+column properties of table cypher_delete.e depends on type gtype
+column properties of table cypher_delete.e2 depends on type gtype
+column properties of table cypher_merge._ag_label_vertex depends on type gtype
+column properties of table cypher_merge._ag_label_edge depends on type gtype
+column properties of table cypher_merge.e depends on type gtype
+column properties of table cypher_merge.v depends on type gtype
+column properties of table cypher_vle._ag_label_vertex depends on type gtype
+column properties of table cypher_vle._ag_label_edge depends on type gtype
+column properties of table cypher_vle.begin depends on type gtype
+column properties of table cypher_vle.edge depends on type gtype
+column properties of table cypher_vle.middle depends on type gtype
+column properties of table cypher_vle."end" depends on type gtype
+column properties of table cypher_vle.self_loop depends on type gtype
+column properties of table cypher_vle.alternate_edge depends on type gtype
+column properties of table cypher_vle.bypass_edge depends on type gtype
+column properties of table set_op._ag_label_vertex depends on type gtype
+column properties of table set_op._ag_label_edge depends on type gtype
+column properties of table drop._ag_label_vertex depends on type gtype
+column properties of table drop._ag_label_edge depends on type gtype
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname = 'drop';
+ nspname 
+---------
+ drop
+(1 row)
+
+SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'postgraph';
+     tablename     
+-------------------
+ ag_graph
+ ag_label
+ session_graph_use
+ tbl2
+ tst
+ tst3
+ tst4
+ tst5
+ tst6
+ tst7
+ tst8
+ tbl1
+(12 rows)
+
+-- Recreate the extension and validate we can recreate a graph
+CREATE EXTENSION postgraph;
+ERROR:  extension "postgraph" already exists
+SELECT create_graph('drop');
+ERROR:  graph "drop" already exists
+-- Create a schema that uses the gtype, so we can't just drop postgraph.
+CREATE SCHEMA other_schema;
+CREATE TABLE other_schema.tbl (id gtype);
+-- Should Fail because gtype can't be dropped
+DROP EXTENSION postgraph;
+ERROR:  cannot drop extension postgraph because other objects depend on it
+DETAIL:  column id of table expr._ag_label_vertex depends on type graphid
+column end_id of table expr._ag_label_edge depends on type graphid
+column start_id of table expr._ag_label_edge depends on type graphid
+column id of table expr._ag_label_edge depends on type graphid
+column id of table range._ag_label_vertex depends on type graphid
+column end_id of table range._ag_label_edge depends on type graphid
+column start_id of table range._ag_label_edge depends on type graphid
+column id of table range._ag_label_edge depends on type graphid
+column id of table cypher_delete._ag_label_vertex depends on type graphid
+column end_id of table cypher_delete._ag_label_edge depends on type graphid
+column start_id of table cypher_delete._ag_label_edge depends on type graphid
+column id of table cypher_delete._ag_label_edge depends on type graphid
+column id of table cypher_delete.v depends on type graphid
+column end_id of table cypher_delete.e depends on type graphid
+column start_id of table cypher_delete.e depends on type graphid
+column id of table cypher_delete.e depends on type graphid
+column end_id of table cypher_delete.e2 depends on type graphid
+column start_id of table cypher_delete.e2 depends on type graphid
+column id of table cypher_delete.e2 depends on type graphid
+column id of table cypher_merge._ag_label_vertex depends on type graphid
+column end_id of table cypher_merge._ag_label_edge depends on type graphid
+column start_id of table cypher_merge._ag_label_edge depends on type graphid
+column id of table cypher_merge._ag_label_edge depends on type graphid
+column end_id of table cypher_merge.e depends on type graphid
+column start_id of table cypher_merge.e depends on type graphid
+column id of table cypher_merge.e depends on type graphid
+column id of table cypher_merge.v depends on type graphid
+column id of table cypher_vle._ag_label_vertex depends on type graphid
+column end_id of table cypher_vle._ag_label_edge depends on type graphid
+column start_id of table cypher_vle._ag_label_edge depends on type graphid
+column id of table cypher_vle._ag_label_edge depends on type graphid
+column id of table cypher_vle.begin depends on type graphid
+column end_id of table cypher_vle.edge depends on type graphid
+column start_id of table cypher_vle.edge depends on type graphid
+column id of table cypher_vle.edge depends on type graphid
+column id of table cypher_vle.middle depends on type graphid
+column id of table cypher_vle."end" depends on type graphid
+column end_id of table cypher_vle.self_loop depends on type graphid
+column start_id of table cypher_vle.self_loop depends on type graphid
+column id of table cypher_vle.self_loop depends on type graphid
+column end_id of table cypher_vle.alternate_edge depends on type graphid
+column start_id of table cypher_vle.alternate_edge depends on type graphid
+column id of table cypher_vle.alternate_edge depends on type graphid
+column end_id of table cypher_vle.bypass_edge depends on type graphid
+column start_id of table cypher_vle.bypass_edge depends on type graphid
+column id of table cypher_vle.bypass_edge depends on type graphid
+column id of table set_op._ag_label_vertex depends on type graphid
+column end_id of table set_op._ag_label_edge depends on type graphid
+column start_id of table set_op._ag_label_edge depends on type graphid
+column id of table set_op._ag_label_edge depends on type graphid
+column id of table drop._ag_label_vertex depends on type graphid
+column end_id of table drop._ag_label_edge depends on type graphid
+column start_id of table drop._ag_label_edge depends on type graphid
+column id of table drop._ag_label_edge depends on type graphid
+column properties of table expr._ag_label_vertex depends on type gtype
+column properties of table expr._ag_label_edge depends on type gtype
+column properties of table range._ag_label_vertex depends on type gtype
+column properties of table range._ag_label_edge depends on type gtype
+column properties of table cypher_delete._ag_label_vertex depends on type gtype
+column properties of table cypher_delete._ag_label_edge depends on type gtype
+column properties of table cypher_delete.v depends on type gtype
+column properties of table cypher_delete.e depends on type gtype
+column properties of table cypher_delete.e2 depends on type gtype
+column properties of table cypher_merge._ag_label_vertex depends on type gtype
+column properties of table cypher_merge._ag_label_edge depends on type gtype
+column properties of table cypher_merge.e depends on type gtype
+column properties of table cypher_merge.v depends on type gtype
+column properties of table cypher_vle._ag_label_vertex depends on type gtype
+column properties of table cypher_vle._ag_label_edge depends on type gtype
+column properties of table cypher_vle.begin depends on type gtype
+column properties of table cypher_vle.edge depends on type gtype
+column properties of table cypher_vle.middle depends on type gtype
+column properties of table cypher_vle."end" depends on type gtype
+column properties of table cypher_vle.self_loop depends on type gtype
+column properties of table cypher_vle.alternate_edge depends on type gtype
+column properties of table cypher_vle.bypass_edge depends on type gtype
+column properties of table set_op._ag_label_vertex depends on type gtype
+column properties of table set_op._ag_label_edge depends on type gtype
+column properties of table drop._ag_label_vertex depends on type gtype
+column properties of table drop._ag_label_edge depends on type gtype
+column id of table other_schema.tbl depends on type gtype
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+-- Check the graph still exist, because the DROP command failed
+SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname = 'drop';
+ nspname 
+---------
+ drop
+(1 row)
+
+-- Should succeed, delete the 'drop' schema and leave 'other_schema'
+DROP EXTENSION postgraph CASCADE;
+NOTICE:  drop cascades to 81 other objects
+DETAIL:  drop cascades to column id of table expr._ag_label_vertex
+drop cascades to column end_id of table expr._ag_label_edge
+drop cascades to column start_id of table expr._ag_label_edge
+drop cascades to column id of table expr._ag_label_edge
+drop cascades to column id of table range._ag_label_vertex
+drop cascades to column end_id of table range._ag_label_edge
+drop cascades to column start_id of table range._ag_label_edge
+drop cascades to column id of table range._ag_label_edge
+drop cascades to column id of table cypher_delete._ag_label_vertex
+drop cascades to column end_id of table cypher_delete._ag_label_edge
+drop cascades to column start_id of table cypher_delete._ag_label_edge
+drop cascades to column id of table cypher_delete._ag_label_edge
+drop cascades to column id of table cypher_delete.v
+drop cascades to column end_id of table cypher_delete.e
+drop cascades to column start_id of table cypher_delete.e
+drop cascades to column id of table cypher_delete.e
+drop cascades to column end_id of table cypher_delete.e2
+drop cascades to column start_id of table cypher_delete.e2
+drop cascades to column id of table cypher_delete.e2
+drop cascades to column id of table cypher_merge._ag_label_vertex
+drop cascades to column end_id of table cypher_merge._ag_label_edge
+drop cascades to column start_id of table cypher_merge._ag_label_edge
+drop cascades to column id of table cypher_merge._ag_label_edge
+drop cascades to column end_id of table cypher_merge.e
+drop cascades to column start_id of table cypher_merge.e
+drop cascades to column id of table cypher_merge.e
+drop cascades to column id of table cypher_merge.v
+drop cascades to column id of table cypher_vle._ag_label_vertex
+drop cascades to column end_id of table cypher_vle._ag_label_edge
+drop cascades to column start_id of table cypher_vle._ag_label_edge
+drop cascades to column id of table cypher_vle._ag_label_edge
+drop cascades to column id of table cypher_vle.begin
+drop cascades to column end_id of table cypher_vle.edge
+drop cascades to column start_id of table cypher_vle.edge
+drop cascades to column id of table cypher_vle.edge
+drop cascades to column id of table cypher_vle.middle
+drop cascades to column id of table cypher_vle."end"
+drop cascades to column end_id of table cypher_vle.self_loop
+drop cascades to column start_id of table cypher_vle.self_loop
+drop cascades to column id of table cypher_vle.self_loop
+drop cascades to column end_id of table cypher_vle.alternate_edge
+drop cascades to column start_id of table cypher_vle.alternate_edge
+drop cascades to column id of table cypher_vle.alternate_edge
+drop cascades to column end_id of table cypher_vle.bypass_edge
+drop cascades to column start_id of table cypher_vle.bypass_edge
+drop cascades to column id of table cypher_vle.bypass_edge
+drop cascades to column id of table set_op._ag_label_vertex
+drop cascades to column end_id of table set_op._ag_label_edge
+drop cascades to column start_id of table set_op._ag_label_edge
+drop cascades to column id of table set_op._ag_label_edge
+drop cascades to column id of table drop._ag_label_vertex
+drop cascades to column end_id of table drop._ag_label_edge
+drop cascades to column start_id of table drop._ag_label_edge
+drop cascades to column id of table drop._ag_label_edge
+drop cascades to column properties of table expr._ag_label_vertex
+drop cascades to column properties of table expr._ag_label_edge
+drop cascades to column properties of table range._ag_label_vertex
+drop cascades to column properties of table range._ag_label_edge
+drop cascades to column properties of table cypher_delete._ag_label_vertex
+drop cascades to column properties of table cypher_delete._ag_label_edge
+drop cascades to column properties of table cypher_delete.v
+drop cascades to column properties of table cypher_delete.e
+drop cascades to column properties of table cypher_delete.e2
+drop cascades to column properties of table cypher_merge._ag_label_vertex
+drop cascades to column properties of table cypher_merge._ag_label_edge
+drop cascades to column properties of table cypher_merge.e
+drop cascades to column properties of table cypher_merge.v
+drop cascades to column properties of table cypher_vle._ag_label_vertex
+drop cascades to column properties of table cypher_vle._ag_label_edge
+drop cascades to column properties of table cypher_vle.begin
+drop cascades to column properties of table cypher_vle.edge
+drop cascades to column properties of table cypher_vle.middle
+drop cascades to column properties of table cypher_vle."end"
+drop cascades to column properties of table cypher_vle.self_loop
+drop cascades to column properties of table cypher_vle.alternate_edge
+drop cascades to column properties of table cypher_vle.bypass_edge
+drop cascades to column properties of table set_op._ag_label_vertex
+drop cascades to column properties of table set_op._ag_label_edge
+drop cascades to column properties of table drop._ag_label_vertex
+drop cascades to column properties of table drop._ag_label_edge
+drop cascades to column id of table other_schema.tbl
+-- 'other_schema' should exist, 'drop' should be deleted
+SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname IN ('other_schema', 'drop');
+   nspname    
+--------------
+ drop
+ other_schema
+(2 rows)
+

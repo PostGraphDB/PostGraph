@@ -68,14 +68,14 @@ CREATE TABLE graphid_table (gid graphid);
 INSERT INTO graphid_table VALUES ('0'), ('1'), ('2');
 CREATE INDEX ON graphid_table (gid);
 SET enable_seqscan = OFF;
-EXPLAIN (COSTS FALSE) SELECT * FROM graphid_table WHERE gid = '1';
+EXPLAIN (COSTS OFF) SELECT * FROM graphid_table WHERE gid = '1';
                           QUERY PLAN                          
 --------------------------------------------------------------
  Index Only Scan using graphid_table_gid_idx on graphid_table
    Index Cond: (gid = '1'::graphid)
 (2 rows)
 
-EXPLAIN (COSTS FALSE) SELECT * FROM graphid_table WHERE gid > '0';
+EXPLAIN (COSTS OFF) SELECT * FROM graphid_table WHERE gid > '0';
                           QUERY PLAN                          
 --------------------------------------------------------------
  Index Only Scan using graphid_table_gid_idx on graphid_table
