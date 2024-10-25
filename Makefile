@@ -88,6 +88,7 @@ DATA = postgraph--0.1.0.sql
 
 REGRESS = new_cypher \
           expr \
+          regex \
           temporal \
           network \
           lists \
