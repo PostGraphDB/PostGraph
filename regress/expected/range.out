@@ -1,0 +1,1072 @@
+/*
+ * PostGraph
+ * Copyright (C) 2023 PostGraphDB
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+LOAD 'postgraph';
+SET search_path TO postgraph;
+set timezone TO 'GMT';
+CREATE GRAPH range;
+NOTICE:  graph "range" has been created
+ create_graph 
+--------------
+ 
+(1 row)
+
+USE GRAPH range;
+ use_graph 
+-----------
+ 
+(1 row)
+
+RETURN intrange(0, 1);
+ intrange 
+----------
+ [0,1)
+(1 row)
+
+RETURN intrange(0, 1, '()');
+ intrange 
+----------
+ empty
+(1 row)
+
+RETURN intrange(0, 1, '(]');
+ intrange 
+----------
+ [1,2)
+(1 row)
+
+RETURN intrange(0, 1, '[)');
+ intrange 
+----------
+ [0,1)
+(1 row)
+
+RETURN intrange(0, 1, '[]');
+ intrange 
+----------
+ [0,2)
+(1 row)
+
+--
+-- intrange = intrange
+--
+RETURN intrange(0, 1, '[]') = intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '()') = intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '(]') = intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '[)') = intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '[)') = intrange(3, 4, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- intrange <> intrange
+--
+RETURN intrange(0, 1, '[]') <> intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '()') <> intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '(]') <> intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '[)') <> intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '[)') <> intrange(3, 4, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- intrange > intrange
+--
+RETURN intrange(0, 1, '[]') > intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '()') > intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '(]') > intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '[)') > intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '[)') > intrange(3, 4, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- intrange >= intrange
+--
+RETURN intrange(0, 1, '[]') >= intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '()') >= intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '(]') >= intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '[)') >= intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '[)') >= intrange(3, 4, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- intrange < intrange
+--
+RETURN intrange(0, 1, '[]') < intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '()') < intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '(]') < intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '[)') < intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '[)') < intrange(3, 4, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- intrange <= intrange
+--
+RETURN intrange(0, 1, '[]') <= intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '()') <= intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '(]') <= intrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN intrange(0, 1, '[)') <= intrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN intrange(0, 1, '[)') <= intrange(3, 4, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1);
+ numrange 
+----------
+ [0,1)
+(1 row)
+
+RETURN numrange(0, 1, '()');
+ numrange 
+----------
+ (0,1)
+(1 row)
+
+RETURN numrange(0, 1, '(]');
+ numrange 
+----------
+ (0,1]
+(1 row)
+
+RETURN numrange(0, 1, '[)');
+ numrange 
+----------
+ [0,1)
+(1 row)
+
+RETURN numrange(0, 1, '[]');
+ numrange 
+----------
+ [0,1]
+(1 row)
+
+--
+-- numrange = numrange
+--
+RETURN numrange(0, 1, '[]') = numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '()') = numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '(]') = numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '[)') = numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '[)') = numrange(3, 4, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- numrange <> numrange
+--
+RETURN numrange(0, 1, '[]') <> numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '()') <> numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '(]') <> numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '[)') <> numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '[)') <> numrange(3, 4, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- numrange > numrange
+--
+RETURN numrange(0, 1, '[]') > numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '()') > numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '(]') > numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '[)') > numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '[)') > numrange(3, 4, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- numrange >= numrange
+--
+RETURN numrange(0, 1, '[]') >= numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '()') >= numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '(]') >= numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '[)') >= numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '[)') >= numrange(3, 4, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- numrange < numrange
+--
+RETURN numrange(0, 1, '[]') < numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '()') < numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '(]') < numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '[)') < numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '[)') < numrange(3, 4, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- numrange <= numrange
+--
+RETURN numrange(0, 1, '[]') <= numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '()') <= numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '(]') <= numrange(0, 1, '[]');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN numrange(0, 1, '[)') <= numrange(0, 1, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN numrange(0, 1, '[)') <= numrange(3, 4, '[]');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM');
+                         tsrange                         
+---------------------------------------------------------
+ ["Sat Jan 01 12:00:00 2000","Sat Jan 01 16:00:00 2000")
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+                         tsrange                         
+---------------------------------------------------------
+ ("Sat Jan 01 12:00:00 2000","Sat Jan 01 16:00:00 2000")
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]');
+                         tsrange                         
+---------------------------------------------------------
+ ("Sat Jan 01 12:00:00 2000","Sat Jan 01 16:00:00 2000"]
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)');
+                         tsrange                         
+---------------------------------------------------------
+ ["Sat Jan 01 12:00:00 2000","Sat Jan 01 16:00:00 2000")
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]');
+                         tsrange                         
+---------------------------------------------------------
+ ["Sat Jan 01 12:00:00 2000","Sat Jan 01 16:00:00 2000"]
+(1 row)
+
+--
+-- tsrange = tsrange
+--
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') <> tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') <> tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') <> tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') ;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') <> tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- tsrange <> tsrange
+--
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') <> tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') <> tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') <> tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') <> tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- tsrange < tsrange
+--
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') < tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') < tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') < tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') < tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- tsrange <= tsrange
+--
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') <= tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') <= tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') <= tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') <= tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- tsrange > tsrange
+--
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') > tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') > tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') > tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') > tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- tsrange >= tsrange
+--
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') >= tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') >= tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') >= tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') >= tsrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM');
+                            tstzrange                            
+-----------------------------------------------------------------
+ ["Sat Jan 01 12:00:00 2000 GMT","Sat Jan 01 16:00:00 2000 GMT")
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+                            tstzrange                            
+-----------------------------------------------------------------
+ ("Sat Jan 01 12:00:00 2000 GMT","Sat Jan 01 16:00:00 2000 GMT")
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]');
+                            tstzrange                            
+-----------------------------------------------------------------
+ ("Sat Jan 01 12:00:00 2000 GMT","Sat Jan 01 16:00:00 2000 GMT"]
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)');
+                            tstzrange                            
+-----------------------------------------------------------------
+ ["Sat Jan 01 12:00:00 2000 GMT","Sat Jan 01 16:00:00 2000 GMT")
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]');
+                            tstzrange                            
+-----------------------------------------------------------------
+ ["Sat Jan 01 12:00:00 2000 GMT","Sat Jan 01 16:00:00 2000 GMT"]
+(1 row)
+
+--
+-- tstzrange = tstzrange
+--
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') <> tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') <> tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') <> tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') <> tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- tstzrange <> tstzrange
+--
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') <> tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') <> tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') <> tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') <> tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- tstzrange < tstzrange
+--
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') < tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') < tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') < tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') < tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- tstzrange <= tstzrange
+--
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') <= tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') <= tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') <= tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') <= tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- tstzrange > tstzrange
+--
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') > tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') > tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') > tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') > tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- tstzrange >= tstzrange
+--
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()') >= tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '(]') >= tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[)') >= tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '[]') >= tstzrange('1/1/2000 12:00:00', '1/1/2000 4:00:00 PM', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001');
+        daterange        
+-------------------------
+ [01-01-2000,01-01-2001)
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '()');
+        daterange        
+-------------------------
+ [01-02-2000,01-01-2001)
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '(]');
+        daterange        
+-------------------------
+ [01-02-2000,01-02-2001)
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[)');
+        daterange        
+-------------------------
+ [01-01-2000,01-01-2001)
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[]');
+        daterange        
+-------------------------
+ [01-01-2000,01-02-2001)
+(1 row)
+
+--
+-- rangedate = rangedate
+--
+RETURN daterange('1/1/2000', '1/1/2001', '()') = daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '(]') = daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[)') = daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[]') = daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- rangedate <> rangedate
+--
+RETURN daterange('1/1/2000', '1/1/2001', '()') <> daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '(]') <> daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[)') <> daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[]') <> daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- rangedate > rangedate
+--
+RETURN daterange('1/1/2000', '1/1/2001', '()') > daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '(]') > daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[)') > daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[]') > daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- rangedate >= rangedate
+--
+RETURN daterange('1/1/2000', '1/1/2001', '()') >= daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '(]') >= daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[)') >= daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[]') >= daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- rangedate < rangedate
+--
+RETURN daterange('1/1/2000', '1/1/2001', '()') < daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '(]') < daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[)') < daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[]') < daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- rangedate <= rangedate
+--
+RETURN daterange('1/1/2000', '1/1/2001', '()') <= daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '(]') <= daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[)') <= daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN daterange('1/1/2000', '1/1/2001', '[]') <= daterange('1/1/2000', '1/1/2001', '()');
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- Clean up
+--
+DROP GRAPH range;
+ERROR:  syntax error at or near ";"
+LINE 1: DROP GRAPH range;
+                        ^
