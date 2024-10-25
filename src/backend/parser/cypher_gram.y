@@ -11802,7 +11802,7 @@ cypher_query_start:
     | match
     | CYPHER with { $$ = $2; }
     | merge
-    //| CYPHER call_stmt { $$ = $2; }
+    | CYPHER call_stmt { $$ = $2; }
     | return
     | unwind
 ;
@@ -17642,7 +17642,7 @@ cypher_expr_func_norm:
         {
             $$ = (Node *)makeFuncCall($1, NIL, COERCE_SQL_SYNTAX, @1);
         }
-    | cypher_func_name '(' expr_list ')'
+    | cypher_func_name '(' cypher_expr_list ')'
         {
             $$ = (Node *)makeFuncCall($1, $3, COERCE_SQL_SYNTAX, @1);
         }
@@ -17662,7 +17662,7 @@ cypher_expr_func_norm:
              n->agg_star = true;
              $$ = (Node *)n;
          }
-    | cypher_func_name '(' DISTINCT  expr_list ')'
+    | cypher_func_name '(' DISTINCT  cypher_expr_list ')'
         {
             FuncCall *n = (FuncCall *)makeFuncCall($1, $4, COERCE_SQL_SYNTAX, @1);
             n->agg_order = NIL;

@@ -254,7 +254,11 @@ USE GRAPH temporal;
 -- toTimestamp()
 --
  RETURN toTimestamp('12/17/1997 07:37:16.00+00'::timestamptz) ;
-ERROR:  unrecognized node type: 364
+       totimestamp        
+--------------------------
+ Wed Dec 17 07:37:16 1997
+(1 row)
+
  RETURN toTimestamp('12/17/1997 07:37:16.00+00') ;
        totimestamp        
 --------------------------
@@ -262,7 +266,11 @@ ERROR:  unrecognized node type: 364
 (1 row)
 
  RETURN toTimestamp('12/17/1997'::date) ;
-ERROR:  unrecognized node type: 364
+       totimestamp        
+--------------------------
+ Wed Dec 17 00:00:00 1997
+(1 row)
+
  RETURN toTimestamp(100000000000) ;
        totimestamp        
 --------------------------
@@ -282,7 +290,11 @@ SELECT '12/17/1997 07:37:16.00+00'::timestamp::gtype;
 -- toTimestampTz()
 --
  RETURN toTimestampTz('12/17/1997 07:37:16.00+00'::timestamp) ;
-ERROR:  unrecognized node type: 364
+        totimestamptz         
+------------------------------
+ Wed Dec 17 07:37:16 1997 GMT
+(1 row)
+
  RETURN toTimestampTz('12/17/1997 07:37:16.00+00') ;
         totimestamptz         
 ------------------------------
@@ -290,7 +302,11 @@ ERROR:  unrecognized node type: 364
 (1 row)
 
  RETURN toTimestampTz('12/17/1997'::date) ;
-ERROR:  unrecognized node type: 364
+        totimestamptz         
+------------------------------
+ Wed Dec 17 00:00:00 1997 GMT
+(1 row)
+
  RETURN toTimestampTz(100000000000) ;
         totimestamptz         
 ------------------------------
@@ -310,9 +326,17 @@ SELECT '12/17/1997 07:37:16.00+08'::timestamptz::gtype;
 -- toDate()
 --
  RETURN toDate('12/17/1997 07:37:16.00+00'::timestamp) ;
-ERROR:  unrecognized node type: 364
+   todate   
+------------
+ 12-17-1997
+(1 row)
+
  RETURN toDate('12/17/1997 07:37:16.00+00'::timestamptz) ;
-ERROR:  unrecognized node type: 364
+   todate   
+------------
+ 12-17-1997
+(1 row)
+
  RETURN toDate('12/17/1997 07:37:16.00+00') ;
    todate   
 ------------
@@ -320,7 +344,11 @@ ERROR:  unrecognized node type: 364
 (1 row)
 
  RETURN toDate('12/17/1997'::date) ;
-ERROR:  unrecognized node type: 364
+   todate   
+------------
+ 12-17-1997
+(1 row)
+
 --
 -- Postgres Date to GType
 --
@@ -334,9 +362,17 @@ SELECT '12/17/1997'::date::gtype;
 -- toTime()
 --
  RETURN toTime('12/17/1997 07:37:16.00+00'::timestamp) ;
-ERROR:  unrecognized node type: 364
+  totime  
+----------
+ 07:37:16
+(1 row)
+
  RETURN toTime('12/17/1997 07:37:16.00+00'::timestamptz) ;
-ERROR:  unrecognized node type: 364
+  totime  
+----------
+ 07:37:16
+(1 row)
+
  RETURN toTime('07:37:16.00+00') ;
   totime  
 ----------
@@ -344,9 +380,17 @@ ERROR:  unrecognized node type: 364
 (1 row)
 
  RETURN toTime('07:37:16.00+00'::timetz) ;
-ERROR:  unrecognized node type: 364
+  totime  
+----------
+ 07:37:16
+(1 row)
+
  RETURN toTime('7 Hours 37 Minutes 16 Seconds'::interval) ;
-ERROR:  unrecognized node type: 364
+  totime  
+----------
+ 07:37:16
+(1 row)
+
 --
 -- Postgres Time to GType
 --
@@ -360,7 +404,11 @@ SELECT '07:37:16.00'::time::gtype;
 -- toTimeTz()
 --
  RETURN toTimeTz('12/17/1997 07:37:16.00+00'::timestamptz) ;
-ERROR:  unrecognized node type: 364
+  totimetz   
+-------------
+ 07:37:16+00
+(1 row)
+
  RETURN toTimeTz('07:37:16.00+00') ;
   totimetz   
 -------------
@@ -368,9 +416,17 @@ ERROR:  unrecognized node type: 364
 (1 row)
 
  RETURN toTimeTz('07:37:16.00+00'::timetz) ;
-ERROR:  unrecognized node type: 364
+  totimetz   
+-------------
+ 07:37:16+00
+(1 row)
+
  RETURN toTimeTz('07:37:16.00+00'::time) ;
-ERROR:  unrecognized node type: 364
+  totimetz   
+-------------
+ 07:37:16+00
+(1 row)
+
 --
 -- Postgres Time to GType
 --
@@ -2178,82 +2234,159 @@ LINE 1: RETURN EXTRACT(YEAR FROM TIMESTAMP '12/17/1997 07:37:16.00+0...
 -- Date Part
 --
  RETURN date_part('day', TIMESTAMP WITH TIME ZONE '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near "TIME"
+LINE 1: RETURN date_part('day', TIMESTAMP WITH TIME ZONE '12/17/1997...
+                                          ^
  RETURN date_part('day', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('day', TIMESTAMP '12/17/1997 07:37:16.00+00...
+                                          ^
  RETURN date_part('hour', TIME '07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('hour', TIME '07:37:16.00+00') ;
+                                      ^
  RETURN date_part('hour', TIME WITH TIME ZONE '07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near "TIME"
+LINE 1: RETURN date_part('hour', TIME WITH TIME ZONE '07:37:16.00+00...
+                                      ^
  RETURN date_part('day', DATE '12/17/1997') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('day', DATE '12/17/1997') ;
+                                     ^
  RETURN date_part('day', INTERVAL '6 Years 11 Months 24 Days 5 Hours 23 Minutes') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('day', INTERVAL '6 Years 11 Months 24 Days ...
+                                         ^
  RETURN date_part('CENTURY', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('CENTURY', TIMESTAMP '12/17/1997 07:37:16.0...
+                                              ^
  RETURN date_part('DECADE', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('DECADE', TIMESTAMP '12/17/1997 07:37:16.00...
+                                             ^
  RETURN date_part('DOW', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('DOW', TIMESTAMP '12/17/1997 07:37:16.00+00...
+                                          ^
  RETURN date_part('EPOCH', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('EPOCH', TIMESTAMP '12/17/1997 07:37:16.00+...
+                                            ^
  RETURN date_part('ISODOW', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('ISODOW', TIMESTAMP '12/17/1997 07:37:16.00...
+                                             ^
  RETURN date_part('ISOYEAR', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('ISOYEAR', TIMESTAMP '12/17/1997 07:37:16.0...
+                                              ^
  RETURN date_part('JULIAN', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('JULIAN', TIMESTAMP '12/17/1997 07:37:16.00...
+                                             ^
  RETURN date_part('MICROSECONDS', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('MICROSECONDS', TIMESTAMP '12/17/1997 07:37...
+                                                   ^
  RETURN date_part('MILLISECONDS', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('MILLISECONDS', TIMESTAMP '12/17/1997 07:37...
+                                                   ^
  RETURN date_part('ISOYEAR', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('ISOYEAR', TIMESTAMP '12/17/1997 07:37:16.0...
+                                              ^
  RETURN date_part('MINUTE', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('MINUTE', TIMESTAMP '12/17/1997 07:37:16.00...
+                                             ^
  RETURN date_part('MONTH', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('MONTH', TIMESTAMP '12/17/1997 07:37:16.00+...
+                                            ^
  RETURN date_part('QUARTER', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('QUARTER', TIMESTAMP '12/17/1997 07:37:16.0...
+                                              ^
  RETURN date_part('SECOND', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('SECOND', TIMESTAMP '12/17/1997 07:37:16.00...
+                                             ^
  RETURN date_part('TIMEZONE', TIMESTAMP WITH TIME ZONE '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near "TIME"
+LINE 1: RETURN date_part('TIMEZONE', TIMESTAMP WITH TIME ZONE '12/17...
+                                               ^
  RETURN date_part('YEAR', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_part('YEAR', TIMESTAMP '12/17/1997 07:37:16.00+0...
+                                           ^
 --
 -- date_bin
 --
  RETURN date_bin(INTERVAL '15 minutes', TIMESTAMP '2020-02-11 15:44:17', TIMESTAMP '2001-01-01') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ","
+LINE 1: RETURN date_bin(INTERVAL '15 minutes', TIMESTAMP '2020-02-11...
+                                 ^
  RETURN date_bin(INTERVAL '15 minutes', TIMESTAMP '2020-02-11 15:44:17', TIMESTAMP '2001-01-01') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ","
+LINE 1: RETURN date_bin(INTERVAL '15 minutes', TIMESTAMP '2020-02-11...
+                                 ^
  RETURN date_bin('15 minutes'::interval, '2020-02-11 15:44:17+08'::timestamptz, '2001-01-01'::timestamptz) ;
-ERROR:  unrecognized node type: 364
+           date_bin           
+------------------------------
+ Tue Feb 11 07:30:00 2020 GMT
+(1 row)
+
  RETURN date_bin('15 minutes'::interval, '2020-02-11 15:44:17+08'::timestamp, '2001-01-01'::date) ;
-ERROR:  unrecognized node type: 364
+         date_bin         
+--------------------------
+ Tue Feb 11 15:30:00 2020
+(1 row)
+
  RETURN date_bin('15 minutes'::interval, '2001-01-01'::date, '2020-02-11 15:44:17+08'::timestamp) ;
-ERROR:  unrecognized node type: 364
+         date_bin         
+--------------------------
+ Sun Dec 31 23:59:17 2000
+(1 row)
+
 --
 -- date_trunc
 --
  RETURN date_trunc('day', TIMESTAMP WITH TIME ZONE '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near "TIME"
+LINE 1: RETURN date_trunc('day', TIMESTAMP WITH TIME ZONE '12/17/199...
+                                           ^
  RETURN date_trunc('day', TIMESTAMP WITH TIME ZONE '12/17/1997 07:37:16.00+00', 'Australia/Sydney') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near "TIME"
+LINE 1: RETURN date_trunc('day', TIMESTAMP WITH TIME ZONE '12/17/199...
+                                           ^
  RETURN date_trunc('day', TIMESTAMP '12/17/1997 07:37:16.00+00') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_trunc('day', TIMESTAMP '12/17/1997 07:37:16.00+0...
+                                           ^
  RETURN date_trunc('day', INTERVAL '6 Years 11 Months 24 Days 5 Hours 23 Minutes') ;
-ERROR:  unrecognized node type: 364
+ERROR:  syntax error at or near ")"
+LINE 1: RETURN date_trunc('day', INTERVAL '6 Years 11 Months 24 Days...
+                                          ^
 --
 -- Temporal Functions
 --
  RETURN age('12/17/1997 07:37:16.00+00'::timestamptz, '6/12/2007 12:45:19.89+00'::timestamptz) ;
-ERROR:  unrecognized node type: 364
+                          age                          
+-------------------------------------------------------
+ @ 9 years 5 mons 26 days 5 hours 8 mins 3.89 secs ago
+(1 row)
+
  RETURN age('12/17/1997 07:37:16.00+00'::timestamp, '6/12/2007 12:45:19.89+00'::timestamp) ;
-ERROR:  unrecognized node type: 364
+                          age                          
+-------------------------------------------------------
+ @ 9 years 5 mons 26 days 5 hours 8 mins 3.89 secs ago
+(1 row)
+
  RETURN age('12/17/1997 07:37:16.00+00'::timestamptz, '6/12/2007 12:45:19.89+00'::timestamp) ;
-ERROR:  unrecognized node type: 364
+ERROR:  Invalid input for age(gtype, gtype)
+HINT:  You may have to use explicit casts.
 --
 -- Overlap
 --
@@ -2470,42 +2603,106 @@ ERROR:  unrecognized node type: 364
 --
 -- justify_interval
  RETURN justify_interval('1 month -1 hours'::interval) ;
-ERROR:  unrecognized node type: 364
+  justify_interval  
+--------------------
+ @ 29 days 23 hours
+(1 row)
+
  RETURN justify_interval('1 month 33 days 1 hours'::interval) ;
-ERROR:  unrecognized node type: 364
+    justify_interval    
+------------------------
+ @ 2 mons 3 days 1 hour
+(1 row)
+
  RETURN justify_interval('1 week 6 days 27 hours'::interval) ;
-ERROR:  unrecognized node type: 364
+ justify_interval  
+-------------------
+ @ 14 days 3 hours
+(1 row)
+
  RETURN justify_interval('27 hours'::interval) ;
-ERROR:  unrecognized node type: 364
+ justify_interval 
+------------------
+ @ 1 day 3 hours
+(1 row)
+
 -- justify_days
  RETURN justify_days('5 weeks'::interval) ;
-ERROR:  unrecognized node type: 364
+  justify_days  
+----------------
+ @ 1 mon 5 days
+(1 row)
+
  RETURN justify_days('35 days'::interval) ;
-ERROR:  unrecognized node type: 364
+  justify_days  
+----------------
+ @ 1 mon 5 days
+(1 row)
+
  RETURN justify_days('4 weeks 8 days'::interval) ;
-ERROR:  unrecognized node type: 364
+  justify_days  
+----------------
+ @ 1 mon 6 days
+(1 row)
+
  RETURN justify_days('1 month 5 weeks'::interval) ;
-ERROR:  unrecognized node type: 364
+  justify_days   
+-----------------
+ @ 2 mons 5 days
+(1 row)
+
 -- justify_hours
  RETURN justify_hours('27 hours'::interval) ;
-ERROR:  unrecognized node type: 364
+  justify_hours  
+-----------------
+ @ 1 day 3 hours
+(1 row)
+
  RETURN justify_hours('1 week 27 hours'::interval) ;
-ERROR:  unrecognized node type: 364
+  justify_hours   
+------------------
+ @ 8 days 3 hours
+(1 row)
+
  RETURN justify_hours('2 days 30 hours'::interval) ;
-ERROR:  unrecognized node type: 364
+  justify_hours   
+------------------
+ @ 3 days 6 hours
+(1 row)
+
 --
 -- isfinite
 --
  RETURN isfinite('infinity'::date) ;
-ERROR:  unrecognized node type: 364
+ isfinite 
+----------
+ false
+(1 row)
+
  RETURN isfinite('2001-02-16'::date) ;
-ERROR:  unrecognized node type: 364
+ isfinite 
+----------
+ true
+(1 row)
+
  RETURN isfinite('2001-02-16 23:40:00'::timestamp) ;
-ERROR:  unrecognized node type: 364
+ isfinite 
+----------
+ true
+(1 row)
+
  RETURN isfinite('infinity'::timestamp) ;
-ERROR:  unrecognized node type: 364
+ isfinite 
+----------
+ false
+(1 row)
+
  RETURN isfinite('15 minutes'::interval) ;
-ERROR:  unrecognized node type: 364
+ isfinite 
+----------
+ true
+(1 row)
+
 --
 -- Temporal Make Functions
 --

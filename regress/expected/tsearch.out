@@ -202,7 +202,11 @@ RETURN totsvector('2') || totsvector('1') ;
 -- Strip
 --
 RETURN strip('fat:2,4 cat:3 rat:5A'::tsvector);
-ERROR:  unrecognized node type: 364
+       strip       
+-------------------
+ 'cat' 'fat' 'rat'
+(1 row)
+
 RETURN totsquery('1') ;
  totsquery 
 -----------
@@ -525,7 +529,11 @@ RETURN '2'::tsquery || '1'::tsquery ;
 
 -- TSQuery_Phrase and <-> Operator
 RETURN tsquery_phrase('fat'::tsquery,'cat'::tsquery) ;
-ERROR:  unrecognized node type: 364
+ tsquery_phrase  
+-----------------
+ 'fat' <-> 'cat'
+(1 row)
+
 RETURN 'fat'::tsquery <-> 'cat'::tsquery ;
     ?column?     
 -----------------
@@ -533,7 +541,11 @@ RETURN 'fat'::tsquery <-> 'cat'::tsquery ;
 (1 row)
 
 RETURN tsquery_phrase('fat'::tsquery,'cat'::tsquery, 10) ;
-ERROR:  unrecognized node type: 364
+  tsquery_phrase  
+------------------
+ 'fat' <10> 'cat'
+(1 row)
+
 -- TSQuery @> TSQuery
 RETURN 'cat & rat'::tsquery @> 'rat'::tsquery ;
  ?column? 

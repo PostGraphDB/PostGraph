@@ -332,13 +332,17 @@ LINE 1: RETURN size("1234567890") ;
                     ^
 -- size() of an array
  RETURN size([1, 2, 3, 4, 5]) ;
-ERROR:  syntax error at or near "["
-LINE 1: RETURN size([1, 2, 3, 4, 5]) ;
-                    ^
+ size 
+------
+ 5
+(1 row)
+
  RETURN size([]) ;
-ERROR:  syntax error at or near "["
-LINE 1: RETURN size([]) ;
-                    ^
+ size 
+------
+ 0
+(1 row)
+
  RETURN size(null) ;
  size 
 ------
@@ -347,17 +351,23 @@ LINE 1: RETURN size([]) ;
 
 -- head
  RETURN head([1, 2, 3, 4, 5]) ;
-ERROR:  syntax error at or near "["
-LINE 1: RETURN head([1, 2, 3, 4, 5]) ;
-                    ^
+ head 
+------
+ 1
+(1 row)
+
  RETURN head([1]) ;
-ERROR:  syntax error at or near "["
-LINE 1: RETURN head([1]) ;
-                    ^
+ head 
+------
+ 1
+(1 row)
+
  RETURN head([]) ;
-ERROR:  syntax error at or near "["
-LINE 1: RETURN head([]) ;
-                    ^
+ head 
+------
+ 
+(1 row)
+
  RETURN head(null) ;
  head 
 ------
@@ -366,17 +376,23 @@ LINE 1: RETURN head([]) ;
 
 -- last
  RETURN last([1, 2, 3, 4, 5]) ;
-ERROR:  syntax error at or near "["
-LINE 1: RETURN last([1, 2, 3, 4, 5]) ;
-                    ^
+ last 
+------
+ 5
+(1 row)
+
  RETURN last([1]) ;
-ERROR:  syntax error at or near "["
-LINE 1: RETURN last([1]) ;
-                    ^
+ last 
+------
+ 1
+(1 row)
+
  RETURN last([]) ;
-ERROR:  syntax error at or near "["
-LINE 1: RETURN last([]) ;
-                    ^
+ last 
+------
+ 
+(1 row)
+
  RETURN last(null) ;
  last 
 ------

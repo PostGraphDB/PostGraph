@@ -16,41 +16,36 @@
  */
 LOAD 'postgraph';
 SET search_path TO postgraph;
-SELECT create_graph('cypher_call');
+CREATE GRAPH cypher_call;
 NOTICE:  graph "cypher_call" has been created
  create_graph 
 --------------
  
 (1 row)
 
+USE GRAPH cypher_call;
+ use_graph 
+-----------
+ 
+(1 row)
+
 --
 -- Create table to hold the start and end vertices to test the SRF
 --
-SELECT *
-FROM cypher('cypher_call', $$
-    CALL sin(1) as a RETURN a
-$$) AS (a gtype);
+CYPHER CALL sin(1) as a RETURN a;
          a          
 --------------------
  0.8414709848078965
 (1 row)
 
-SELECT *
-FROM cypher('cypher_call', $$
-    CALL sin(1) as b RETURN b
-$$) AS (a gtype);
-         a          
+CYPHER CALL sin(1) as b RETURN b;
+         b          
 --------------------
  0.8414709848078965
 (1 row)
 
-SELECT *
-FROM cypher('cypher_call', $$
-    WITH [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as lst
-    CALL unnest(lst) as b 
-    RETURN b
-$$) AS (a gtype);
- a  
+CYPHER WITH [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as lst CALL unnest(lst) as b RETURN b;
+ b  
 ----
  1
  2
@@ -64,13 +59,8 @@ $$) AS (a gtype);
  10
 (10 rows)
 
-SELECT *
-FROM cypher('cypher_call', $$
-    WITH [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as lst
-    CALL unnest(lst) as b WHERE b % 2 = 0
-    RETURN b
-$$) AS (a gtype);
- a  
+CYPHER WITH [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as lst CALL unnest(lst) as b WHERE b % 2 = 0 RETURN b;
+ b  
 ----
  2
  4
@@ -79,12 +69,8 @@ $$) AS (a gtype);
  10
 (5 rows)
 
-SELECT *
-FROM cypher('cypher_call', $$
-    CALL unnest([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) as b
-    RETURN b
-$$) AS (a gtype);
- a  
+CYPHER CALL unnest([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) as b RETURN b;
+ b  
 ----
  1
  2
@@ -98,55 +84,30 @@ $$) AS (a gtype);
  10
 (10 rows)
 
-SELECT *
-FROM cypher('cypher_call', $$
-    CALL pg_catalog.generate_series(1, 2, 3)
-$$) AS (a gtype);
+CYPHER CALL pg_catalog.generate_series(1, 2, 3);
 ERROR:  syntax error at or near "."
-LINE 3:     CALL pg_catalog.generate_series(1, 2, 3)
-                           ^
-SELECT *
-FROM cypher('cypher_call', $$
-    MATCH (n)
-    CALL this_isnt_a_real_function(1, 2, 3)
-$$) AS (a gtype);
-ERROR:  syntax error at end of input
-LINE 5: $$) AS (a gtype);
-        ^
-SELECT *
-FROM cypher('cypher_call', $$
-    CALL { RETURN 1 }
-    RETURN 2
-$$) AS (a gtype);
- a 
----
+LINE 1: CYPHER CALL pg_catalog.generate_series(1, 2, 3);
+                              ^
+MATCH (n) CALL this_isnt_a_real_function(1, 2, 3);
+ERROR:  syntax error at or near ";"
+LINE 1: MATCH (n) CALL this_isnt_a_real_function(1, 2, 3);
+                                                         ^
+CYPHER CALL { RETURN 1 } RETURN 2;
+ ?column? 
+----------
  2
 (1 row)
 
-SELECT *
-FROM cypher('cypher_call', $$
-    CALL { RETURN 1 as a }
-    RETURN a
-$$) AS (a gtype); 
+CYPHER CALL { RETURN 1 as a } RETURN a;
  a 
 ---
  1
 (1 row)
 
-SELECT *
-FROM cypher('cypher_call', $$
-    CALL { CREATE (n) }
-    RETURN n
-$$) AS (a gtype);
+CYPHER CALL { CREATE (n) } RETURN n;
 ERROR:  Call Cypher Subquery must end with a RETURN
-LINE 2: FROM cypher('cypher_call', $$
-                                    ^
-SELECT *
-FROM cypher('cypher_call', $$
-    CALL { CREATE (n) RETURN n as n }
-    RETURN n
-$$) AS (a vertex);
-                           a                            
+CYPHER CALL { CREATE (n) RETURN n as n } RETURN n;
+                           n                            
 --------------------------------------------------------
  {"id": 281474976710657, "label": "", "properties": {}}
 (1 row)
@@ -154,7 +115,7 @@ $$) AS (a vertex);
 --
 -- Clean up
 --
-SELECT drop_graph('cypher_call', true);
+DROP GRAPH cypher_call CASCADE;
 NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to table cypher_call._ag_label_vertex
 drop cascades to table cypher_call._ag_label_edge

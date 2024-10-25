@@ -95,6 +95,7 @@ REGRESS = new_cypher \
           cypher_create \
           cypher_match \
           cypher_with \
+          cypher_call \
           cypher_set \
           cypher_remove \
           cypher_delete \
