@@ -1,0 +1,182 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+LOAD 'postgraph';
+SET search_path TO postgraph;
+CREATE GRAPH variable_edge_functions;
+NOTICE:  graph "variable_edge_functions" has been created
+ create_graph 
+--------------
+ 
+(1 row)
+
+USE GRAPH variable_edge_functions;
+ use_graph 
+-----------
+ 
+(1 row)
+
+--
+-- Create table to hold the start and end vertices to test the SRF
+--
+-- Create a graph to test
+CREATE (b:begin)-[:edge]->(u1:middle)-[:edge]->(u2:middle)-[:edge]->(u3:middle)-[:edge]->(e:end),
+	(u1)-[:self_loop]->(u1),
+	(e)-[:self_loop]->(e),
+	(b)-[:alternate_edge]->(u1),
+	(u2)-[:alternate_edge]->(u3),
+	(u3)-[:alternate_edge]->(e),
+	(u2)-[:bypass_edge]->(e),
+	(e)-[:alternate_edge]->(u3), 
+	(u3)-[:alternate_edge]->(u2),
+	(u2)-[:bypass_edge]->(b);
+--
+(0 rows)
+
+MATCH (:begin)-[e*3..3]->(:end) RETURN nodes(e);
+                                                                       nodes                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ {"{\"id\": 1407374883553281, \"label\": \"middle\", \"properties\": {}}","{\"id\": 1407374883553281, \"label\": \"middle\", \"properties\": {}}"}
+ {"{\"id\": 1407374883553281, \"label\": \"middle\", \"properties\": {}}","{\"id\": 1407374883553281, \"label\": \"middle\", \"properties\": {}}"}
+(2 rows)
+
+MATCH (:begin)-[e*3..3]->(:end) WITH nodes(e) as nodes RETURN nodes[1];
+ERROR:  operator does not exist: vertex[] -> gtype
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+MATCH (:begin)-[e*3..3]->(:end) WITH nodes(e) as nodes RETURN nodes[size(nodes) - 1];
+ERROR:  function postgraph.size(vertex[]) does not exist
+LINE 1: ...3..3]->(:end) WITH nodes(e) as nodes RETURN nodes[size(nodes...
+                                                             ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+MATCH (:begin)-[e*3..3]->(:end) RETURN relationships(e);
+                                                                                                                                                                                                         relationships                                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+(2 rows)
+
+MATCH (:begin)-[e*3..3]->(:end) WITH relationships(e) as edges RETURN edges[1];
+ERROR:  operator does not exist: edge[] -> gtype
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+MATCH (:begin)-[e*3..3]->(:end) WITH relationships(e) as edges RETURN edges[size(edges) - 1];
+ERROR:  function postgraph.size(edge[]) does not exist
+LINE 1: ...:end) WITH relationships(e) as edges RETURN edges[size(edges...
+                                                             ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+MATCH (:begin)-[ve*3..3]->(:end) 
+MATCH ()-[e]->()
+RETURN e @> ve, id(e), edges(ve);
+ ?column? |        id        |                                                                                                                                                                                                             edges                                                                                                                                                                                                             
+----------+------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ f        | 1125899906842625 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1125899906842626 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ t        | 1125899906842627 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1125899906842628 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1970324836974593 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1970324836974594 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ t        | 2251799813685249 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685250 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685251 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685252 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685253 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2533274790395905 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2533274790395906 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1125899906842625 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1125899906842626 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ t        | 1125899906842627 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ t        | 1125899906842628 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1970324836974593 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1970324836974594 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685249 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685250 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685251 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685252 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685253 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2533274790395905 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2533274790395906 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+(26 rows)
+
+MATCH (:begin)-[ve*3..3]->(:end)
+MATCH ()-[e]->()
+RETURN ve <@ e, id(e), edges(ve);
+ ?column? |        id        |                                                                                                                                                                                                             edges                                                                                                                                                                                                             
+----------+------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ f        | 1125899906842625 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1125899906842626 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ t        | 1125899906842627 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1125899906842628 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1970324836974593 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1970324836974594 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ t        | 2251799813685249 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685250 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685251 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685252 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685253 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2533274790395905 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2533274790395906 | {"{\"id\": 2251799813685249, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"alternate_edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1125899906842625 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1125899906842626 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ t        | 1125899906842627 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ t        | 1125899906842628 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1970324836974593 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 1970324836974594 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685249 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685250 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685251 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685252 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2251799813685253 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2533274790395905 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+ f        | 2533274790395906 | {"{\"id\": 1125899906842628, \"start_id\": 844424930131969, \"end_id\": 1407374883553281, \"label\": \"edge\", \"properties\": {}}","{\"id\": 1125899906842627, \"start_id\": 1407374883553281, \"end_id\": 1407374883553282, \"label\": \"edge\", \"properties\": {}}","{\"id\": 2533274790395905, \"start_id\": 1407374883553282, \"end_id\": 1688849860263937, \"label\": \"bypass_edge\", \"properties\": {}}"}
+(26 rows)
+
+MATCH (:begin)-[e*]->(:end) RETURN DISTINCT @-@ e;
+ ?column? 
+----------
+ 9
+ 10
+ 4
+ 7
+ 3
+ 6
+ 5
+ 8
+(8 rows)
+
+--
+-- Clean up
+--
+DROP GRAPH variable_edge_functions CASCADE;
+NOTICE:  drop cascades to 9 other objects
+DETAIL:  drop cascades to table variable_edge_functions._ag_label_vertex
+drop cascades to table variable_edge_functions._ag_label_edge
+drop cascades to table variable_edge_functions.begin
+drop cascades to table variable_edge_functions.edge
+drop cascades to table variable_edge_functions.middle
+drop cascades to table variable_edge_functions."end"
+drop cascades to table variable_edge_functions.self_loop
+drop cascades to table variable_edge_functions.alternate_edge
+drop cascades to table variable_edge_functions.bypass_edge
+NOTICE:  graph "variable_edge_functions" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+
+--
+-- End
+--
