@@ -328,6 +328,14 @@ xcinside		[^*/]+
 digit    [0-9]
 digitseq {digit}+
 
+inetseq     ({digitseq}\.{digit}+\.{digitseq}\.{digitseq}(\/{digitseq})?)|{digitseq}\.{digit}+\.{digitseq}(\/{digitseq})?
+
+inetseqfail  {digitseq}\.{digit}+\.
+inetseqfail2 {digitseq}\.{digit}+\.{digitseq}
+inetseqfail3 {digitseq}\.{digit}+\.{digitseq}\.
+inetseqfail4 {digitseq}\.{digit}+\.{digitseq}\.{digitseq}\/
+inetseqfail5 {digitseq}\.{digit}+\.{digitseq}\/
+
 /* id pattern is for UnescapedSymbolicName rule in Cypher. */
 idstart [A-Z_a-z\x80-\xFF]
 idcont  [$0-9A-Z_a-z\x80-\xFF]
@@ -1054,6 +1062,25 @@ ag_token token;
     token.location = get_location();
     strbuf_reset(&yyextra.literal_buf);
     return token;
+}
+
+{inetseq} {
+    update_location();
+    token.type = AG_TOKEN_INET;
+    token.value.s = yytext;
+    token.location = get_location();
+    return token;
+}
+
+{inetseqfail} |
+{inetseqfail2} |
+{inetseqfail3} |
+{inetseqfail4} |
+{inetseqfail5} {
+    update_location();
+    ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
+                    scan_errmsg("invalid scientific notation literal"),
+                    scan_errposition()));
 }
 
 {id} {

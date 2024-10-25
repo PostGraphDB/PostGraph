@@ -11419,7 +11419,7 @@ using_clause:
 
 
 CreateGraphStmt:
-    CREATE GRAPH IDENTIFIER
+    CREATE GRAPH BareColLabel
         {
 
             cypher_create_graph *n;
@@ -11833,7 +11833,7 @@ clause:
 
 
 UseGraphStmt:
-    USE GRAPH IDENTIFIER
+    USE GRAPH BareColLabel
     {
         cypher_use_graph *n = make_ag_node(cypher_use_graph);
         n->graph_name = $3;
@@ -11842,7 +11842,7 @@ UseGraphStmt:
     };
 
 DropGraphStmt:
-    DROP GRAPH IDENTIFIER CASCADE
+    DROP GRAPH BareColLabel CASCADE
     {
 
         cypher_drop_graph *n = make_ag_node(cypher_drop_graph);

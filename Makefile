@@ -89,8 +89,10 @@ DATA = postgraph--0.1.0.sql
 REGRESS = new_cypher \
           expr \
           temporal \
+          network \
           lists \
           tsearch \
+          range \
           vector \
           cypher_create \
           cypher_match \

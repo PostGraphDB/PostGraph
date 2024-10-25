@@ -1,0 +1,1105 @@
+/*
+ * Copyright (C) 2023 PostGraphDB
+ *  
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *  
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+LOAD 'postgraph';
+SET search_path TO postgraph;
+CREATE GRAPH network;
+NOTICE:  graph "network" has been created
+ create_graph 
+--------------
+ 
+(1 row)
+
+USE GRAPH network;
+ use_graph 
+-----------
+ 
+(1 row)
+
+--
+-- inet
+--
+RETURN toinet('::ffff:fff0:1');
+       toinet       
+--------------------
+ ::ffff:255.240.0.1
+(1 row)
+
+RETURN 192.168.1.5;
+  ?column?   
+-------------
+ 192.168.1.5
+(1 row)
+
+RETURN 192.168.1/24;
+    ?column?    
+----------------
+ 192.168.1.0/24
+(1 row)
+
+RETURN '::ffff:fff0:1'::inet;
+      ?column?      
+--------------------
+ ::ffff:255.240.0.1
+(1 row)
+
+SELECT '192.168.1.5'::gtype;
+    gtype    
+-------------
+ 192.168.1.5
+(1 row)
+
+SELECT '192.168.1.5/24'::gtype;
+     gtype      
+----------------
+ 192.168.1.5/24
+(1 row)
+
+RETURN 192.168.1.5;
+  ?column?   
+-------------
+ 192.168.1.5
+(1 row)
+
+--
+-- cidr
+--
+RETURN tocidr(192.168.1.5);
+     tocidr     
+----------------
+ 192.168.1.5/32
+(1 row)
+
+RETURN tocidr(192.168.1/24);
+     tocidr     
+----------------
+ 192.168.1.0/24
+(1 row)
+
+RETURN tocidr('::ffff:fff0:1');
+         tocidr         
+------------------------
+ ::ffff:255.240.0.1/128
+(1 row)
+
+RETURN 192.168.1.5::cidr;
+    ?column?    
+----------------
+ 192.168.1.5/32
+(1 row)
+
+RETURN 192.168.1/24::cidr;
+    ?column?    
+----------------
+ 192.168.1.0/24
+(1 row)
+
+RETURN '::ffff:fff0:1'::cidr;
+        ?column?        
+------------------------
+ ::ffff:255.240.0.1/128
+(1 row)
+
+--
+-- macaddr
+--
+RETURN tomacaddr('12:34:56:78:90:ab');
+     tomacaddr     
+-------------------
+ 12:34:56:78:90:ab
+(1 row)
+
+RETURN '12:34:56:78:90:ab'::macaddr;
+     ?column?      
+-------------------
+ 12:34:56:78:90:ab
+(1 row)
+
+--
+-- macaddr8
+--
+RETURN tomacaddr8('12:34:56:78:90:ab:cd:ef');
+       tomacaddr8        
+-------------------------
+ 12:34:56:78:90:ab:cd:ef
+(1 row)
+
+RETURN '12:34:56:78:90:ab:cd:ef'::macaddr8;
+        ?column?         
+-------------------------
+ 12:34:56:78:90:ab:cd:ef
+(1 row)
+
+--
+-- inet typecasting
+--
+-- PG inet -> gtype inet
+SELECT '192.168.1.5'::inet::gtype;
+    gtype    
+-------------
+ 192.168.1.5
+(1 row)
+
+-- gtype inet -> PG inet
+SELECT toinet('"192.168.1.5"'::gtype)::inet;
+   toinet    
+-------------
+ 192.168.1.5
+(1 row)
+
+-- inet -> inet
+RETURN toinet('::ffff:fff0:1')::inet;
+      ?column?      
+--------------------
+ ::ffff:255.240.0.1
+(1 row)
+
+-- string -> inet
+SELECT '"192.168.1.5"'::gtype::inet;
+    inet     
+-------------
+ 192.168.1.5
+(1 row)
+
+-- type coercion
+RETURN 192.168.1.5;
+  ?column?   
+-------------
+ 192.168.1.5
+(1 row)
+
+RETURN toinet('192.168.1.5');
+   toinet    
+-------------
+ 192.168.1.5
+(1 row)
+
+RETURN '192.168.1.5'::inet;
+  ?column?   
+-------------
+ 192.168.1.5
+(1 row)
+
+RETURN '192.168.1.5';
+   ?column?    
+---------------
+ "192.168.1.5"
+(1 row)
+
+--
+-- cidr typecasting
+--
+-- PG cidr -> gtype cidr
+SELECT '192.168.1.5'::cidr::gtype;
+ERROR:  cannot cast type cidr to gtype
+LINE 1: SELECT '192.168.1.5'::cidr::gtype;
+                                  ^
+-- gtype cidr -> PG cidr
+SELECT tocidr('"192.168.1.5"'::gtype)::cidr;
+     tocidr     
+----------------
+ 192.168.1.5/32
+(1 row)
+
+-- cidr -> cidr
+RETURN tocidr('::ffff:fff0:1')::cidr;
+        ?column?        
+------------------------
+ ::ffff:255.240.0.1/128
+(1 row)
+
+-- type coercion
+RETURN tocidr(192.168.1.5);
+     tocidr     
+----------------
+ 192.168.1.5/32
+(1 row)
+
+RETURN 192.168.1.5::cidr;
+    ?column?    
+----------------
+ 192.168.1.5/32
+(1 row)
+
+RETURN '192.168.1.5';
+   ?column?    
+---------------
+ "192.168.1.5"
+(1 row)
+
+--
+-- macaddr typecasting
+--
+-- macaddr -> macaddr
+RETURN tomacaddr('12:34:56:78:90:ab')::macaddr;
+     ?column?      
+-------------------
+ 12:34:56:78:90:ab
+(1 row)
+
+-- macaddr8 -> macaddr
+RETURN tomacaddr8('12:34:56:FF:FE:ab:cd:ef')::macaddr;
+     ?column?      
+-------------------
+ 12:34:56:ab:cd:ef
+(1 row)
+
+--
+-- macaddr8 typecasting
+--
+-- macaddr8 -> macaddr8
+RETURN tomacaddr8('12:34:56:78:90:ab')::macaddr8;
+        ?column?         
+-------------------------
+ 12:34:56:ff:fe:78:90:ab
+(1 row)
+
+-- macaddr -> macaddr8
+RETURN tomacaddr('12:34:56:78:90:ab')::macaddr8;
+        ?column?         
+-------------------------
+ 12:34:56:ff:fe:78:90:ab
+(1 row)
+
+--
+-- inet = inet
+--
+RETURN 192.168.1.5 = 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.4 = 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.6 = 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- inet <> inet
+--
+RETURN 192.168.1.5 <> 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.4 <> 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.6 <> 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- inet > inet
+--
+RETURN 192.168.1.5 > 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.4 > 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.6 > 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- inet >= inet
+--
+RETURN 192.168.1.5 >= 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.4 >= 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.6 >= 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- inet < inet
+--
+RETURN 192.168.1.5 < 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.4 < 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.6 < 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- inet <= inet
+--
+RETURN 192.168.1.5 <= 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.4 <= 192.168.1.5;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.6 <= 192.168.1.5;
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- cidr = cidr
+--
+RETURN 192.168.1.5::cidr = 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.4::cidr = 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.6::cidr = 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- cidr <> cidr
+--
+RETURN 192.168.1.5::cidr <> 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.4::cidr <> 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.6::cidr <> 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- cidr > cidr
+--
+RETURN 192.168.1.5::cidr > 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.4::cidr > 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.6::cidr > 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- cidr >= cidr
+--
+RETURN 192.168.1.5::cidr >= 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.4::cidr >= 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.6::cidr >= 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- cidr < cidr
+--
+RETURN 192.168.1.5::cidr < 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1.4::cidr < 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.6::cidr < 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- cidr <= cidr
+--
+RETURN 192.168.1.5::cidr <= 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.4::cidr <= 192.168.1.5::cidr;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.1.6::cidr <= 192.168.1.5::cidr;
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- inet + integer
+--
+RETURN 192.168.1.5 + 10;
+   ?column?   
+--------------
+ 192.168.1.15
+(1 row)
+
+--
+-- inet - integer
+--
+RETURN 192.168.1.5 - 10;
+   ?column?    
+---------------
+ 192.168.0.251
+(1 row)
+
+--
+-- integer + inet
+--
+RETURN 10 + 192.168.1.5;
+   ?column?   
+--------------
+ 192.168.1.15
+(1 row)
+
+--
+-- inet - inet
+--
+RETURN 192.168.1.5 - 192.168.1.0;
+ ?column? 
+----------
+ 5
+(1 row)
+
+--
+-- ~ inet
+--
+RETURN ~ 192.168.1.5;
+   ?column?    
+---------------
+ 63.87.254.250
+(1 row)
+
+--
+-- inet & inet
+--
+RETURN 10.1.0.0/32 & 192.168.1.5;
+ ?column? 
+----------
+ 0.0.0.0
+(1 row)
+
+RETURN 192.168.1.5 & 192.168.1.5;
+  ?column?   
+-------------
+ 192.168.1.5
+(1 row)
+
+--
+-- inet | inet
+--
+RETURN 10.1.0.0/32 | 192.168.1.5;
+  ?column?   
+-------------
+ 202.169.1.5
+(1 row)
+
+RETURN 192.168.1.5 | 192.168.1.5;
+  ?column?   
+-------------
+ 192.168.1.5
+(1 row)
+
+--
+-- inet << inet
+--
+RETURN 192.168.1.5 << 192.168.1/24;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.0.5 << 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1/24 << 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- inet <<= inet
+--
+RETURN 192.168.1.5 <<= 192.168.1/24;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.0.5 <<= 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1/24 <<= 192.168.1/24;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- inet >> inet
+--
+RETURN 192.168.1.5 >> 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.0.5 >> 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1/24 >> 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+--
+-- inet >>= inet
+--
+RETURN 192.168.1.5 >>= 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.0.5 >>= 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1/24 >>= 192.168.1/24;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- inet && inet
+--
+RETURN 192.168.1.5 && 192.168.1/24;
+ ?column? 
+----------
+ t
+(1 row)
+
+RETURN 192.168.0.5 && 192.168.1/24;
+ ?column? 
+----------
+ f
+(1 row)
+
+RETURN 192.168.1/24 && 192.168.1/24;
+ ?column? 
+----------
+ t
+(1 row)
+
+--
+-- abbrev
+--
+RETURN abbrev(192.168.1.5);
+    abbrev     
+---------------
+ "192.168.1.5"
+(1 row)
+
+RETURN abbrev(192.168.1/24);
+      abbrev      
+------------------
+ "192.168.1.0/24"
+(1 row)
+
+RETURN abbrev('::ffff:fff0:1'::inet);
+        abbrev        
+----------------------
+ "::ffff:255.240.0.1"
+(1 row)
+
+RETURN abbrev(10.1.0.0/32);
+   abbrev   
+------------
+ "10.1.0.0"
+(1 row)
+
+RETURN abbrev('192.168.1.5'::cidr);
+      abbrev      
+------------------
+ "192.168.1.5/32"
+(1 row)
+
+RETURN abbrev('192.168.1/24'::cidr);
+     abbrev     
+----------------
+ "192.168.1/24"
+(1 row)
+
+RETURN abbrev('::ffff:fff0:1'::cidr);
+          abbrev          
+--------------------------
+ "::ffff:255.240.0.1/128"
+(1 row)
+
+RETURN abbrev('10.1.0.0/32'::cidr);
+    abbrev     
+---------------
+ "10.1.0.0/32"
+(1 row)
+
+RETURN abbrev('10.1.0.0/16'::cidr);
+  abbrev   
+-----------
+ "10.1/16"
+(1 row)
+
+--
+-- broadcast
+--
+RETURN broadcast(192.168.1.5);
+  broadcast  
+-------------
+ 192.168.1.5
+(1 row)
+
+RETURN broadcast(192.168.1/24);
+    broadcast     
+------------------
+ 192.168.1.255/24
+(1 row)
+
+RETURN broadcast('::ffff:fff0:1'::inet);
+     broadcast      
+--------------------
+ ::ffff:255.240.0.1
+(1 row)
+
+RETURN broadcast(10.1.0.0/32);
+ broadcast 
+-----------
+ 10.1.0.0
+(1 row)
+
+--
+-- family
+--
+RETURN family(192.168.1.5);
+ family 
+--------
+ 4
+(1 row)
+
+RETURN family(192.168.1/24);
+ family 
+--------
+ 4
+(1 row)
+
+RETURN family('::ffff:fff0:1'::inet);
+ family 
+--------
+ 6
+(1 row)
+
+RETURN family(10.1.0.0/32);
+ family 
+--------
+ 4
+(1 row)
+
+--
+-- host
+--
+RETURN host(192.168.1.5);
+     host      
+---------------
+ "192.168.1.5"
+(1 row)
+
+RETURN host(192.168.1/24);
+     host      
+---------------
+ "192.168.1.0"
+(1 row)
+
+RETURN host('::ffff:fff0:1'::inet);
+         host         
+----------------------
+ "::ffff:255.240.0.1"
+(1 row)
+
+RETURN host(10.1.0.0/32);
+    host    
+------------
+ "10.1.0.0"
+(1 row)
+
+--
+-- hostmask
+--
+RETURN hostmask(192.168.1.5);
+ hostmask 
+----------
+ 0.0.0.0
+(1 row)
+
+RETURN hostmask(192.168.1/24);
+ hostmask  
+-----------
+ 0.0.0.255
+(1 row)
+
+RETURN hostmask('::ffff:fff0:1'::inet);
+ hostmask 
+----------
+ ::
+(1 row)
+
+RETURN hostmask(10.1.0.0/32);
+ hostmask 
+----------
+ 0.0.0.0
+(1 row)
+
+--
+-- inet_merge
+--
+RETURN inet_merge(192.168.1.5/24, 192.168.2.5/24);
+   inet_merge   
+----------------
+ 192.168.0.0/22
+(1 row)
+
+--
+-- inet_same_family
+--
+RETURN inet_same_family(192.168.1.5/24, 192.168.2.5/24);
+ inet_same_family 
+------------------
+ true
+(1 row)
+
+RETURN inet_same_family(192.168.1.5/24, '::1'::inet);
+ inet_same_family 
+------------------
+ false
+(1 row)
+
+--
+-- masklen
+--
+RETURN masklen(192.168.1.5);
+ masklen 
+---------
+ 32
+(1 row)
+
+RETURN masklen(192.168.1/24);
+ masklen 
+---------
+ 24
+(1 row)
+
+RETURN masklen('::ffff:fff0:1'::inet);
+ masklen 
+---------
+ 128
+(1 row)
+
+RETURN masklen(10.1.0.0/32);
+ masklen 
+---------
+ 32
+(1 row)
+
+--
+-- netmask
+--
+RETURN netmask(192.168.1.5);
+     netmask     
+-----------------
+ 255.255.255.255
+(1 row)
+
+RETURN netmask(192.168.1/24);
+    netmask    
+---------------
+ 255.255.255.0
+(1 row)
+
+RETURN netmask('::ffff:fff0:1'::inet);
+                 netmask                 
+-----------------------------------------
+ ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+(1 row)
+
+RETURN netmask(10.1.0.0/32);
+     netmask     
+-----------------
+ 255.255.255.255
+(1 row)
+
+RETURN netmask(192.168.1/8);
+  netmask  
+-----------
+ 255.0.0.0
+(1 row)
+
+--
+-- network
+--
+RETURN network(192.168.1.5);
+    network     
+----------------
+ 192.168.1.5/32
+(1 row)
+
+RETURN network(192.168.1/24);
+    network     
+----------------
+ 192.168.1.0/24
+(1 row)
+
+RETURN network('::ffff:fff0:1'::inet);
+        network         
+------------------------
+ ::ffff:255.240.0.1/128
+(1 row)
+
+RETURN network(10.1.0.0/32);
+   network   
+-------------
+ 10.1.0.0/32
+(1 row)
+
+RETURN network(192.168.1/8);
+   network   
+-------------
+ 192.0.0.0/8
+(1 row)
+
+--
+-- set_masklen
+--
+RETURN set_masklen(192.168.1.5, 24);
+  set_masklen   
+----------------
+ 192.168.1.5/24
+(1 row)
+
+RETURN set_masklen(192.168.1/24, 16);
+  set_masklen   
+----------------
+ 192.168.1.0/16
+(1 row)
+
+RETURN set_masklen('::ffff:fff0:1'::inet, 24);
+      set_masklen      
+-----------------------
+ ::ffff:255.240.0.1/24
+(1 row)
+
+RETURN set_masklen(10.1.0.0/32, 8);
+ set_masklen 
+-------------
+ 10.1.0.0/8
+(1 row)
+
+RETURN set_masklen(192.168.1/8, 24);
+  set_masklen   
+----------------
+ 192.168.1.0/24
+(1 row)
+
+RETURN set_masklen('192.168.1.5'::cidr, 24);
+  set_masklen   
+----------------
+ 192.168.1.0/24
+(1 row)
+
+RETURN set_masklen('192.168.1/24'::cidr, 16);
+  set_masklen   
+----------------
+ 192.168.0.0/16
+(1 row)
+
+RETURN set_masklen('::ffff:fff0:1'::cidr, 24);
+ set_masklen 
+-------------
+ ::/24
+(1 row)
+
+RETURN set_masklen('10.1.0.0/32'::cidr, 8);
+ set_masklen 
+-------------
+ 10.0.0.0/8
+(1 row)
+
+RETURN set_masklen('192.168.1/8'::cidr, 24);
+ERROR:  invalid cidr value: "192.168.1/8"
+DETAIL:  Value has bits set to right of mask.
+RETURN set_masklen('192.168.1.0/24'::cidr, 16);
+  set_masklen   
+----------------
+ 192.168.0.0/16
+(1 row)
+
+RETURN set_masklen('10.1.0.0/32'::cidr, 4);
+ set_masklen 
+-------------
+ 0.0.0.0/4
+(1 row)
+
+--
+-- abbrev
+--
+RETURN trunc('12:34:56:78:90:ab'::macaddr);
+       trunc       
+-------------------
+ 12:34:56:00:00:00
+(1 row)
+
+RETURN trunc('12:34:56:78:90:ab:cd:ef'::macaddr8);
+          trunc          
+-------------------------
+ 12:34:56:00:00:00:00:00
+(1 row)
+
+--
+-- macaddr8_set7bit
+--
+RETURN macaddr8_set7bit('12:34:56:78:90:ab:cd:ef'::macaddr8);
+    macaddr8_set7bit     
+-------------------------
+ 12:34:56:78:90:ab:cd:ef
+(1 row)
+
+RETURN macaddr8_set7bit('00:34:56:ab:cd:ef'::macaddr8);
+    macaddr8_set7bit     
+-------------------------
+ 02:34:56:ff:fe:ab:cd:ef
+(1 row)
+
+--
+-- Cleanup
+--
+DROP GRAPH network CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table network._ag_label_vertex
+drop cascades to table network._ag_label_edge
+NOTICE:  graph "network" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+
