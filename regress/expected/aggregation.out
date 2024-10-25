@@ -1,0 +1,843 @@
+/*
+ * Copyright (C) 2023-2024 PostGraphDB
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */ 
+SET extra_float_digits = 0;
+LOAD 'postgraph';
+SET search_path TO postgraph;
+set timezone TO 'GMT';
+--
+-- avg(), sum(), count(), & count(*)
+--
+CREATE GRAPH college;
+NOTICE:  graph "college" has been created
+ create_graph 
+--------------
+ 
+(1 row)
+
+USE GRAPH college;
+ use_graph 
+-----------
+ 
+(1 row)
+
+CREATE (:students {name: 'Jack ', gpa: 3.0, age: 21, zip: 13275}) ;
+--
+(0 rows)
+
+CREATE (:students {name: 'Jill ', gpa: 3.5, age: 27, zip: 87962}) ;
+--
+(0 rows)
+
+CREATE (:students {name: 'Jim ', gpa: 3.75, age: 32, zip: 68752}) ;
+--
+(0 rows)
+
+CREATE (:students {name: 'Rick ', gpa: 2.5, age: 24, zip:  '75612 '}) ;
+--
+(0 rows)
+
+CREATE (:students {name: 'Ann ', gpa: 3.8::numeric, age: 23}) ;
+--
+(0 rows)
+
+CREATE (:students {name: 'Derek ', gpa: 4.0, age: 19, zip: 65218}) ;
+--
+(0 rows)
+
+CREATE (:students {name: 'Jessica ', gpa: 3.9::numeric, age: 20}) ;
+--
+(0 rows)
+
+MATCH (u) RETURN corr(u.gpa, u.age) ;
+        corr         
+---------------------
+ -0.0611333038221933
+(1 row)
+
+MATCH (u) RETURN covar_pop(u.gpa, u.age) ;
+     covar_pop      
+--------------------
+ -0.130612244897959
+(1 row)
+
+MATCH (u) RETURN covar_samp(u.gpa, u.age) ;
+     covar_samp     
+--------------------
+ -0.152380952380953
+(1 row)
+
+MATCH (u) RETURN regr_sxx(u.gpa, u.age) ;
+     regr_sxx     
+------------------
+ 123.428571428571
+(1 row)
+
+MATCH (u) RETURN regr_syy(u.gpa, u.age) ;
+     regr_syy     
+------------------
+ 1.81214285714286
+(1 row)
+
+MATCH (u) RETURN regr_sxy(u.gpa, u.age) ;
+      regr_sxy      
+--------------------
+ -0.914285714285715
+(1 row)
+
+MATCH (u) RETURN regr_slope(u.gpa, u.age) ;
+      regr_slope      
+----------------------
+ -0.00740740740740741
+(1 row)
+
+MATCH (u) RETURN regr_intercept(u.gpa, u.age) ;
+  regr_intercept  
+------------------
+ 3.66851851851852
+(1 row)
+
+MATCH (u) RETURN regr_avgx(u.gpa, u.age) ;
+    regr_avgx     
+------------------
+ 23.7142857142857
+(1 row)
+
+MATCH (u) RETURN regr_avgy(u.gpa, u.age) ;
+    regr_avgy     
+------------------
+ 3.49285714285714
+(1 row)
+
+MATCH (u) RETURN regr_r2(u.gpa, u.age) ;
+     regr_r2      
+------------------
+ 3.49285714285714
+(1 row)
+
+MATCH (u) RETURN avg(u.gpa), sum(u.gpa), sum(u.gpa)/count(u.gpa), count(u.gpa), count(*);
+       avg        |      sum       |          ?column?           | count | count 
+------------------+----------------+-----------------------------+-------+-------
+ 3.49285714285714 | 24.45::numeric | 3.4928571428571429::numeric | 7     | 7
+(1 row)
+
+CREATE (:students {name:  'Dave ', age: 24});
+--
+(0 rows)
+
+CREATE (:students {name:  'Mike ', age: 18});
+--
+(0 rows)
+
+MATCH (u) RETURN (u);
+                                                           u                                                           
+-----------------------------------------------------------------------------------------------------------------------
+ {"id": 844424930131969, "label": "students", "properties": {"age": 21, "gpa": 3.0, "zip": 13275, "name": "Jack "}}
+ {"id": 844424930131970, "label": "students", "properties": {"age": 27, "gpa": 3.5, "zip": 87962, "name": "Jill "}}
+ {"id": 844424930131971, "label": "students", "properties": {"age": 32, "gpa": 3.75, "zip": 68752, "name": "Jim "}}
+ {"id": 844424930131972, "label": "students", "properties": {"age": 24, "gpa": 2.5, "zip": "75612 ", "name": "Rick "}}
+ {"id": 844424930131973, "label": "students", "properties": {"age": 23, "gpa": 3.8::numeric, "name": "Ann "}}
+ {"id": 844424930131974, "label": "students", "properties": {"age": 19, "gpa": 4.0, "zip": 65218, "name": "Derek "}}
+ {"id": 844424930131975, "label": "students", "properties": {"age": 20, "gpa": 3.9::numeric, "name": "Jessica "}}
+ {"id": 844424930131976, "label": "students", "properties": {"age": 24, "name": "Dave "}}
+ {"id": 844424930131977, "label": "students", "properties": {"age": 18, "name": "Mike "}}
+(9 rows)
+
+MATCH (u) RETURN avg(u.gpa), sum(u.gpa), sum(u.gpa) / count(u.gpa), count(u.gpa), count(*);
+       avg        |      sum       |          ?column?           | count | count 
+------------------+----------------+-----------------------------+-------+-------
+ 3.49285714285714 | 24.45::numeric | 3.4928571428571429::numeric | 7     | 9
+(1 row)
+
+--
+-- min() & max()
+--
+MATCH (u) RETURN min(u.gpa), max(u.gpa), count(u.gpa), count(*);
+ min | max | count | count 
+-----+-----+-------+-------
+ 2.5 | 4.0 | 7     | 9
+(1 row)
+
+MATCH (u) RETURN min(u.gpa), max(u.gpa), count(u.gpa), count(*) ;
+ min | max | count | count 
+-----+-----+-------+-------
+ 2.5 | 4.0 | 7     | 9
+(1 row)
+
+MATCH (u) RETURN min(u.name), max(u.name), count(u.name), count(*);
+  min   |   max   | count | count 
+--------+---------+-------+-------
+ "Ann " | "Rick " | 9     | 9
+(1 row)
+
+MATCH (u) RETURN min(u.zip), max(u.zip), count(u.zip), count(*);
+   min    |  max  | count | count 
+----------+-------+-------+-------
+ "75612 " | 87962 | 5     | 9
+(1 row)
+
+--
+-- stDev() & stDevP()
+--
+MATCH (u) RETURN stDev(u.gpa), stDevP(u.gpa);
+       stdev       |      stdevp       
+-------------------+-------------------
+ 0.549566929066706 | 0.508800109100232
+(1 row)
+
+--
+-- percentileCont() & percentileDisc()
+--
+MATCH (u) RETURN percentileCont(u.gpa, .55), percentileDisc(u.gpa, .55), percentileCont(u.gpa, .9), percentileDisc(u.gpa, .9);
+ percentilecont | percentiledisc | percentilecont | percentiledisc 
+----------------+----------------+----------------+----------------
+ 3.765          | 3.75           | 3.94           | 4.0
+(1 row)
+
+MATCH (u) RETURN percentileCont(u.gpa, .55);
+ percentilecont 
+----------------
+ 3.765
+(1 row)
+
+MATCH (u) RETURN percentileDisc(u.gpa, .55);
+ percentiledisc 
+----------------
+ 3.75
+(1 row)
+
+--
+-- collect()
+--
+MATCH (u) RETURN collect(u.name), collect(u.age), collect(u.gpa), collect(u.zip);
+                                       collect                                       |               collect                |                        collect                         |                collect                 
+-------------------------------------------------------------------------------------+--------------------------------------+--------------------------------------------------------+----------------------------------------
+ ["Jack ", "Jill ", "Jim ", "Rick ", "Ann ", "Derek ", "Jessica ", "Dave ", "Mike "] | [21, 27, 32, 24, 23, 19, 20, 24, 18] | [3.0, 3.5, 3.75, 2.5, 3.8::numeric, 4.0, 3.9::numeric] | [13275, 87962, 68752, "75612 ", 65218]
+(1 row)
+
+MATCH (u) RETURN collect(u.gpa), collect(u.gpa);
+                        collect                         |                        collect                         
+--------------------------------------------------------+--------------------------------------------------------
+ [3.0, 3.5, 3.75, 2.5, 3.8::numeric, 4.0, 3.9::numeric] | [3.0, 3.5, 3.75, 2.5, 3.8::numeric, 4.0, 3.9::numeric]
+(1 row)
+
+MATCH (u) RETURN collect(u.zip), collect(u.zip);
+                collect                 |                collect                 
+----------------------------------------+----------------------------------------
+ [13275, 87962, 68752, "75612 ", 65218] | [13275, 87962, 68752, "75612 ", 65218]
+(1 row)
+
+MATCH (u) WHERE u.name =~  'billy ' RETURN collect(u.name);
+ collect 
+---------
+ 
+(1 row)
+
+--
+-- DISTINCT inside aggregate functions
+--
+CREATE (:students {name:  'Sven ', gpa: 3.2, age: 27, zip: 94110});
+--
+(0 rows)
+
+MATCH (u) RETURN (u) ;
+                                                           u                                                           
+-----------------------------------------------------------------------------------------------------------------------
+ {"id": 844424930131969, "label": "students", "properties": {"age": 21, "gpa": 3.0, "zip": 13275, "name": "Jack "}}
+ {"id": 844424930131970, "label": "students", "properties": {"age": 27, "gpa": 3.5, "zip": 87962, "name": "Jill "}}
+ {"id": 844424930131971, "label": "students", "properties": {"age": 32, "gpa": 3.75, "zip": 68752, "name": "Jim "}}
+ {"id": 844424930131972, "label": "students", "properties": {"age": 24, "gpa": 2.5, "zip": "75612 ", "name": "Rick "}}
+ {"id": 844424930131973, "label": "students", "properties": {"age": 23, "gpa": 3.8::numeric, "name": "Ann "}}
+ {"id": 844424930131974, "label": "students", "properties": {"age": 19, "gpa": 4.0, "zip": 65218, "name": "Derek "}}
+ {"id": 844424930131975, "label": "students", "properties": {"age": 20, "gpa": 3.9::numeric, "name": "Jessica "}}
+ {"id": 844424930131976, "label": "students", "properties": {"age": 24, "name": "Dave "}}
+ {"id": 844424930131977, "label": "students", "properties": {"age": 18, "name": "Mike "}}
+ {"id": 844424930131978, "label": "students", "properties": {"age": 27, "gpa": 3.2, "zip": 94110, "name": "Sven "}}
+(10 rows)
+
+MATCH (u) RETURN count(u.zip), count(DISTINCT u.zip);
+ count | count 
+-------+-------
+ 6     | 6
+(1 row)
+
+MATCH (u) RETURN count(u.age), count(DISTINCT u.age);
+ count | count 
+-------+-------
+ 10    | 8
+(1 row)
+
+-- test AUTO GROUP BY for aggregate functions
+CREATE GRAPH group_by;
+NOTICE:  graph "group_by" has been created
+ create_graph 
+--------------
+ 
+(1 row)
+
+USE GRAPH group_by;
+ use_graph 
+-----------
+ 
+(1 row)
+
+CREATE (:row {i: 1, j: 2, k:3});
+--
+(0 rows)
+
+CREATE (:row {i: 1, j: 2, k:4});
+--
+(0 rows)
+
+CREATE (:row {i: 1, j: 3, k:5});
+--
+(0 rows)
+
+CREATE (:row {i: 2, j: 3, k:6});
+--
+(0 rows)
+
+MATCH (u:row) RETURN u.i, u.j, u.k;
+ i | j | k 
+---+---+---
+ 1 | 2 | 3
+ 1 | 2 | 4
+ 1 | 3 | 5
+ 2 | 3 | 6
+(4 rows)
+
+MATCH (u:row) RETURN u.i, u.j, sum(u.k);
+ i | j | sum 
+---+---+-----
+ 1 | 2 | 7
+ 2 | 3 | 6
+ 1 | 3 | 5
+(3 rows)
+
+CREATE (:L {a: 1, b: 2, c:3});
+--
+(0 rows)
+
+CREATE (:L {a: 2, b: 3, c:1});
+--
+(0 rows)
+
+CREATE (:L {a: 3, b: 1, c:2});
+--
+(0 rows)
+
+/*
+ * TODO: Get the link from the opencypher website.
+ */
+MATCH (x:L) RETURN x.a, x.b, x.c, x.a + count(*) + x.b + count(*) + x.c;
+ a | b | c | ?column? 
+---+---+---+----------
+ 3 | 1 | 2 | 8
+ 2 | 3 | 1 | 8
+ 1 | 2 | 3 | 8
+(3 rows)
+
+MATCH (x:L) RETURN x.a + x.b + x.c, x.a + x.b + x.c + count(*) + count(*)
+;
+ ?column? | ?column? 
+----------+----------
+ 6        | 12
+(1 row)
+
+-- with WITH clause
+MATCH (x:L) WITH x, count(x) AS cnt RETURN x.a + x.b + x.c + cnt;
+ ?column? 
+----------
+ 7
+ 7
+ 7
+(3 rows)
+
+MATCH (x:L) WITH x, count(x) AS cnt RETURN x.a + x.b + x.c + cnt + cnt;
+ ?column? 
+----------
+ 8
+ 8
+ 8
+(3 rows)
+
+MATCH(x:L) WITH x.a + x.b + x.c AS v, count(x) as cnt RETURN v + cnt + cnt;
+ ?column? 
+----------
+ 12
+(1 row)
+
+MATCH (x:L) RETURN x.a, x.a + count(*) + x.b + count(*) + x.c GROUP BY x.a, x.b, x.c;
+ERROR:  syntax error at or near "GROUP"
+LINE 1: ...RETURN x.a, x.a + count(*) + x.b + count(*) + x.c GROUP BY x...
+                                                             ^
+-- Why we need explicit grouping
+MATCH (x:L) RETURN x.a, x.a + count(*) + x.b + count(*) + x.c;
+ERROR:  "x" must be either part of an explicitly listed key or used inside an aggregate function
+LINE 1: MATCH (x:L) RETURN x.a, x.a + count(*) + x.b + count(*) + x....
+                                                 ^
+MATCH (x:L) RETURN x.a + count(*) + x.b + count(*) + x.c;
+ERROR:  "x" must be either part of an explicitly listed key or used inside an aggregate function
+LINE 1: MATCH (x:L) RETURN x.a + count(*) + x.b + count(*) + x.c;
+                           ^
+--
+-- Explicit GROUP BY
+--
+MATCH (x:L) RETURN x.a + count(*) + x.b + count(*) + x.c GROUP BY x.a, x.b, x.c;
+ERROR:  syntax error at or near "GROUP"
+LINE 1: ...x:L) RETURN x.a + count(*) + x.b + count(*) + x.c GROUP BY x...
+                                                             ^
+MATCH (x:L) RETURN x.a + x.b + x.c + count(*) + count(*) GROUP BY x.a + x.b + x.c;
+ERROR:  syntax error at or near "GROUP"
+LINE 1: ...x:L) RETURN x.a + x.b + x.c + count(*) + count(*) GROUP BY x...
+                                                             ^
+MATCH (x:L) RETURN x.a + x.b + x.c + count(*) + count(*);
+ERROR:  "x" must be either part of an explicitly listed key or used inside an aggregate function
+LINE 1: MATCH (x:L) RETURN x.a + x.b + x.c + count(*) + count(*);
+                           ^
+MATCH (x:L) WITH x.a + count(*) + x.b + count(*) + x.c as cnt GROUP BY x.a, x.b, x.c RETURN cnt ;
+ cnt 
+-----
+ 8
+ 8
+ 8
+(3 rows)
+
+MATCH (x:L) WITH x.a + x.b + x.c + count(*) + count(*) as cnt GROUP BY x.a + x.b + x.c RETURN cnt;
+ cnt 
+-----
+ 12
+(1 row)
+
+--
+-- Grouping Keywords
+--
+MATCH (x) RETURN x.i, x.j, x.k, COUNT(*) GROUP BY ROLLUP (x.i, x.j, x.k);
+ERROR:  syntax error at or near "GROUP"
+LINE 1: MATCH (x) RETURN x.i, x.j, x.k, COUNT(*) GROUP BY ROLLUP (x....
+                                                 ^
+MATCH (x) RETURN x.i, x.j, x.k, COUNT(*) GROUP BY CUBE (x.i, x.j, x.k);
+ERROR:  syntax error at or near "GROUP"
+LINE 1: MATCH (x) RETURN x.i, x.j, x.k, COUNT(*) GROUP BY CUBE (x.i,...
+                                                 ^
+--
+-- HAVING Clause
+--
+MATCH (x) WITH count(x.i) AS cnt GROUP BY x.i RETURN cnt;
+ cnt 
+-----
+ 3
+ 0
+ 1
+(3 rows)
+
+MATCH (x) WITH count(x.i) AS cnt GROUP BY x.i HAVING count(x.i) > 1 RETURN cnt;
+ cnt 
+-----
+ 3
+(1 row)
+
+--
+-- Window Functions
+--
+MATCH (x) WITH x, row_number() OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       2
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x) WITH x, rank() OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       1
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x) WITH x, dense_rank() OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       1
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       2
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x) WITH x, percent_rank() OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       0
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       0
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       1
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       0
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       0
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |     0.5
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       1
+(7 rows)
+
+MATCH (x) WITH x, cume_dist() OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num RETURN x, row_num;
+                                        x                                        |      row_num      
+---------------------------------------------------------------------------------+-------------------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} | 0.666666666666667
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} | 0.666666666666667
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |                 1
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |                 1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  | 0.333333333333333
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  | 0.666666666666667
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |                 1
+(7 rows)
+
+MATCH (x) WITH x, lag(x.k) OVER (PARTITION BY COALESCE(x.i, x.a)  ORDER BY id(x) ) AS row_num RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} | 
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} | 3
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} | 4
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  | 5
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} | 
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  | 6
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  | 
+(7 rows)
+
+MATCH (x)
+WITH x, lag(x.k) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} | 
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} | 3
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} | 4
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} | 
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  | 
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  | 
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  | 
+(7 rows)
+
+MATCH (x)
+WITH x, lead(x.k) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} | 4
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} | 5
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} | 
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} | 
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  | 
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  | 
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  | 
+(7 rows)
+
+MATCH (x)
+WITH x, first_value(x.k) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} | 3
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} | 3
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} | 3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} | 6
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  | 
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  | 
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  | 
+(7 rows)
+
+MATCH (x)
+WITH x, nth_value(x.k, 2) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} | 4
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} | 4
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} | 4
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} | 
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  | 
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  | 
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  | 
+(7 rows)
+
+MATCH (x)
+WITH x, ntile(1) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       1
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       1
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       1
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       1
+(7 rows)
+
+MATCH (x)
+WITH x, ntile(2) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       1
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       2
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       1
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       2
+(7 rows)
+
+MATCH (x)
+WITH x, ntile(3) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       2
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x)
+WITH x, last_value(x.k) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} | 4
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} | 4
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} | 5
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} | 6
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  | 
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  | 
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  | 
+(7 rows)
+
+MATCH (x)
+WITH x, row_number() OVER w AS row_num WINDOW w AS (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) )
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       2
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x)
+WITH x, row_number() OVER w AS row_num WINDOW w AS (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) 
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       2
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x)
+WITH x, 
+    row_number() OVER (
+        PARTITION BY x.i
+        ORDER BY COALESCE(x.j, x.c)
+        ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+    ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       2
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x)
+WITH x, 
+    row_number() OVER (
+        PARTITION BY x.i  
+        ORDER BY COALESCE(x.j, x.c)
+        ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING
+    ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       2
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x)
+WITH x, 
+    row_number() OVER (
+        PARTITION BY x.i  
+        ORDER BY COALESCE(x.j, x.c)
+        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING
+    ) AS row_num
+RETURN x, row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} |       1
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} |       2
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} |       3
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} |       1
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  |       1
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  |       2
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  |       3
+(7 rows)
+
+MATCH (x) RETURN x, last_value(x.k) OVER (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) ) AS row_num;
+                                        x                                        | row_num 
+---------------------------------------------------------------------------------+---------
+ {"id": 844424930131969, "label": "row", "properties": {"i": 1, "j": 2, "k": 3}} | 4
+ {"id": 844424930131970, "label": "row", "properties": {"i": 1, "j": 2, "k": 4}} | 4
+ {"id": 844424930131971, "label": "row", "properties": {"i": 1, "j": 3, "k": 5}} | 5
+ {"id": 844424930131972, "label": "row", "properties": {"i": 2, "j": 3, "k": 6}} | 6
+ {"id": 1125899906842626, "label": "l", "properties": {"a": 2, "b": 3, "c": 1}}  | 
+ {"id": 1125899906842627, "label": "l", "properties": {"a": 3, "b": 1, "c": 2}}  | 
+ {"id": 1125899906842625, "label": "l", "properties": {"a": 1, "b": 2, "c": 3}}  | 
+(7 rows)
+
+MATCH (x) RETURN x, row_number() OVER w AS row_num WINDOW w AS (PARTITION BY x.i ORDER BY COALESCE(x.j, x.c) );
+ERROR:  syntax error at or near "WINDOW"
+LINE 1: ...ATCH (x) RETURN x, row_number() OVER w AS row_num WINDOW w A...
+                                                             ^
+--
+-- FILTER Clause
+--
+MATCH (x) RETURN count(*) FILTER (WHERE x.i IS NOT NULL);
+ count 
+-------
+ 4
+(1 row)
+
+--
+-- Within Group
+--
+MATCH (x) RETURN x.i, rank(x.i, x.j) WITHIN GROUP (ORDER BY x.k) GROUP BY x.i;
+ERROR:  syntax error at or near "GROUP"
+LINE 1: ...N x.i, rank(x.i, x.j) WITHIN GROUP (ORDER BY x.k) GROUP BY x...
+                                                             ^
+--
+-- Aggregate Functions for Edge Type
+--
+CREATE GRAPH edge_aggregates;
+NOTICE:  graph "edge_aggregates" has been created
+ create_graph 
+--------------
+ 
+(1 row)
+
+USE GRAPH edge_aggregates;
+ use_graph 
+-----------
+ 
+(1 row)
+
+CREATE ()-[:e]->();
+--
+(0 rows)
+
+CREATE ()-[:e]->();
+--
+(0 rows)
+
+CREATE ()-[:e]->();
+--
+(0 rows)
+
+-- Within Group
+MATCH ()-[e]->() RETURN collect(e);
+                                                                                                                                                                                           collect                                                                                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"{\"id\": 844424930131969, \"start_id\": 281474976710657, \"end_id\": 281474976710658, \"label\": \"e\", \"properties\": {}}","{\"id\": 844424930131970, \"start_id\": 281474976710659, \"end_id\": 281474976710660, \"label\": \"e\", \"properties\": {}}","{\"id\": 844424930131971, \"start_id\": 281474976710661, \"end_id\": 281474976710662, \"label\": \"e\", \"properties\": {}}"}
+(1 row)
+
+MATCH ()-[e]->() RETURN collect(e, 2);
+                                                                                                                            collect                                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"{\"id\": 844424930131969, \"start_id\": 281474976710657, \"end_id\": 281474976710658, \"label\": \"e\", \"properties\": {}}","{\"id\": 844424930131970, \"start_id\": 281474976710659, \"end_id\": 281474976710660, \"label\": \"e\", \"properties\": {}}"}
+(1 row)
+
+MATCH () RETURN COUNT(*);
+ count 
+-------
+ 6
+(1 row)
+
+--
+-- Cleanup
+--
+DROP GRAPH college CASCADE;
+NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to table college._ag_label_vertex
+drop cascades to table college._ag_label_edge
+drop cascades to table college.students
+NOTICE:  graph "college" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+
+DROP GRAPH edge_aggregates CASCADE;
+NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to table edge_aggregates._ag_label_vertex
+drop cascades to table edge_aggregates._ag_label_edge
+drop cascades to table edge_aggregates.e
+NOTICE:  graph "edge_aggregates" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+
+DROP GRAPH group_by CASCADE;
+NOTICE:  drop cascades to 4 other objects
+DETAIL:  drop cascades to table group_by._ag_label_vertex
+drop cascades to table group_by._ag_label_edge
+drop cascades to table group_by."row"
+drop cascades to table group_by.l
+NOTICE:  graph "group_by" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+
+--
+-- End of tests
+--

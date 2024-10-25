@@ -102,7 +102,8 @@ REGRESS = new_cypher \
           cypher_unwind \
           cypher_vle \
           order_by \
-          cypher_setop
+          cypher_setop \
+          aggregation
 
 srcdir=`pwd`
 POSTGIS_DIR ?= postgis_dir
