@@ -35,6 +35,7 @@ typedef enum csp_kind
         CSP_EXISTS,
         CSP_ALL,
         CSP_SIZE,
+        CSP_EXPR,
         CSP_FINDPATH /* shortestpath, allshortestpaths, dijkstra */
 } csp_kind;
 

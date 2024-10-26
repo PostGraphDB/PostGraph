@@ -343,6 +343,15 @@ WHERE n.i = SOME (
         SELECT i::postgraph.gtype FROM tst as t
 )
 RETURN n;
+
+SELECT (SELECT * FROM tst);
+
+SELECT (SELECT COUNT(*) FROM tst);
+
+RETURN (SELECT * FROM tst);
+
+RETURN (SELECT COUNT(*) FROM tst);
+
 --
 -- Clean up
 --

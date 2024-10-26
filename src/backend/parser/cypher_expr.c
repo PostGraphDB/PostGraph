@@ -3507,9 +3507,7 @@ transform_sub_link(cypher_parsestate *cpstate, SubLink *sublink) {
 
     pstate->p_hasSubLinks = true;
 
-	/*
-	 * OK, let's transform the sub-SELE
-	 */
+
     Query *query;
     if (IsA(sublink->subselect, SelectStmt))
 	    query = sql_parse_sub_analyze(sublink->subselect, pstate, NULL, false, true);
@@ -3524,7 +3522,25 @@ transform_sub_link(cypher_parsestate *cpstate, SubLink *sublink) {
     if (sublink->subLinkType == EXISTS_SUBLINK) {
         sublink->testexpr = NULL;
         sublink->operName = NIL;
-    } else if (sublink->subLinkType == MULTIEXPR_SUBLINK) {
+    }  else if (sublink->subLinkType == EXPR_SUBLINK ||
+			    sublink->subLinkType == ARRAY_SUBLINK) {
+		/*
+		 * Make sure the subselect delivers a single column (ignoring resjunk
+		 * targets).
+		 */
+		if (count_nonjunk_tlist_entries(query->targetList) != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("subquery must return only one column"),
+					 parser_errposition(pstate, sublink->location)));
+
+		/*
+		 * EXPR and ARRAY need no test expression or combining operator. These
+		 * fields should be null already, but make sure.
+		 */
+		sublink->testexpr = NULL;
+		sublink->operName = NIL;
+	} else if (sublink->subLinkType == MULTIEXPR_SUBLINK) {
         /* Same as EXPR case, except no restriction on number of columns */
         sublink->testexpr = NULL;
         sublink->operName = NIL;
@@ -3539,7 +3555,7 @@ transform_sub_link(cypher_parsestate *cpstate, SubLink *sublink) {
          * If the source was "x IN (select)", convert to "x = ANY (select)".
          */
         if (sublink->operName == NIL)
-            sublink->operName = list_make1(makeString("="));
+            sublink->operName = list_make2(makeString("postgraph"), makeString("="));
 
         /*
          * Transform lefthand expression, and convert to a list

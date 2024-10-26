@@ -17916,17 +17916,15 @@ cypher_expr_atom:
     | cypher_expr_func
     | EXISTS '(' anonymous_path ')'
         {
-            cypher_sub_pattern *sub;
-            SubLink    *n;
-
-            sub = make_ag_node(cypher_sub_pattern);
-            sub->kind = CSP_EXISTS;
-            sub->pattern = list_make1($3);
             cypher_match *match = make_ag_node(cypher_match);
             match->pattern = list_make1($3);
             match->where = NULL;
+
+            cypher_sub_pattern *sub = make_ag_node(cypher_sub_pattern);
+            sub->kind = CSP_EXISTS;
             sub->pattern = list_make1(match);
-            n = makeNode(SubLink);
+
+            SubLink *n = makeNode(SubLink);
             n->subLinkType = EXISTS_SUBLINK;
             n->subLinkId = 0;
             n->testexpr = NULL;
@@ -17953,6 +17951,17 @@ cypher_expr_atom:
             n->location = @1;
             $$ = (Node *) n;
         }
+	| select_with_parens			%prec UMINUS
+		{
+			SubLink *n = makeNode(SubLink);
+			n->subLinkType = EXPR_SUBLINK;
+			n->subLinkId = 0;
+			n->testexpr = NULL;
+			n->operName = NIL;
+			n->subselect = $1;
+			n->location = @1;
+			$$ = (Node *)n;
+		}
 	| EXISTS select_with_parens
 		{
 			SubLink *n = makeNode(SubLink);

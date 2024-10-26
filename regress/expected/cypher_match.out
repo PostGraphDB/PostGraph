@@ -584,14 +584,86 @@ MATCH (u) WHERE EXISTS(MATCH (u)-[]->(v {id: 'middle'}) RETURN 1) RETURN u;
 (3 rows)
 
 MATCH (u) RETURN case WHEN EXISTS(MATCH (u)-[]->({id: 'gsjka'}) RETURN 1) THEN 1 ELSE 2 END;
-ERROR:  cannot handle unplanned sub-select
+ case 
+------
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+(15 rows)
+
 MATCH (u) RETURN case WHEN EXISTS(MATCH (u)-[]->() RETURN 1) THEN 1 ELSE 2 END;
-ERROR:  cannot handle unplanned sub-select
+ case 
+------
+ 2
+ 2
+ 2
+ 2
+ 2
+ 1
+ 1
+ 2
+ 2
+ 1
+ 2
+ 1
+ 2
+ 1
+ 1
+(15 rows)
+
  
 MATCH (u) RETURN case WHEN EXISTS(MATCH (u)-[]->() RETURN 1) THEN 1 ELSE 2 END;
-ERROR:  cannot handle unplanned sub-select
+ case 
+------
+ 2
+ 2
+ 2
+ 2
+ 2
+ 1
+ 1
+ 2
+ 2
+ 1
+ 2
+ 1
+ 2
+ 1
+ 1
+(15 rows)
+
 MATCH (u) RETURN case WHEN EXISTS((u)-[]->()) THEN 1 ELSE 2 END;
-ERROR:  cannot handle unplanned sub-select
+ case 
+------
+ 2
+ 2
+ 2
+ 2
+ 2
+ 1
+ 1
+ 2
+ 2
+ 1
+ 2
+ 1
+ 2
+ 1
+ 1
+(15 rows)
+
 /*
 EXPLAIN
 SELECT *
@@ -1483,6 +1555,22 @@ RETURN n;
  {"id": 281474976710664, "label": "", "properties": {"i": 2, "k": 3}}
  {"id": 844424930131971, "label": "v", "properties": {"i": 1}}
 (4 rows)
+
+SELECT (SELECT * FROM tst);
+ERROR:  more than one row returned by a subquery used as an expression
+SELECT (SELECT COUNT(*) FROM tst);
+ count 
+-------
+     3
+(1 row)
+
+RETURN (SELECT * FROM tst);
+ERROR:  more than one row returned by a subquery used as an expression
+RETURN (SELECT COUNT(*) FROM tst);
+ count 
+-------
+     3
+(1 row)
 
 --
 -- Clean up
