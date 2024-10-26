@@ -4924,7 +4924,24 @@ static Query *transform_cypher_merge(cypher_parsestate *cpstate, cypher_clause *
 
     assign_query_collations(pstate, query);
 
-    return query;
+    if (clause->next)
+        return query;
+    {
+        Query *topquery;
+        cypher_parsestate *new_cpstate = make_cypher_parsestate(cpstate);
+        topquery = makeNode(Query);
+        topquery->commandType = CMD_SELECT;
+        topquery->targetList = NIL;
+
+        ParseState *pstate = (ParseState *) cpstate;
+        int rtindex;
+
+        ParseNamespaceItem *pnsi = transform_cypher_clause_as_subquery_2(new_cpstate, clause, NULL, false, query);
+        topquery->rtable = new_cpstate->pstate.p_rtable;
+        topquery->jointree = makeFromExpr(new_cpstate->pstate.p_joinlist, NULL);
+
+        return topquery;
+    }
 }
 
 /*
