@@ -592,7 +592,7 @@ makeSimpleCypherA_Expr(A_Expr_Kind kind, char *name,
 %type <string> label_opt 
 
 /* expression */
-%type <node> cypher_a_expr cypher_b_expr expr_opt cypher_expr_atom expr_literal map list cypher_in_expr
+%type <node> cypher_a_expr cypher_b_expr expr_opt cypher_expr_atom expr_literal map list cypher_in_expr map_proj_list map_proj_list_opt map_proj_elem
              
 
 %type <node> expr_case expr_case_when expr_case_default values_clause
@@ -15849,7 +15849,7 @@ unreserved_keyword:
 			| LOCKED
 			| LOGGED
 			| MAPPING
-			| MATCH
+			//| MATCH
 			| MATERIALIZED
 			| MAXVALUE
 			| METHOD
@@ -16068,7 +16068,7 @@ col_name_keyword:
 			| CHAR_P
 			| CHARACTER
 			| COALESCE
-			| CONTAINS
+			//| CONTAINS
 			| DEC
 			| DECIMAL_P
 			| EXISTS
@@ -16192,7 +16192,7 @@ bare_label_keyword:
 			| CONFIGURATION
 			| CONFLICT
 			| CONNECTION
-			| CONTAINS
+			//| CONTAINS
 			| CONSTRAINT
 			| CONSTRAINTS
 			| CONTENT_P
@@ -16334,7 +16334,7 @@ bare_label_keyword:
 			| LOCKED
 			| LOGGED
 			| MAPPING
-			| MATCH
+			//| MATCH
 			| MATERIALIZED
 			| MAXVALUE
 			| METHOD
@@ -17908,13 +17908,37 @@ cypher_expr_atom:
 
             $$ = (Node *)n;
         }*/
-    | '(' cypher_a_expr ')'
+    | '(' cypher_a_expr ')' opt_indirection %prec '('
         {
-            $$ = $2;
+					if ($4)
+					{
+						A_Indirection *n = makeNode(A_Indirection);
+						n->arg = $2;
+						n->indirection = check_indirection($4, scanner);
+						$$ = (Node *)n;
+					}
+					else
+						$$ = $2;
+        }
+	| '[' anonymous_path where_clause '|' return_item_list ']' %prec '['
+	    {
+			ereport(ERROR, errmsg("pattern comprehensions are not yet implemented"));
+
+			$$ = NULL;
+		}
+	| '[' ColId IN cypher_a_expr cypher_where_opt '|' return_item ']' %prec '['
+	    {
+			ereport(ERROR, errmsg("list comprehensions are not yet implemented"));
+
+			$$ = NULL;
+		}
+	| cypher_var_name '{' map_proj_list_opt '}' %prec '{'
+        {
+			ereport(ERROR, errmsg("map projections are not yet implemented"));
         }
     | expr_case  
     | cypher_expr_func
-	| '(' cypher_stmt ')'			%prec UMINUS
+	| '(' cypher_query ')'			%prec UNARY_MINUS
 		{
             cypher_sub_pattern *sub;
 
@@ -17950,7 +17974,7 @@ cypher_expr_atom:
             n->location = @1;
             $$ = (Node *) n;
         }
-    | EXISTS '(' cypher_stmt ')'
+    | EXISTS '(' cypher_stmt ')' 	%prec UNARY_MINUS
         {
             cypher_sub_pattern *sub;
             SubLink    *n;
@@ -17968,7 +17992,7 @@ cypher_expr_atom:
             n->location = @1;
             $$ = (Node *) n;
         }
-	| select_with_parens			%prec UMINUS
+	| select_with_parens			%prec UNARY_MINUS
 		{
 			SubLink *n = makeNode(SubLink);
 			n->subLinkType = EXPR_SUBLINK;
@@ -18024,6 +18048,42 @@ expr_literal:
     | map
     | list
     ;
+
+map_proj_list_opt:
+    /* empty */
+        {
+            $$ = NIL;
+        }
+    | map_proj_list
+    ;
+
+map_proj_list:
+    map_proj_elem
+        {
+            $$ = list_make1($1);
+        }
+    | map_proj_list ',' map_proj_elem
+        {
+            $$ = lappend($1, $3);
+        }
+    ;
+
+map_proj_elem:
+	indirection_el
+	| cypher_var_name '{' map_keyval_list_opt '}' %prec '{'
+		{
+			ereport(ERROR, errmsg("map projections are not yet implemented"));
+		}
+	| property_key_name ':' cypher_a_expr
+        {
+            $$ = list_make2(makeString($1), $3);
+        }
+	| ColId
+		{
+			ereport(ERROR, errmsg("map projections are not yet implemented"));
+			$$ = NULL;
+		}
+	;
 
 map:
     '{' map_keyval_list_opt '}'
