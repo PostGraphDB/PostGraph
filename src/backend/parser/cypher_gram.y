@@ -17145,6 +17145,17 @@ cypher_a_expr:
             n->location = @2;
             $$ = (Node *) n;
         }
+     | cypher_a_expr all_op sub_type select_with_parens %prec OPERATOR
+        {
+            SubLink *n = makeNode(SubLink);
+            n->subLinkType = $3;
+            n->subLinkId = 0;
+            n->testexpr = $1;
+            n->operName = list_make2(makeString("postgraph"), makeString($2));
+            n->subselect = $4;
+            n->location = @2;
+            $$ = (Node *) n;
+        }
     | cypher_expr_atom
     ;
 

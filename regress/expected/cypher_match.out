@@ -1354,7 +1354,7 @@ MATCH (n)
 WHERE EXISTS (
         SELECT * FROM tst as t where t.i = n.i
 )
-RETURN n;                                      n                                       
+RETURN n;
                                       n                                       
 ------------------------------------------------------------------------------
  {"id": 281474976710662, "label": "", "properties": {"i": 1, "j": 2, "k": 3}}
@@ -1363,13 +1363,66 @@ RETURN n;                                      n
  {"id": 844424930131971, "label": "v", "properties": {"i": 1}}
 (4 rows)
 
+MATCH (n)
+WHERE NOT EXISTS (
+        SELECT * FROM tst as t where t.i = n.i
+)
+RETURN n;
+                                                                                n                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {"int_key": 1, "map_key": {"key": "value"}, "list_key": [1, 2, 3], "float_key": 3.14, "string_key": "test"}}
+ {"id": 281474976710658, "label": "", "properties": {"lst": [1, null, 3.14, "string", {"key": "value"}, []]}}
+ {"id": 281474976710659, "label": "", "properties": {"name": "orphan"}}
+ {"id": 281474976710660, "label": "", "properties": {"name": "F"}}
+ {"id": 281474976710661, "label": "", "properties": {"name": "T"}}
+ {"id": 844424930131969, "label": "v", "properties": {}}
+ {"id": 844424930131970, "label": "v", "properties": {"i": 0}}
+ {"id": 1125899906842625, "label": "v1", "properties": {"id": "initial"}}
+ {"id": 1125899906842626, "label": "v1", "properties": {"id": "middle"}}
+ {"id": 1125899906842627, "label": "v1", "properties": {"id": "end"}}
+ {"id": 1688849860263937, "label": "v2", "properties": {"id": "initial"}}
+ {"id": 1688849860263938, "label": "v2", "properties": {"id": "middle"}}
+ {"id": 1688849860263939, "label": "v2", "properties": {"id": "end"}}
+ {"id": 2251799813685249, "label": "v3", "properties": {"id": "initial"}}
+ {"id": 2251799813685250, "label": "v3", "properties": {"id": "middle"}}
+ {"id": 2251799813685251, "label": "v3", "properties": {"id": "end"}}
+ {"id": 2814749767106561, "label": "loop", "properties": {"id": "initial"}}
+ {"id": 3377699720527873, "label": "duplicate", "properties": {}}
+ {"id": 3940649673949185, "label": "other_v", "properties": {}}
+ {"id": 3940649673949186, "label": "other_v", "properties": {}}
+ {"id": 4222124650659841, "label": "opt_match_v", "properties": {"name": "someone"}}
+ {"id": 4222124650659842, "label": "opt_match_v", "properties": {"name": "somebody"}}
+ {"id": 4222124650659843, "label": "opt_match_v", "properties": {"name": "anybody"}}
+ {"id": 4222124650659844, "label": "opt_match_v", "properties": {"name": "nobody"}}
+(24 rows)
+
 --
 -- Clean up
 --
 DROP GRAPH cypher_match CASCADE;
-ERROR:  syntax error at or near "n"
-LINE 1: n                                       
-        ^
+NOTICE:  drop cascades to 16 other objects
+DETAIL:  drop cascades to table cypher_match._ag_label_vertex
+drop cascades to table cypher_match._ag_label_edge
+drop cascades to table cypher_match.v
+drop cascades to table cypher_match.v1
+drop cascades to table cypher_match.e1
+drop cascades to table cypher_match.v2
+drop cascades to table cypher_match.e2
+drop cascades to table cypher_match.v3
+drop cascades to table cypher_match.e3
+drop cascades to table cypher_match.loop
+drop cascades to table cypher_match.self
+drop cascades to table cypher_match.duplicate
+drop cascades to table cypher_match.dup_edge
+drop cascades to table cypher_match.other_v
+drop cascades to table cypher_match.opt_match_v
+drop cascades to table cypher_match.opt_match_e
+NOTICE:  graph "cypher_match" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+
 --
 -- End
 --

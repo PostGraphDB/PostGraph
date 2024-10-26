@@ -318,8 +318,31 @@ MATCH (n)
 WHERE EXISTS (
         SELECT * FROM tst as t where t.i = n.i
 )
-RETURN n;                                      n                                       
+RETURN n;
 
+MATCH (n)
+WHERE NOT EXISTS (
+        SELECT * FROM tst as t where t.i = n.i
+)
+RETURN n;
+
+MATCH (n)
+WHERE n.i = ALL (
+        SELECT i::postgraph.gtype FROM tst as t
+)
+RETURN n;
+
+MATCH (n)
+WHERE n.i = ANY (
+        SELECT i::postgraph.gtype FROM tst as t
+)
+RETURN n;
+
+MATCH (n)
+WHERE n.i = SOME (
+        SELECT i::postgraph.gtype FROM tst as t
+)
+RETURN n;
 --
 -- Clean up
 --

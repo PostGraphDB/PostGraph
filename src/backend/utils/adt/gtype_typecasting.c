@@ -1471,6 +1471,13 @@ int8_to_gtype(PG_FUNCTION_ARGS) {
     AG_RETURN_GTYPE_P(integer_to_gtype(PG_GETARG_INT64(0)));
 }
 
+PG_FUNCTION_INFO_V1(int4_to_gtype);
+// int4 -> gtype.
+Datum
+int4_to_gtype(PG_FUNCTION_ARGS) {
+    AG_RETURN_GTYPE_P(integer_to_gtype(PG_GETARG_INT32(0)));
+}
+
 PG_FUNCTION_INFO_V1(text_to_gtype);
 //text -> gtype
 Datum
