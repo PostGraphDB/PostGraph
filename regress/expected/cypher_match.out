@@ -1396,6 +1396,41 @@ RETURN n;
  {"id": 4222124650659844, "label": "opt_match_v", "properties": {"name": "nobody"}}
 (24 rows)
 
+MATCH (n)
+WHERE n.i = ALL (
+        SELECT i::postgraph.gtype FROM tst as t
+)
+RETURN n;
+ n 
+---
+(0 rows)
+
+MATCH (n)
+WHERE n.i = ANY (
+        SELECT i::postgraph.gtype FROM tst as t
+)
+RETURN n;
+                                      n                                       
+------------------------------------------------------------------------------
+ {"id": 281474976710662, "label": "", "properties": {"i": 1, "j": 2, "k": 3}}
+ {"id": 281474976710663, "label": "", "properties": {"i": 1, "j": 3}}
+ {"id": 281474976710664, "label": "", "properties": {"i": 2, "k": 3}}
+ {"id": 844424930131971, "label": "v", "properties": {"i": 1}}
+(4 rows)
+
+MATCH (n)
+WHERE n.i = SOME (
+        SELECT i::postgraph.gtype FROM tst as t
+)
+RETURN n;
+                                      n                                       
+------------------------------------------------------------------------------
+ {"id": 281474976710662, "label": "", "properties": {"i": 1, "j": 2, "k": 3}}
+ {"id": 281474976710663, "label": "", "properties": {"i": 1, "j": 3}}
+ {"id": 281474976710664, "label": "", "properties": {"i": 2, "k": 3}}
+ {"id": 844424930131971, "label": "v", "properties": {"i": 1}}
+(4 rows)
+
 --
 -- Clean up
 --
