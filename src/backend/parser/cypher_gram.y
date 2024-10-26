@@ -17914,6 +17914,23 @@ cypher_expr_atom:
         }
     | expr_case  
     | cypher_expr_func
+	| '(' cypher_stmt ')'			%prec UMINUS
+		{
+            cypher_sub_pattern *sub;
+
+            sub = make_ag_node(cypher_sub_pattern);
+            sub->pattern = $2;
+            sub->kind = CSP_EXISTS;
+
+			SubLink *n = makeNode(SubLink);
+			n->subLinkType = EXPR_SUBLINK;
+			n->subLinkId = 0;
+			n->testexpr = NULL;
+			n->operName = NIL;
+			n->subselect = sub;
+			n->location = @1;
+			$$ = (Node *)n;
+		}
     | EXISTS '(' anonymous_path ')'
         {
             cypher_match *match = make_ag_node(cypher_match);

@@ -352,6 +352,9 @@ RETURN (SELECT * FROM tst);
 
 RETURN (SELECT COUNT(*) FROM tst);
 
+CYPHER WITH (RETURN 1) as a RETURN a;
+CYPHER WITH (SELECT i FROM tst LIMIT 1) as a RETURN a;
+
 --
 -- Clean up
 --
