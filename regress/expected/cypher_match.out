@@ -1348,33 +1348,28 @@ MATCH (n:vmissing)-[]-() RETURN n;
 ERROR:  label vmissing does not exists
 LINE 1: MATCH (n:vmissing)-[]-() RETURN n;
               ^
+CREATE TABLE tst (i int);
+INSERT INTO tst VALUES (1), (2), (3);
+MATCH (n)
+WHERE EXISTS (
+        SELECT * FROM tst as t where t.i = n.i
+)
+RETURN n;                                      n                                       
+                                      n                                       
+------------------------------------------------------------------------------
+ {"id": 281474976710662, "label": "", "properties": {"i": 1, "j": 2, "k": 3}}
+ {"id": 281474976710663, "label": "", "properties": {"i": 1, "j": 3}}
+ {"id": 281474976710664, "label": "", "properties": {"i": 2, "k": 3}}
+ {"id": 844424930131971, "label": "v", "properties": {"i": 1}}
+(4 rows)
+
 --
 -- Clean up
 --
 DROP GRAPH cypher_match CASCADE;
-NOTICE:  drop cascades to 16 other objects
-DETAIL:  drop cascades to table cypher_match._ag_label_vertex
-drop cascades to table cypher_match._ag_label_edge
-drop cascades to table cypher_match.v
-drop cascades to table cypher_match.v1
-drop cascades to table cypher_match.e1
-drop cascades to table cypher_match.v2
-drop cascades to table cypher_match.e2
-drop cascades to table cypher_match.v3
-drop cascades to table cypher_match.e3
-drop cascades to table cypher_match.loop
-drop cascades to table cypher_match.self
-drop cascades to table cypher_match.duplicate
-drop cascades to table cypher_match.dup_edge
-drop cascades to table cypher_match.other_v
-drop cascades to table cypher_match.opt_match_v
-drop cascades to table cypher_match.opt_match_e
-NOTICE:  graph "cypher_match" has been dropped
- drop_graph 
-------------
- 
-(1 row)
-
+ERROR:  syntax error at or near "n"
+LINE 1: n                                       
+        ^
 --
 -- End
 --

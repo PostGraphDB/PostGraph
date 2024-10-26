@@ -32,6 +32,8 @@
 
 Node *transform_cypher_expr(cypher_parsestate *cpstate, Node *expr,
                             ParseExprKind expr_kind);
+Node *
+sql_transform_expr(ParseState *pstate, Node *expr, ParseExprKind exprKind)      ;           
 List *
 expand_NS_Item_Attrs(ParseState *pstate, ParseNamespaceItem *nsitem,
 				  int sublevels_up, int location);

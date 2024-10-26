@@ -311,6 +311,15 @@ MATCH (n:e1)-[]-() RETURN n;
 
 MATCH (n:vmissing)-[]-() RETURN n;
 
+CREATE TABLE tst (i int);
+INSERT INTO tst VALUES (1), (2), (3);
+
+MATCH (n)
+WHERE EXISTS (
+        SELECT * FROM tst as t where t.i = n.i
+)
+RETURN n;                                      n                                       
+
 --
 -- Clean up
 --

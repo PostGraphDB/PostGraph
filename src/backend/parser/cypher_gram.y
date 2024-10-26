@@ -17942,7 +17942,7 @@ cypher_expr_atom:
             n->location = @1;
             $$ = (Node *) n;
         }
-	/*| EXISTS select_with_parens
+	| EXISTS select_with_parens
 		{
 			SubLink *n = makeNode(SubLink);
 			n->subLinkType = EXISTS_SUBLINK;
@@ -17952,7 +17952,7 @@ cypher_expr_atom:
 			n->subselect = $2;
 			n->location = @1;
 			$$ = (Node *)n;
-		}*/
+		}
     ;
 
 expr_literal:

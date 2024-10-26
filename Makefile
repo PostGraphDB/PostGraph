@@ -46,6 +46,7 @@ OBJS = src/backend/postgraph.o \
        src/backend/parser/cypher_analyze.o \
        src/backend/parser/cypher_clause.o \
        src/backend/executor/cypher_delete.o \
+       src/backend/parser/sql_expr.o \
        src/backend/parser/cypher_expr.o \
        src/backend/parser/cypher_gram.o \
        src/backend/parser/cypher_item.o \

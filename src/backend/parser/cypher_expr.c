@@ -952,7 +952,7 @@ transformGroupingFunc(ParseState *pstate, GroupingFunc *p)
     {
         Node       *current_result;
 
-        current_result = transformExpr(pstate, (Node *) lfirst(lc), pstate->p_expr_kind);
+        current_result = sql_transform_expr(pstate, (Node *) lfirst(lc), pstate->p_expr_kind);
 
         /* acceptability of expressions is checked later */
 
@@ -1032,11 +1032,11 @@ parse_func_or_column(ParseState *pstate, List *funcname, List *fargs,
     ParseCallbackState pcbstate;
 
     /*
-     * If there's an aggregate filter, transform it using transformWhereClause
+     * If there's an aggregate filter, transform it using sql_transform_where_clause
      */
     if (fn && fn->agg_filter != NULL)
         agg_filter = (Expr *) transform_cypher_expr(pstate, fn->agg_filter, EXPR_KIND_FILTER);
-//        agg_filter = (Expr *) transformWhereClause(pstate, fn->agg_filter, EXPR_KIND_FILTER, "FILTER");
+//        agg_filter = (Expr *) sql_transform_where_clause(pstate, fn->agg_filter, EXPR_KIND_FILTER, "FILTER");
 
     /*
      * Most of the rest of the parser just assumes that functions do not have
@@ -3006,6 +3006,417 @@ make_row_comparison_op(ParseState *pstate, List *opname, List *largs, List *rarg
     return (Node *) rcexpr;
 }
 
+/*
+ * sql_transform_where_clause -
+ *	  Transform the qualification and make sure it is of type boolean.
+ *	  Used for WHERE and allied clauses.
+ *
+ * constructName does not affect the semantics, but is used in error messages
+ */
+Node *
+sql_transform_where_clause(ParseState *pstate, Node *clause,
+					 ParseExprKind exprKind, const char *constructName)
+{
+	Node	   *qual;
+
+	if (clause == NULL)
+		return NULL;
+
+	qual = sql_transform_expr(pstate, clause, exprKind);
+
+	qual = coerce_to_boolean(pstate, qual, constructName);
+
+	return qual;
+}
+/*
+ * Transform a FOR [KEY] UPDATE/SHARE clause
+ *
+ * This basically involves replacing names by integer relids.
+ *
+ * NB: if you need to change this, see also markQueryForLocking()
+ * in rewriteHandler.c, and isLockedRefname() in parse_relation.c.
+ */
+static void
+transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
+					   bool pushedDown)
+{
+	List	   *lockedRels = lc->lockedRels;
+	ListCell   *l;
+	ListCell   *rt;
+	Index		i;
+	LockingClause *allrels;
+
+	CheckSelectLocking(qry, lc->strength);
+
+	/* make a clause we can pass down to subqueries to select all rels */
+	allrels = makeNode(LockingClause);
+	allrels->lockedRels = NIL;	/* indicates all rels */
+	allrels->strength = lc->strength;
+	allrels->waitPolicy = lc->waitPolicy;
+
+	if (lockedRels == NIL)
+	{
+		/*
+		 * Lock all regular tables used in query and its subqueries.  We
+		 * examine inFromCl to exclude auto-added RTEs, particularly NEW/OLD
+		 * in rules.  This is a bit of an abuse of a mostly-obsolete flag, but
+		 * it's convenient.  We can't rely on the namespace mechanism that has
+		 * largely replaced inFromCl, since for example we need to lock
+		 * base-relation RTEs even if they are masked by upper joins.
+		 */
+		i = 0;
+		foreach(rt, qry->rtable)
+		{
+			RangeTblEntry *rte = (RangeTblEntry *) lfirst(rt);
+
+			++i;
+			if (!rte->inFromCl)
+				continue;
+			switch (rte->rtekind)
+			{
+				case RTE_RELATION:
+					applyLockingClause(qry, i, lc->strength, lc->waitPolicy,
+									   pushedDown);
+					rte->requiredPerms |= ACL_SELECT_FOR_UPDATE;
+					break;
+				case RTE_SUBQUERY:
+					applyLockingClause(qry, i, lc->strength, lc->waitPolicy,
+									   pushedDown);
+
+					/*
+					 * FOR UPDATE/SHARE of subquery is propagated to all of
+					 * subquery's rels, too.  We could do this later (based on
+					 * the marking of the subquery RTE) but it is convenient
+					 * to have local knowledge in each query level about which
+					 * rels need to be opened with RowShareLock.
+					 */
+					transformLockingClause(pstate, rte->subquery,
+										   allrels, true);
+					break;
+				default:
+					/* ignore JOIN, SPECIAL, FUNCTION, VALUES, CTE RTEs */
+					break;
+			}
+		}
+	}
+	else
+	{
+		/*
+		 * Lock just the named tables.  As above, we allow locking any base
+		 * relation regardless of alias-visibility rules, so we need to
+		 * examine inFromCl to exclude OLD/NEW.
+		 */
+		foreach(l, lockedRels)
+		{
+			RangeVar   *thisrel = (RangeVar *) lfirst(l);
+
+			/* For simplicity we insist on unqualified alias names here */
+			if (thisrel->catalogname || thisrel->schemaname)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+				/*------
+				  translator: %s is a SQL row locking clause such as FOR UPDATE */
+						 errmsg("%s must specify unqualified relation names",
+								LCS_asString(lc->strength)),
+						 parser_errposition(pstate, thisrel->location)));
+
+			i = 0;
+			foreach(rt, qry->rtable)
+			{
+				RangeTblEntry *rte = (RangeTblEntry *) lfirst(rt);
+				char	   *rtename;
+
+				++i;
+				if (!rte->inFromCl)
+					continue;
+
+				/*
+				 * A join RTE without an alias is not visible as a relation
+				 * name and needs to be skipped (otherwise it might hide a
+				 * base relation with the same name), except if it has a USING
+				 * alias, which *is* visible.
+				 */
+				if (rte->rtekind == RTE_JOIN && rte->alias == NULL)
+				{
+					if (rte->join_using_alias == NULL)
+						continue;
+					rtename = rte->join_using_alias->aliasname;
+				}
+				else
+					rtename = rte->eref->aliasname;
+
+				if (strcmp(rtename, thisrel->relname) == 0)
+				{
+					switch (rte->rtekind)
+					{
+						case RTE_RELATION:
+							applyLockingClause(qry, i, lc->strength,
+											   lc->waitPolicy, pushedDown);
+							rte->requiredPerms |= ACL_SELECT_FOR_UPDATE;
+							break;
+						case RTE_SUBQUERY:
+							applyLockingClause(qry, i, lc->strength,
+											   lc->waitPolicy, pushedDown);
+							/* see comment above */
+							transformLockingClause(pstate, rte->subquery,
+												   allrels, true);
+							break;
+						case RTE_JOIN:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							/*------
+							  translator: %s is a SQL row locking clause such as FOR UPDATE */
+									 errmsg("%s cannot be applied to a join",
+											LCS_asString(lc->strength)),
+									 parser_errposition(pstate, thisrel->location)));
+							break;
+						case RTE_FUNCTION:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							/*------
+							  translator: %s is a SQL row locking clause such as FOR UPDATE */
+									 errmsg("%s cannot be applied to a function",
+											LCS_asString(lc->strength)),
+									 parser_errposition(pstate, thisrel->location)));
+							break;
+						case RTE_TABLEFUNC:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							/*------
+							  translator: %s is a SQL row locking clause such as FOR UPDATE */
+									 errmsg("%s cannot be applied to a table function",
+											LCS_asString(lc->strength)),
+									 parser_errposition(pstate, thisrel->location)));
+							break;
+						case RTE_VALUES:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							/*------
+							  translator: %s is a SQL row locking clause such as FOR UPDATE */
+									 errmsg("%s cannot be applied to VALUES",
+											LCS_asString(lc->strength)),
+									 parser_errposition(pstate, thisrel->location)));
+							break;
+						case RTE_CTE:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							/*------
+							  translator: %s is a SQL row locking clause such as FOR UPDATE */
+									 errmsg("%s cannot be applied to a WITH query",
+											LCS_asString(lc->strength)),
+									 parser_errposition(pstate, thisrel->location)));
+							break;
+						case RTE_NAMEDTUPLESTORE:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							/*------
+							  translator: %s is a SQL row locking clause such as FOR UPDATE */
+									 errmsg("%s cannot be applied to a named tuplestore",
+											LCS_asString(lc->strength)),
+									 parser_errposition(pstate, thisrel->location)));
+							break;
+
+							/* Shouldn't be possible to see RTE_RESULT here */
+
+						default:
+							elog(ERROR, "unrecognized RTE type: %d",
+								 (int) rte->rtekind);
+							break;
+					}
+					break;		/* out of foreach loop */
+				}
+			}
+			if (rt == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_TABLE),
+				/*------
+				  translator: %s is a SQL row locking clause such as FOR UPDATE */
+						 errmsg("relation \"%s\" in %s clause not found in FROM clause",
+								thisrel->relname,
+								LCS_asString(lc->strength)),
+						 parser_errposition(pstate, thisrel->location)));
+		}
+	}
+}
+/*
+ * sql_transform_select_stmt -
+ *	  transforms a Select Statement
+ *
+ * Note: this covers only cases with no set operations and no VALUES lists;
+ * see below for the other cases.
+ */
+static Query *
+sql_transform_select_stmt(ParseState *pstate, SelectStmt *stmt)
+{
+	Query	   *qry = makeNode(Query);
+	Node	   *qual;
+	ListCell   *l;
+
+	qry->commandType = CMD_SELECT;
+
+	/* process the WITH clause independently of all else */
+	if (stmt->withClause)
+	{
+		qry->hasRecursive = stmt->withClause->recursive;
+		qry->cteList = transformWithClause(pstate, stmt->withClause);
+		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
+	}
+
+	/* Complain if we get called from someplace where INTO is not allowed */
+	if (stmt->intoClause)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("SELECT ... INTO is not allowed here"),
+				 parser_errposition(pstate,
+									exprLocation((Node *) stmt->intoClause))));
+
+	/* make FOR UPDATE/FOR SHARE info available to addRangeTableEntry */
+	pstate->p_locking_clause = stmt->lockingClause;
+
+	/* make WINDOW info available for window functions, too */
+	pstate->p_windowdefs = stmt->windowClause;
+
+	/* process the FROM clause */
+	transformFromClause(pstate, stmt->fromClause);
+
+	/* transform targetlist */
+	qry->targetList = transformTargetList(pstate, stmt->targetList,
+										  EXPR_KIND_SELECT_TARGET);
+
+	/* mark column origins */
+	markTargetListOrigins(pstate, qry->targetList);
+
+	/* transform WHERE */
+	qual = sql_transform_where_clause(pstate, stmt->whereClause,
+								EXPR_KIND_WHERE, "WHERE");
+
+	/* initial processing of HAVING clause is much like WHERE clause */
+	qry->havingQual = sql_transform_where_clause(pstate, stmt->havingClause,
+										   EXPR_KIND_HAVING, "HAVING");
+
+	/*
+	 * Transform sorting/grouping stuff.  Do ORDER BY first because both
+	 * transformGroupClause and transformDistinctClause need the results. Note
+	 * that these functions can also change the targetList, so it's passed to
+	 * them by reference.
+	 */
+	qry->sortClause = transformSortClause(pstate,
+										  stmt->sortClause,
+										  &qry->targetList,
+										  EXPR_KIND_ORDER_BY,
+										  false /* allow SQL92 rules */ );
+
+	qry->groupClause = transformGroupClause(pstate,
+											stmt->groupClause,
+											&qry->groupingSets,
+											&qry->targetList,
+											qry->sortClause,
+											EXPR_KIND_GROUP_BY,
+											false /* allow SQL92 rules */ );
+	qry->groupDistinct = stmt->groupDistinct;
+
+	if (stmt->distinctClause == NIL)
+	{
+		qry->distinctClause = NIL;
+		qry->hasDistinctOn = false;
+	}
+	else if (linitial(stmt->distinctClause) == NULL)
+	{
+		/* We had SELECT DISTINCT */
+		qry->distinctClause = transformDistinctClause(pstate,
+													  &qry->targetList,
+													  qry->sortClause,
+													  false);
+		qry->hasDistinctOn = false;
+	}
+	else
+	{
+		/* We had SELECT DISTINCT ON */
+		qry->distinctClause = transformDistinctOnClause(pstate,
+														stmt->distinctClause,
+														&qry->targetList,
+														qry->sortClause);
+		qry->hasDistinctOn = true;
+	}
+
+	/* transform LIMIT */
+	qry->limitOffset = transformLimitClause(pstate, stmt->limitOffset,
+											EXPR_KIND_OFFSET, "OFFSET",
+											stmt->limitOption);
+	qry->limitCount = transformLimitClause(pstate, stmt->limitCount,
+										   EXPR_KIND_LIMIT, "LIMIT",
+										   stmt->limitOption);
+	qry->limitOption = stmt->limitOption;
+
+	/* transform window clauses after we have seen all window functions */
+	qry->windowClause = transformWindowDefinitions(pstate,
+												   pstate->p_windowdefs,
+												   &qry->targetList);
+
+	/* resolve any still-unresolved output columns as being type text */
+	if (pstate->p_resolve_unknowns)
+		resolveTargetListUnknowns(pstate, qry->targetList);
+
+	qry->rtable = pstate->p_rtable;
+	qry->jointree = makeFromExpr(pstate->p_joinlist, qual);
+
+	qry->hasSubLinks = pstate->p_hasSubLinks;
+	qry->hasWindowFuncs = pstate->p_hasWindowFuncs;
+	qry->hasTargetSRFs = pstate->p_hasTargetSRFs;
+	qry->hasAggs = pstate->p_hasAggs;
+
+	foreach(l, stmt->lockingClause)
+	{
+		transformLockingClause(pstate, qry,
+							   (LockingClause *) lfirst(l), false);
+	}
+
+	assign_query_collations(pstate, qry);
+
+	/* this must be done after collations, for reliable comparison of exprs */
+	if (pstate->p_hasAggs || qry->groupClause || qry->groupingSets || qry->havingQual)
+		parseCheckAggregates(pstate, qry);
+
+	return qry;
+}
+
+
+/*
+ * parse_sub_analyze
+ *		Entry point for recursively analyzing a sub-statement.
+ */
+Query *
+sql_parse_sub_analyze(Node *parseTree, ParseState *parentParseState,
+				  CommonTableExpr *parentCTE,
+				  bool locked_from_parent,
+				  bool resolve_unknowns)
+{
+	ParseState *pstate = make_parsestate(parentParseState);
+	Query	   *query;
+
+	pstate->p_parent_cte = parentCTE;
+	pstate->p_locked_from_parent = locked_from_parent;
+	pstate->p_resolve_unknowns = resolve_unknowns;
+
+	//query = transformStmt(pstate, parseTree);
+			{
+				SelectStmt *n = (SelectStmt *) parseTree;
+
+				if (n->valuesLists)
+                    elog(ERROR, "unexpected non-SELECT command in SubLink");
+					//query = transformValuesClause(pstate, n);
+				else if (n->op == SETOP_NONE)
+					query = sql_transform_select_stmt(pstate, n);
+				else
+                    elog(ERROR, "unexpected non-SELECT command in SubLink");
+					//query = transformSetOperationStmt(pstate, n);
+			}
+	query->querySource = QSRC_ORIGINAL;
+	query->canSetTag = true;
+	free_parsestate(pstate);
+
+	return query;
+}
 
 static Node *
 transform_sub_link(cypher_parsestate *cpstate, SubLink *sublink) {
@@ -3096,8 +3507,14 @@ transform_sub_link(cypher_parsestate *cpstate, SubLink *sublink) {
 
     pstate->p_hasSubLinks = true;
 
-    //transform the sub-query.
-    Query *query = cypher_parse_sub_analyze(sublink->subselect, cpstate, NULL, false, true);
+	/*
+	 * OK, let's transform the sub-SELE
+	 */
+    Query *query;
+    if (IsA(sublink->subselect, SelectStmt))
+	    query = sql_parse_sub_analyze(sublink->subselect, pstate, NULL, false, true);
+    else
+        query = cypher_parse_sub_analyze(sublink->subselect, cpstate, NULL, false, true);
 
     if (!IsA(query, Query) || query->commandType != CMD_SELECT)
         elog(ERROR, "unexpected non-SELECT command in SubLink");

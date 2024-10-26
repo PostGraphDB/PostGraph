@@ -1849,7 +1849,7 @@ transform_frame_offset(ParseState *pstate, int frameOptions,
     if (frameOptions & FRAMEOPTION_ROWS)
     {
         /* Transform the raw expression tree */
-        node = transformExpr(pstate, clause, EXPR_KIND_WINDOW_FRAME_ROWS);
+        node = sql_transform_expr(pstate, clause, EXPR_KIND_WINDOW_FRAME_ROWS);
 
         /*
          * Like LIMIT clause, simply coerce to int8
@@ -1874,7 +1874,7 @@ transform_frame_offset(ParseState *pstate, int frameOptions,
         int            i;
 
         /* Transform the raw expression tree */
-        node = transformExpr(pstate, clause, EXPR_KIND_WINDOW_FRAME_RANGE);
+        node = sql_transform_expr(pstate, clause, EXPR_KIND_WINDOW_FRAME_RANGE);
         nodeType = exprType(node);
 
         /*
@@ -1951,7 +1951,7 @@ transform_frame_offset(ParseState *pstate, int frameOptions,
     else if (frameOptions & FRAMEOPTION_GROUPS)
     {
         /* Transform the raw expression tree */
-        node = transformExpr(pstate, clause, EXPR_KIND_WINDOW_FRAME_GROUPS);
+        node = sql_transform_expr(pstate, clause, EXPR_KIND_WINDOW_FRAME_GROUPS);
 
         /*
          * Like LIMIT clause, simply coerce to int8
@@ -2914,7 +2914,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
 
     if (quals != NIL) {
         q = makeBoolExpr(AND_EXPR, quals, -1);
-        expr = (Expr *)transformExpr(&cpstate->pstate, (Node *)q, EXPR_KIND_WHERE);
+        expr = (Expr *)sql_transform_expr(&cpstate->pstate, (Node *)q, EXPR_KIND_WHERE);
     }
 
     if (cpstate->property_constraint_quals != NIL) {
@@ -3277,7 +3277,7 @@ static Node *create_property_constraints(cypher_parsestate *cpstate, transform_e
     if ((pnsi = find_pnsi(cpstate, entity_name)))
         prop_expr = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
     else
-        prop_expr = transformExpr(pstate, (Node *)cr, EXPR_KIND_WHERE);
+        prop_expr = sql_transform_expr(pstate, (Node *)cr, EXPR_KIND_WHERE);
 
     // use cypher to get the constraints' transform node
     const_expr = transform_cypher_expr(cpstate, property_constraints, EXPR_KIND_WHERE);
