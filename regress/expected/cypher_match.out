@@ -1584,6 +1584,97 @@ CYPHER WITH (SELECT i FROM tst LIMIT 1) as a RETURN a;
  1
 (1 row)
 
+CREATE GRAPH keanu;
+NOTICE:  graph "keanu" has been created
+ create_graph 
+--------------
+ 
+(1 row)
+
+USE GRAPH keanu;
+ use_graph 
+-----------
+ 
+(1 row)
+
+CREATE
+  (keanu:Person {name: 'Keanu Reeves'}),
+  (johnnyMnemonic:Movie {title: 'Johnny Mnemonic', released: 1995}),
+  (theMatrixRevolutions:Movie {title: 'The Matrix Revolutions', released: 2003}),
+  (theMatrixReloaded:Movie {title: 'The Matrix Reloaded', released: 2003}),
+  (theReplacements:Movie {title: 'The Replacements', released: 2000}),
+  (theMatrix:Movie {title: 'The Matrix', released: 1999}),
+  (theDevilsAdvocate:Movie {title: 'The Devils Advocate', released: 1997}),
+  (theMatrixResurrections:Movie {title: 'The Matrix Resurrections', released: 2021}),
+  (keanu)-[:ACTED_IN]->(johnnyMnemonic),
+  (keanu)-[:ACTED_IN]->(theMatrixRevolutions),
+  (keanu)-[:ACTED_IN]->(theMatrixReloaded),
+  (keanu)-[:ACTED_IN]->(theReplacements),
+  (keanu)-[:ACTED_IN]->(theMatrix),
+  (keanu)-[:ACTED_IN]->(theDevilsAdvocate),
+  (keanu)-[:ACTED_IN]->(theMatrixResurrections);
+--
+(0 rows)
+
+--MATCH (keanu:Person {name: 'Keanu Reeves'})
+--RETURN [MATCH (keanu) WHERE 1=1 | 1] AS years;
+CYPHER WITH [MATCH (keanu:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released] AS years
+RETURN years;
+          years           
+--------------------------
+ [2003, 2003, 1999, 2021]
+(1 row)
+
+MATCH (keanu:Person {name: 'Keanu Reeves'})
+RETURN [
+        MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released
+] AS years;
+          years           
+--------------------------
+ [2003, 2003, 1999, 2021]
+(1 row)
+
+CREATE (test:Years {years: [MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released]})
+RETURN test;
+ERROR:  cannot handle unplanned sub-select
+CREATE (test:Years2);
+--
+(0 rows)
+
+MATCH (test:Years2)
+SET test.years = [MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released]
+RETURN test;
+ERROR:  cannot handle unplanned sub-select
+MATCH (test {years: [MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released]})
+RETURN test;
+ test 
+------
+(0 rows)
+
+MATCH (test)
+WHERE test.years = [MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released]
+RETURN test;
+ test 
+------
+(0 rows)
+
+RETURN case when false then '' else [MATCH (keanu:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released] end AS years;
+          years           
+--------------------------
+ [2003, 2003, 1999, 2021]
+(1 row)
+
+/*
+MATCH (keanu:Person {name: 'Keanu Reeves'})
+RETURN [(MATCH (keanu)-[:ACTED_IN]->(b)) WHERE b.title CONTAINS 'Matrix' | b.released] AS years;
+
+MATCH (keanu:Person {name: 'Keanu Reeves'})
+RETURN [(keanu)-[]->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years;
+
+
+MATCH (keanu:Person {name: 'Keanu Reeves'})
+RETURN [(:Person)-[]->(b:Movie) WHERE b.title = 'The Matrix' | b.released] AS years;
+*/
 --
 -- Clean up
 --
@@ -1606,6 +1697,20 @@ drop cascades to table cypher_match.other_v
 drop cascades to table cypher_match.opt_match_v
 drop cascades to table cypher_match.opt_match_e
 NOTICE:  graph "cypher_match" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+
+DROP GRAPH keanu CASCADE;
+NOTICE:  drop cascades to 6 other objects
+DETAIL:  drop cascades to table keanu._ag_label_vertex
+drop cascades to table keanu._ag_label_edge
+drop cascades to table keanu.person
+drop cascades to table keanu.movie
+drop cascades to table keanu.acted_in
+drop cascades to table keanu.years2
+NOTICE:  graph "keanu" has been dropped
  drop_graph 
 ------------
  

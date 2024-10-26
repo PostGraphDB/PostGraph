@@ -1297,8 +1297,7 @@ ag_token token;
                     } if (yyleng == 1)
                         if ('-' == yytext[0] || '=' == yytext[0] || '<' == yytext[0] || 
                             '>' == yytext[0] || '*' == yytext[0] || '^' == yytext[0] ||
-                            '%' == yytext[0] || '/' == yytext[0] || '+' == yytext[0] ||
-                            '-' == yytext[0]) {
+                            '%' == yytext[0] || '/' == yytext[0] || '+' == yytext[0]) {
                             token.type = AG_TOKEN_CHAR;
                             token.value.c = yytext[0];
                             token.location = get_location();

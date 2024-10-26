@@ -17920,13 +17920,7 @@ cypher_expr_atom:
 					else
 						$$ = $2;
         }
-	| '[' anonymous_path where_clause '|' return_item_list ']' %prec '['
-	    {
-			ereport(ERROR, errmsg("pattern comprehensions are not yet implemented"));
-
-			$$ = NULL;
-		}
-	| '[' ColId IN cypher_a_expr cypher_where_opt '|' return_item ']' %prec '['
+	/*| '[' ColId IN cypher_a_expr cypher_where_opt '|' return_item ']' %prec '['
 	    {
 			ereport(ERROR, errmsg("list comprehensions are not yet implemented"));
 
@@ -17935,7 +17929,7 @@ cypher_expr_atom:
 	| cypher_var_name '{' map_proj_list_opt '}' %prec '{'
         {
 			ereport(ERROR, errmsg("map projections are not yet implemented"));
-        }
+        }*/
     | expr_case  
     | cypher_expr_func
 	| '(' cypher_query ')'			%prec UNARY_MINUS
@@ -18117,11 +18111,53 @@ map_keyval_list:
     ;
 
 list:
-    '[' cypher_expr_list_opt ']'
-        {
-            cypher_list *n;
+	'[' cypher_stmt ']'  %prec '.'
+	    {
+			//cypher_pattern_comprehension *comp = make_ag_node(cypher_pattern_comprehension);
+			
+			//comp->pattern = $2;
+            cypher_return *ret = llast($2);
+			if (!is_ag_node(ret, cypher_return))
+        		ereport(ERROR, errmsg("Pattern Comprehensions must end with a return"));
 
-            n = make_ag_node(cypher_list);
+            if (list_length(ret->items) != 1) 
+			    ereport(ERROR, errmsg("RETURN clause for Pattern Comprehensions can only contain one item"));
+
+            ResTarget *res = linitial(ret->items);
+			res->val = (Node *)makeFuncCall(list_make2(makeString("postgraph"), makeString("collect")), list_make1(res->val), COERCE_SQL_SYNTAX, @1);
+
+
+            cypher_sub_pattern *sub;
+
+            sub = make_ag_node(cypher_sub_pattern);
+            sub->pattern = $2;
+            sub->kind = CSP_EXISTS;
+
+			SubLink *n = makeNode(SubLink);
+			n->subLinkType = EXPR_SUBLINK;
+			n->subLinkId = 0;
+			n->testexpr = NULL;
+			n->operName = NIL;
+			n->subselect = sub;
+			n->location = @1;
+			$$ = (Node *)n;
+
+		}
+	/*| '[' anonymous_path where_clause '|' return_item_list ']'  %prec '.'
+	    {
+			cypher_pattern_comprehension *comp = make_ag_node(cypher_pattern_comprehension);
+			
+			comp->pattern = $2;
+			comp->where = $3;
+			comp->return_list = $5;
+			comp->location = @1;
+
+			$$ = (Node *)comp;
+		}*/
+		| '[' cypher_expr_list_opt ']' %prec '['
+        {
+            cypher_list *n = make_ag_node(cypher_list);
+
             n->elems = $2;
 
             $$ = (Node *)n;

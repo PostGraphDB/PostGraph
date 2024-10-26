@@ -355,10 +355,74 @@ RETURN (SELECT COUNT(*) FROM tst);
 CYPHER WITH (RETURN 1) as a RETURN a;
 CYPHER WITH (SELECT i FROM tst LIMIT 1) as a RETURN a;
 
+CREATE GRAPH keanu;
+USE GRAPH keanu;
+
+CREATE
+  (keanu:Person {name: 'Keanu Reeves'}),
+  (johnnyMnemonic:Movie {title: 'Johnny Mnemonic', released: 1995}),
+  (theMatrixRevolutions:Movie {title: 'The Matrix Revolutions', released: 2003}),
+  (theMatrixReloaded:Movie {title: 'The Matrix Reloaded', released: 2003}),
+  (theReplacements:Movie {title: 'The Replacements', released: 2000}),
+  (theMatrix:Movie {title: 'The Matrix', released: 1999}),
+  (theDevilsAdvocate:Movie {title: 'The Devils Advocate', released: 1997}),
+  (theMatrixResurrections:Movie {title: 'The Matrix Resurrections', released: 2021}),
+  (keanu)-[:ACTED_IN]->(johnnyMnemonic),
+  (keanu)-[:ACTED_IN]->(theMatrixRevolutions),
+  (keanu)-[:ACTED_IN]->(theMatrixReloaded),
+  (keanu)-[:ACTED_IN]->(theReplacements),
+  (keanu)-[:ACTED_IN]->(theMatrix),
+  (keanu)-[:ACTED_IN]->(theDevilsAdvocate),
+  (keanu)-[:ACTED_IN]->(theMatrixResurrections);
+
+--MATCH (keanu:Person {name: 'Keanu Reeves'})
+--RETURN [MATCH (keanu) WHERE 1=1 | 1] AS years;
+
+CYPHER WITH [MATCH (keanu:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released] AS years
+RETURN years;
+
+MATCH (keanu:Person {name: 'Keanu Reeves'})
+RETURN [
+        MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released
+] AS years;
+
+CREATE (test:Years {years: [MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released]})
+RETURN test;
+
+
+CREATE (test:Years2);
+
+MATCH (test:Years2)
+SET test.years = [MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released]
+RETURN test;
+
+
+MATCH (test {years: [MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released]})
+RETURN test;
+
+MATCH (test)
+WHERE test.years = [MATCH (keanu)-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released]
+RETURN test;
+
+RETURN case when false then '' else [MATCH (keanu:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released] end AS years;
+
+
+/*
+MATCH (keanu:Person {name: 'Keanu Reeves'})
+RETURN [(MATCH (keanu)-[:ACTED_IN]->(b)) WHERE b.title CONTAINS 'Matrix' | b.released] AS years;
+
+MATCH (keanu:Person {name: 'Keanu Reeves'})
+RETURN [(keanu)-[]->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years;
+
+
+MATCH (keanu:Person {name: 'Keanu Reeves'})
+RETURN [(:Person)-[]->(b:Movie) WHERE b.title = 'The Matrix' | b.released] AS years;
+*/
 --
 -- Clean up
 --
 DROP GRAPH cypher_match CASCADE;
+DROP GRAPH keanu CASCADE;
 
 --
 -- End
