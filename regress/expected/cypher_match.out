@@ -328,23 +328,38 @@ CREATE ({lst: [1, NULL, 3.14, 'string', {key: 'value'}, []]});
 (0 rows)
 
 MATCH (n  {string_key: NULL}) RETURN n;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+ n 
+---
+(0 rows)
+
 MATCH (n  {string_key: 'wrong value'}) RETURN n ;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+ n 
+---
+(0 rows)
+
 MATCH (n {string_key: 'test', int_key: 1, float_key: 3.14, map_key: {key: 'value'}, list_key: [1, 2, 3]}) RETURN n;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                                                                n                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {"int_key": 1, "map_key": {"key": "value"}, "list_key": [1, 2, 3], "float_key": 3.14, "string_key": "test"}}
+(1 row)
+
 MATCH (n {string_key: 'test'}) RETURN n;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                                                                n                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {"int_key": 1, "map_key": {"key": "value"}, "list_key": [1, 2, 3], "float_key": 3.14, "string_key": "test"}}
+(1 row)
+
 MATCH (n {lst: [1, NULL, 3.14, 'string', {key: 'value'}, []]}) RETURN n;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                                      n                                                       
+--------------------------------------------------------------------------------------------------------------
+ {"id": 281474976710658, "label": "", "properties": {"lst": [1, null, 3.14, "string", {"key": "value"}, []]}}
+(1 row)
+
 MATCH (n {lst: [1, NULL, 3.14, 'string', {key: 'value'}, [], 'extra value']})  RETURN n;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+ n 
+---
+(0 rows)
+
 -- Path of one vertex.
 MATCH p=() RETURN p;
                                                                                  p                                                                                 
@@ -392,14 +407,23 @@ MATCH (u)-[e]->(v) WHERE EXISTS ((u)-[e]->(v)) RETURN u, e, v;
 
 -- Property Constraint in EXISTS
 MATCH (u) WHERE EXISTS((u)-[]->({id: 'middle'})) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                    u                                     
+--------------------------------------------------------------------------
+ {"id": 1125899906842625, "label": "v1", "properties": {"id": "initial"}}
+ {"id": 2251799813685249, "label": "v3", "properties": {"id": "initial"}}
+ {"id": 2251799813685251, "label": "v3", "properties": {"id": "end"}}
+(3 rows)
+
 MATCH (u) WHERE EXISTS((u)-[]->({id: 'not a valid id'})) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+ u 
+---
+(0 rows)
+
 MATCH (u) WHERE EXISTS((u)-[]->({id: NULL})) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+ u 
+---
+(0 rows)
+
 -- Exists checks for a loop. There shouldn't be any.
 MATCH (u)-[e]->(v) WHERE EXISTS((u)-[e]->(u)) RETURN u, e, v;
  u | e | v 
@@ -465,11 +489,21 @@ MATCH (u)-[e]->(v) WHERE EXISTS((u)-[e]->(x)) RETURN u, e, v;
 (7 rows)
 
 MATCH (u) WHERE EXISTS(MATCH (u)-[]->({id: 'middle'}) RETURN 1) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                    u                                     
+--------------------------------------------------------------------------
+ {"id": 1125899906842625, "label": "v1", "properties": {"id": "initial"}}
+ {"id": 2251799813685249, "label": "v3", "properties": {"id": "initial"}}
+ {"id": 2251799813685251, "label": "v3", "properties": {"id": "end"}}
+(3 rows)
+
 MATCH (u) WHERE EXISTS(MATCH (u)-[]->({id: 'middle'}) RETURN u) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                    u                                     
+--------------------------------------------------------------------------
+ {"id": 1125899906842625, "label": "v1", "properties": {"id": "initial"}}
+ {"id": 2251799813685249, "label": "v3", "properties": {"id": "initial"}}
+ {"id": 2251799813685251, "label": "v3", "properties": {"id": "end"}}
+(3 rows)
+
 MATCH (u) WHERE u.id = ANY (MATCH (v) RETURN v.id) RETURN u;
                                      u                                      
 ----------------------------------------------------------------------------
@@ -521,20 +555,36 @@ RETURN u;
 (3 rows)
 
 MATCH (u) WHERE EXISTS(MATCH (u)-[]->({id: 'gsjka'}) RETURN 1) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+ u 
+---
+(0 rows)
+
 MATCH (u) WHERE EXISTS(MATCH (v {id: 'middle'}) MATCH (u)-[]->(v) RETURN 1) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                    u                                     
+--------------------------------------------------------------------------
+ {"id": 1125899906842625, "label": "v1", "properties": {"id": "initial"}}
+ {"id": 2251799813685249, "label": "v3", "properties": {"id": "initial"}}
+ {"id": 2251799813685251, "label": "v3", "properties": {"id": "end"}}
+(3 rows)
+
 MATCH (u) WHERE EXISTS(MATCH (v {id: 'middle'}) MATCH (u)-[]->(v) RETURN 1) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                    u                                     
+--------------------------------------------------------------------------
+ {"id": 1125899906842625, "label": "v1", "properties": {"id": "initial"}}
+ {"id": 2251799813685249, "label": "v3", "properties": {"id": "initial"}}
+ {"id": 2251799813685251, "label": "v3", "properties": {"id": "end"}}
+(3 rows)
+
 MATCH (u) WHERE EXISTS(MATCH (u)-[]->(v {id: 'middle'}) RETURN 1) RETURN u;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                    u                                     
+--------------------------------------------------------------------------
+ {"id": 1125899906842625, "label": "v1", "properties": {"id": "initial"}}
+ {"id": 2251799813685249, "label": "v3", "properties": {"id": "initial"}}
+ {"id": 2251799813685251, "label": "v3", "properties": {"id": "end"}}
+(3 rows)
+
 MATCH (u) RETURN case WHEN EXISTS(MATCH (u)-[]->({id: 'gsjka'}) RETURN 1) THEN 1 ELSE 2 END;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+ERROR:  cannot handle unplanned sub-select
 MATCH (u) RETURN case WHEN EXISTS(MATCH (u)-[]->() RETURN 1) THEN 1 ELSE 2 END;
 ERROR:  cannot handle unplanned sub-select
  
@@ -1300,8 +1350,11 @@ CREATE ({i: 1, j: 2, k: 3}), ({i: 1, j: 3}), ({i:2, k: 3});
 (0 rows)
 
 MATCH (n {j: 2}) WHERE n.i = 1 RETURN n;
-ERROR:  operator does not exist: postgraph.gtype @> postgraph.gtype
-HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+                                      n                                       
+------------------------------------------------------------------------------
+ {"id": 281474976710662, "label": "", "properties": {"i": 1, "j": 2, "k": 3}}
+(1 row)
+
 --
 -- Prepared Statement Property Constraint
 --

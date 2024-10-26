@@ -3282,7 +3282,7 @@ static Node *create_property_constraints(cypher_parsestate *cpstate, transform_e
     // use cypher to get the constraints' transform node
     const_expr = transform_cypher_expr(cpstate, property_constraints, EXPR_KIND_WHERE);
 
-    return (Node *)make_op(pstate, list_make1(makeString("@>")), prop_expr, const_expr, last_srf, -1);
+    return (Node *)make_op(pstate, list_make2(makeString("postgraph"), makeString("@>")), prop_expr, const_expr, last_srf, -1);
 }
 
 
