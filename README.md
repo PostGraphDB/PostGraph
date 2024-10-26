@@ -1,6 +1,6 @@
 # PostGraph
 
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/854cafdbd0394189bec10e8fdd17df7f)](https://app.codacy.com/gh/PostGraphDB/postgraph?utm_source=github.com&utm_medium=referral&utm_content=PostGraphDB/postgraph&utm_campaign=Badge_Grade)   <a href="https://github.com/PostGraphDB/PostGraph/blob/master/LICENSE"><img src="https://img.shields.io/github/license/PostGraphDB/PostGraph"/></a>   <a href="https://github.com/PostGraphDB/PostGraph/issues"><img src="https://img.shields.io/github/issues/PostGraphDB/PostGraph"/></a>   <a href="https://github.com/PostGraphDB/PostGraph/network/members"><img src="https://img.shields.io/github/forks/PostGraphDB/PostGraph"/></a>   <a href="https://github.com/PostGraphDB/PostGraph/stargazers"><img src="https://img.shields.io/github/stars/PostGraphDB/PostGraph"/></a>
+ <a href="https://github.com/PostGraphDB/PostGraph/blob/master/LICENSE"><img src="https://img.shields.io/github/license/PostGraphDB/PostGraph"/></a>   <a href="https://github.com/PostGraphDB/PostGraph/issues"><img src="https://img.shields.io/github/issues/PostGraphDB/PostGraph"/></a>   <a href="https://github.com/PostGraphDB/PostGraph/network/members"><img src="https://img.shields.io/github/forks/PostGraphDB/PostGraph"/></a>   <a href="https://github.com/PostGraphDB/PostGraph/stargazers"><img src="https://img.shields.io/github/stars/PostGraphDB/PostGraph"/></a>
 <p align="center">
  <img src="/logo.png">
 </p>
@@ -8,19 +8,25 @@
 ## Introduction
 PostGraph is a multi-model, graph centric query engine build on Postgres. PostGraph is designed to work fast with your OLTP, OLAP and AI Applications.
 
-### PostGraph Supports
--   Cypher - Use the Cypher Query Language to explore your data and run Graph queries.
--   Vectors - Combine Vectors with your graph data to unlock new and valuable insights 
--   PostGIS - Unlock the power of spatial data in your graph database.
--   Full Text Search - Sift through vast amounts of textual data and combine with Vectors to unlock your natural language processing models
-
 ## Requirements
 -   Linux
--   PosgreSQL v14
 -   PostGIS 3.3
 -   Development Files for PostgreSQL and PostGIS
 
 ## Building & Installation From Source
+
+Download and Install the postgres_for_postgraph source 
+```bash
+git clone https://github.com/PostGraphDB/postgres_for_postgraph
+cd postgres_for_postgraph
+./configure --prefix=($pwd)
+make
+sudo make install
+```
+
+Install PostGIS
+
+Install PostGraph
 ```bash
 git clone https://github.com/PostGraphDB/postgraph
 cd postgraph
