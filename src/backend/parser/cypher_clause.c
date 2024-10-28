@@ -974,6 +974,16 @@ static Query *transform_cypher_delete(cypher_parsestate *cpstate, cypher_clause 
         return topquery;
     }
 }
+static Node *make_bool_const(bool b, int location)
+{
+    cypher_bool_const *n;
+
+    n = make_ag_node(cypher_bool_const);
+    n->boolean = b;
+    n->location = location;
+
+    return (Node *)n;
+}
 
 /*
  * transform_cypher_unwind
@@ -991,9 +1001,8 @@ static Query *transform_cypher_unwind(cypher_parsestate *cpstate, cypher_clause 
     Node *funcexpr;
     TargetEntry *te;
     ParseNamespaceItem *pnsi;
-
     cypher_parsestate *child_cpstate = make_cypher_parsestate(cpstate);
-ParseState *pstate = (ParseState *) child_cpstate;
+    ParseState *pstate = (ParseState *) child_cpstate;
     
     query = makeNode(Query);
     query->commandType = CMD_SELECT;
@@ -1016,8 +1025,19 @@ ParseState *pstate = (ParseState *) child_cpstate;
 
     expr = transform_cypher_expr(child_cpstate, self->target->val, EXPR_KIND_SELECT_TARGET);
 
-    unwind = makeFuncCall(list_make2(makeString(CATALOG_SCHEMA), makeString("unnest")), NIL, COERCE_SQL_SYNTAX, -1);
+    unwind = makeFuncCall(list_make2(makeString(CATALOG_SCHEMA), makeString("unnest")), list_make2(self->target->val, make_bool_const(true, -1)), COERCE_SQL_SYNTAX, -1);
+    pnsi = add_srf_to_query(child_cpstate, unwind, self->target->name); 
+    Node *var = scanNSItemForColumn(pstate, pnsi, 0, self->target->name, -1);
+    te = makeTargetEntry((Expr *) var, (AttrNumber) pstate->p_next_resno++, self->target->name, false);
+    query->targetList = lappend(query->targetList, te);
 
+    transform_entity *entity = make_transform_entity(child_cpstate, ENT_FUNC_CALL, NULL, (Node *)var, self->target->name);
+    child_cpstate->entities = lappend(child_cpstate->entities, entity);
+
+    if (self->where)
+       expr = transform_cypher_expr(child_cpstate, self->where, EXPR_KIND_WHERE);
+
+       /*
     old_expr_kind = pstate->p_expr_kind;
     pstate->p_expr_kind = EXPR_KIND_SELECT_TARGET;
     funcexpr = ParseFuncOrColumn(pstate, unwind->funcname, list_make2(expr, makeBoolConst(true, false)),
@@ -1025,11 +1045,17 @@ ParseState *pstate = (ParseState *) child_cpstate;
 
     pstate->p_expr_kind = old_expr_kind;
 
-    te = makeTargetEntry((Expr *) funcexpr, (AttrNumber) pstate->p_next_resno++, self->target->name, false);
+    te = makeTargetEntry((Expr *) funcexpr, (AttrNumber) pstate->p_next_resno++, res->name, false);
+
+    expr = transform_cypher_expr(child_cpstate, call->where, EXPR_KIND_WHERE);
+
+    transform_entity *entity = make_transform_entity(child_cpstate, ENT_FUNC_CALL, NULL, (Node *)var, call->alias);
+    child_cpstate->entities = lappend(child_cpstate->entities, entity);
 
     query->targetList = lappend(query->targetList, te);
+    */
     query->rtable = pstate->p_rtable;
-    query->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+    query->jointree = makeFromExpr(pstate->p_joinlist, expr);
     query->hasTargetSRFs = pstate->p_hasTargetSRFs;
 
     assign_query_collations(pstate, query);
@@ -3399,7 +3425,7 @@ static List *transform_match_entities(cypher_parsestate *cpstate, Query *query, 
             rel = list_nth(path->path, i);
             
             if (!rel->varlen) {
-        entity = handle_edge(cpstate, query, path, rel, i, lc, prev_node_entity);
+                entity = handle_edge(cpstate, query, path, rel, i, lc, prev_node_entity);
 
                 cpstate->entities = lappend(cpstate->entities, entity);
                 entities = lappend(entities, entity);
@@ -3984,13 +4010,6 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
     query = makeNode(Query);
     query->commandType = CMD_SELECT;
     query->targetList = NIL;
-/*
-    if (!clause->next) {
-        null_const = makeNullConst(GTYPEOID, -1, InvalidOid);
-        tle = makeTargetEntry((Expr *)null_const, pstate->p_next_resno++, "_null", false);
-        query->targetList = lappend(query->targetList, tle);
-    }
-*/
 
     if (clause->prev) {
         handle_prev_clause(cpstate, query, clause->prev, true);

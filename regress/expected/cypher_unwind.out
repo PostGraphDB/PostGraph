@@ -80,6 +80,15 @@ RETURN x, y;
  5      | 5
 (5 rows)
 
+CYPHER WITH [1, 2, 3, 4, 5] AS lst
+UNWIND lst AS x WHERE x % 2 = 0
+RETURN x;
+ x 
+---
+ 2
+ 4
+(2 rows)
+
 -- TODO
 MATCH (n_1)
 WITH collect(n_1) as n

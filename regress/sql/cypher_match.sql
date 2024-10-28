@@ -406,7 +406,7 @@ RETURN test;
 
 RETURN case when false then '' else [MATCH (keanu:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released] end AS years;
 
-
+RETURN case when false then '' else [MATCH (keanu:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released][0] end AS years;
 /*
 MATCH (keanu:Person {name: 'Keanu Reeves'})
 RETURN [(MATCH (keanu)-[:ACTED_IN]->(b)) WHERE b.title CONTAINS 'Matrix' | b.released] AS years;

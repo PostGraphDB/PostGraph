@@ -133,6 +133,8 @@ typedef struct cypher_unwind
 {
     ExtensibleNode extensible;
     ResTarget *target;
+    Node *where;
+    RangeFunction *rf;
 } cypher_unwind;
 
 typedef struct cypher_merge
@@ -146,7 +148,7 @@ typedef enum cypher_call_kind
     CCK_FUNCTION,
     CCK_CYPHER_SUBQUERY,
 	CCK_SQL_SUBQUERY
-} cypher_call_kind;
+} cypher_call_kind; 
 
 typedef struct cypher_call
 {

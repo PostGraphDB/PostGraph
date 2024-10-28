@@ -39,6 +39,10 @@ UNWIND nested AS x
 UNWIND x AS y
 RETURN x, y;
 
+CYPHER WITH [1, 2, 3, 4, 5] AS lst
+UNWIND lst AS x WHERE x % 2 = 0
+RETURN x;
+
 -- TODO
 MATCH (n_1)
 WITH collect(n_1) as n

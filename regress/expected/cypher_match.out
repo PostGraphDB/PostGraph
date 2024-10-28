@@ -1664,6 +1664,10 @@ RETURN case when false then '' else [MATCH (keanu:Person {name: 'Keanu Reeves'})
  [2003, 2003, 1999, 2021]
 (1 row)
 
+RETURN case when false then '' else [MATCH (keanu:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(b) WHERE b.title CONTAINS 'Matrix' RETURN b.released][0] end AS years;
+ERROR:  syntax error at or near "["
+LINE 1: ...WHERE b.title CONTAINS 'Matrix' RETURN b.released][0] end AS...
+                                                             ^
 /*
 MATCH (keanu:Person {name: 'Keanu Reeves'})
 RETURN [(MATCH (keanu)-[:ACTED_IN]->(b)) WHERE b.title CONTAINS 'Matrix' | b.released] AS years;
