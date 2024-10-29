@@ -18136,6 +18136,40 @@ list:
 			$$ = (Node *)n;
 
 		}
+    | '[' ColId IN cypher_a_expr cypher_where_opt RETURN return_item ']' %prec '['
+	    {
+
+			ereport(ERROR, errmsg("list comprehensions are not yet implemented"));
+			
+			cypher_return *ret = make_ag_node(cypher_return);
+			ret->items = list_make1($7); 
+	
+			ResTarget *res = makeNode(ResTarget);
+			res->name = $2;
+			res->indirection = NIL;
+			res->val = (Node *)makeFuncCall(list_make2(makeString("postgraph"), makeString("collect")), list_make1($4), COERCE_SQL_SYNTAX, @4);
+			res->location = @4;
+
+			cypher_unwind *unwind = make_ag_node(cypher_unwind);
+			unwind->target = res;
+			unwind->where = $5;
+
+            List *pattern = list_make2(unwind, ret);
+            cypher_sub_pattern *sub;
+
+            sub = make_ag_node(cypher_sub_pattern);
+            sub->pattern = pattern;
+            sub->kind = CSP_EXISTS;
+
+			SubLink *n = makeNode(SubLink);
+			n->subLinkType = EXPR_SUBLINK;
+			n->subLinkId = 0;
+			n->testexpr = NULL;
+			n->operName = NIL;
+			n->subselect = sub;
+			n->location = @1;
+			$$ = (Node *)n;
+		}
     /*| '[' ColId IN cypher_a_expr cypher_where_opt '|' return_item ']' %prec '['
 	    {
 			ereport(ERROR, errmsg("list comprehensions are not yet implemented"));
