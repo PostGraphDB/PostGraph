@@ -571,3 +571,18 @@ AS
     FUNCTION 4 gin_consistent_gtype,
     FUNCTION 6 gin_triconsistent_gtype,
 STORAGE text;
+
+CREATE FUNCTION generate_series (gtype, gtype)
+RETURNS SETOF gtype
+LANGUAGE c
+IMMUTABLE
+PARALLEL SAFE
+AS 'MODULE_PATHNAME', 'generate_series_gtype';
+
+
+CREATE FUNCTION generate_series (gtype, gtype, gtype)
+RETURNS SETOF gtype
+LANGUAGE c
+IMMUTABLE
+PARALLEL SAFE
+AS 'MODULE_PATHNAME', 'generate_series_step_gtype';

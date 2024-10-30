@@ -2986,3 +2986,101 @@ Datum gtype_unnest(PG_FUNCTION_ARGS)
 
     PG_RETURN_NULL();
 }
+
+
+#include "common/int.h"
+
+typedef struct
+{
+	int64		current;
+	int64		finish;
+	int64		step;
+} generate_series_fctx;
+
+PG_FUNCTION_INFO_V1(generate_series_gtype);
+PG_FUNCTION_INFO_V1(generate_series_step_gtype);
+
+/*
+ * non-persistent numeric series generator
+ */
+Datum
+generate_series_gtype(PG_FUNCTION_ARGS)
+{
+	return generate_series_step_gtype(fcinfo);
+}
+
+Datum
+generate_series_step_gtype(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	generate_series_fctx *fctx;
+	int64		result;
+	MemoryContext oldcontext;
+
+	/* stuff done only on the first call of the function */
+	if (SRF_IS_FIRSTCALL())
+	{
+		int64		start = DatumGetInt64(convert_to_scalar(gtype_to_int8_internal, AG_GET_ARG_GTYPE_P(0), "int"));
+		int64		finish = DatumGetInt64(convert_to_scalar(gtype_to_int8_internal, AG_GET_ARG_GTYPE_P(1), "int"));
+		int64		step = 1;
+
+		/* see if we were given an explicit step size */
+		if (PG_NARGS() == 3)
+			step = DatumGetInt64(convert_to_scalar(gtype_to_int8_internal, AG_GET_ARG_GTYPE_P(2), "int"));
+        if (step == 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("step size cannot equal zero")));
+
+		/* create a function context for cross-call persistence */
+		funcctx = SRF_FIRSTCALL_INIT();
+
+		/*
+		 * switch to memory context appropriate for multiple function calls
+		 */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		/* allocate memory for user context */
+		fctx = (generate_series_fctx *) palloc(sizeof(generate_series_fctx));
+
+		/*
+		 * Use fctx to keep state from call to call. Seed current with the
+		 * original start value
+		 */
+		fctx->current = start;
+		fctx->finish = finish;
+		fctx->step = step;
+
+		funcctx->user_fctx = fctx;
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	/* stuff done on every call of the function */
+	funcctx = SRF_PERCALL_SETUP();
+
+	/*
+	 * get the saved state and use current as the result for this iteration
+	 */
+	fctx = funcctx->user_fctx;
+	result = fctx->current;
+
+	if ((fctx->step > 0 && fctx->current <= fctx->finish) ||
+		(fctx->step < 0 && fctx->current >= fctx->finish))
+	{
+		/*
+		 * Increment current in preparation for next iteration. If next-value
+		 * computation overflows, this is the final result.
+		 */
+		if (pg_add_s64_overflow(fctx->current, fctx->step, &fctx->current))
+			fctx->step = 0;
+
+            gtype_value gtv = { .type = AGTV_INTEGER, .val.int_value = result };
+
+
+		/* do when there is more left to send */
+		SRF_RETURN_NEXT(funcctx, GTYPE_P_GET_DATUM(gtype_value_to_gtype(&gtv)));
+	}
+	else
+		/* do when there is no more left */
+		SRF_RETURN_DONE(funcctx);
+}

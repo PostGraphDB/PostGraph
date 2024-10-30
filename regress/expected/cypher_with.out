@@ -33,10 +33,12 @@ USE GRAPH cypher_with;
  
 (1 row)
 
-WITH true AS b RETURN b;
-ERROR:  syntax error at or near "true"
-LINE 1: WITH true AS b RETURN b;
-             ^
+CYPHER WITH true AS b RETURN b;
+  b   
+------
+ true
+(1 row)
+
 CREATE ({i: 1}), ({i: 1, j: 2}), ({i: 2});
 --
 (0 rows)
@@ -53,6 +55,31 @@ MATCH (n) WITH n as a WHERE n.i = 1 and n.j = 2 RETURN a;
 ----------------------------------------------------------------------
  {"id": 281474976710658, "label": "", "properties": {"i": 1, "j": 2}}
 (1 row)
+
+CYPHER WITH generate_series(1, 10) as i RETURN i;
+ i  
+----
+ 1
+ 2
+ 3
+ 4
+ 5
+ 6
+ 7
+ 8
+ 9
+ 10
+(10 rows)
+
+CYPHER WITH generate_series(1, 10, 2) as i RETURN i;
+ i 
+---
+ 1
+ 3
+ 5
+ 7
+ 9
+(5 rows)
 
 --Error
 WITH 1 + 1 RETURN i;

@@ -24,13 +24,18 @@ SET search_path TO postgraph;
 CREATE GRAPH cypher_with;
 USE GRAPH cypher_with;
 
-WITH true AS b RETURN b;
+CYPHER WITH true AS b RETURN b;
 
 CREATE ({i: 1}), ({i: 1, j: 2}), ({i: 2});
 
 MATCH (n) WITH n as a WHERE n.i = 1 RETURN a;
 
 MATCH (n) WITH n as a WHERE n.i = 1 and n.j = 2 RETURN a;
+
+
+CYPHER WITH generate_series(1, 10) as i RETURN i;
+
+CYPHER WITH generate_series(1, 10, 2) as i RETURN i;
 
 --Error
 WITH 1 + 1 RETURN i;
