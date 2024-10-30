@@ -3025,27 +3025,68 @@ SELECT ST_CPAWithin( 'LINESTRINGM(0 0 0, 10 0 10)'::geometry ,'LINESTRINGM(10 0 
 
 SELECT ST_CPAWithin( 'LINESTRING(0 0 0, 1 0 0)'::geometry ,'LINESTRING(0 0 3 0, 1 0 2 1)'::geometry, 1e16);
 ERROR:  Both input geometries must have a measure dimension
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 0.0);
-SELECT  * FROM cypher('postgis', ;
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 1.0);
-SELECT  * FROM cypher('postgis', ;
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 0.5);
-SELECT  * FROM cypher('postgis', ;
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 1);
-SELECT  * FROM cypher('postgis', ;
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 2);
-SELECT  * FROM cypher('postgis', ;
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 1.9);
-SELECT  * FROM cypher('postgis', ;
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 2);
-SELECT  * FROM cypher('postgis', ;
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 2.0001);
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 -- temporary disjoint
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 10 0 10)'::geometry ,'LINESTRINGM(10 0 11, 10 10 20)'::geometry, 1e15);
-SELECT  * FROM cypher('postgis', ;
+ st_cpawithin 
+--------------
+ true
+(1 row)
+
 RETURN ST_CPAWithin( 'LINESTRING(0 0 0, 1 0 0)'::geometry ,'LINESTRING(0 0 3 0, 1 0 2 1)'::geometry, 1e16);
+NOTICE:  Line does not have M dimension
+ st_cpawithin 
+--------------
+ false
+(1 row)
+
 --
 -- GEOS
 --
@@ -3053,11 +3094,41 @@ RETURN ST_CPAWithin( 'LINESTRING(0 0 0, 1 0 0)'::geometry ,'LINESTRING(0 0 3 0, 
 -- ST_Intersection
 --
 SELECT ST_Intersection('MULTIPOINT ((0 0), (1 1))'::geometry, 'MULTIPOINT ((0 0), (1 1))'::geometry);
+                                            st_intersection                                             
+--------------------------------------------------------------------------------------------------------
+ 0104000000020000000101000000000000000000000000000000000000000101000000000000000000F03F000000000000F03F
+(1 row)
+
 SELECT ST_AsEWKT(ST_Intersection('MULTIPOINT ((0 0), (1 1))'::geometry, 'MULTIPOINT ((0 0), (1 1))'::geometry));
+      st_asewkt      
+---------------------
+ MULTIPOINT(0 0,1 1)
+(1 row)
+
 RETURN ST_Intersection('MULTIPOINT ((0 0), (1 1))'::geometry, 'MULTIPOINT ((0 0), (1 1))'::geometry, -1.0);
+                                            st_intersection                                             
+--------------------------------------------------------------------------------------------------------
+ 0104000000020000000101000000000000000000000000000000000000000101000000000000000000F03F000000000000F03F
+(1 row)
+
 RETURN ST_AsEWKT(ST_Intersection('MULTIPOINT ((0 0), (1 1))'::geometry, 'MULTIPOINT ((0 0), (1 1))'::geometry, -1.0));
+       st_asewkt       
+-----------------------
+ "MULTIPOINT(0 0,1 1)"
+(1 row)
+
 RETURN ST_AsEWKT(ST_Intersection('MULTIPOINT ((2 2), (5 1))'::geometry, 'MULTIPOINT ((0 0), (1 1))'::geometry, -1.0));
+   st_asewkt   
+---------------
+ "POINT EMPTY"
+(1 row)
+
 RETURN ST_AsEWKT(ST_Intersection('MULTIPOINT ((2 2), (5 1))'::geometry, 'MULTIPOINT ((0 0), (1 1))'::geometry));
+   st_asewkt   
+---------------
+ "POINT EMPTY"
+(1 row)
+
 --
 -- Algorithms
 -- 
@@ -3065,14 +3136,34 @@ RETURN ST_AsEWKT(ST_Intersection('MULTIPOINT ((2 2), (5 1))'::geometry, 'MULTIPO
 -- ST_Simplify
 --
 SELECT ST_AsEWKT(ST_Simplify('POLYGON((0 0,1 1,1 3,0 4,-2 3,-1 1,0 0))'::geometry, 1));
+          st_asewkt          
+-----------------------------
+ POLYGON((0 0,0 4,-2 3,0 0))
+(1 row)
+
 SELECT ST_AsEWKT(ST_Simplify('POLYGON((0 0,1 1,1 3,2 3,2 0,0 0))'::geometry, 1));
+         st_asewkt          
+----------------------------
+ POLYGON((0 0,2 3,2 0,0 0))
+(1 row)
+
 RETURN ST_AsEWKT(ST_Simplify('POLYGON((0 0,1 1,1 3,0 4,-2 3,-1 1,0 0))', 1));
+           st_asewkt           
+-------------------------------
+ "POLYGON((0 0,0 4,-2 3,0 0))"
+(1 row)
+
 RETURN ST_AsEWKT(ST_Simplify('POLYGON((0 0,1 1,1 3,2 3,2 0,0 0))'::geometry, 1));
+          st_asewkt           
+------------------------------
+ "POLYGON((0 0,2 3,2 0,0 0))"
+(1 row)
+
 /*
  * 3D Functions
  */
 --3D Distance functions
-    WITH 'POINT(1 1 1)'::geometry as a, 'POINT(3 2 7)'::geometry as b
+CYPHER WITH 'POINT(1 1 1)'::geometry as a, 'POINT(3 2 7)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -3080,7 +3171,12 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DShortestline(a,b)),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
-    WITH 'POINT(1 1 1)'::geometry as a, 'LINESTRING(0 0 0, 2 2 2)'::geometry as b
+  st_3ddistance   |         ?column?          | st_3ddwithin | st_3ddfullywithin |         st_asewkt         |   st_asewkt    |         st_asewkt         
+------------------+---------------------------+--------------+-------------------+---------------------------+----------------+---------------------------
+ 6.40312423743285 | 6.40312423743285::numeric | false        | false             | "LINESTRING(1 1 1,3 2 7)" | "POINT(1 1 1)" | "LINESTRING(1 1 1,3 2 7)"
+(1 row)
+
+CYPHER WITH 'POINT(1 1 1)'::geometry as a, 'LINESTRING(0 0 0, 2 2 2)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -3088,7 +3184,12 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DShortestline(a,b)),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
-    WITH 'POINT(1 1 1)'::geometry as a, 'LINESTRING(5 2 6, -3 -2 4)'::geometry as b
+ st_3ddistance |         ?column?          | st_3ddwithin | st_3ddfullywithin |         st_asewkt         |   st_asewkt    |         st_asewkt         
+---------------+---------------------------+--------------+-------------------+---------------------------+----------------+---------------------------
+ 0.0           | 1.73205080756888::numeric | true         | true              | "LINESTRING(1 1 1,1 1 1)" | "POINT(1 1 1)" | "LINESTRING(1 1 1,0 0 0)"
+(1 row)
+
+CYPHER WITH 'POINT(1 1 1)'::geometry as a, 'LINESTRING(5 2 6, -3 -2 4)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -3096,7 +3197,12 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DShortestline(a,b)),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
-    WITH 'LINESTRING(1 1 3, 5 7 8)'::geometry as a, 'POINT(1 1 1)'::geometry as b
+  st_3ddistance   |         ?column?          | st_3ddwithin | st_3ddfullywithin |                                 st_asewkt                                  |   st_asewkt    |         st_asewkt         
+------------------+---------------------------+--------------+-------------------+----------------------------------------------------------------------------+----------------+---------------------------
+ 4.09994192757944 | 6.48074069840786::numeric | true         | false             | "LINESTRING(1 1 1,0.619047619047619 -0.190476190476191 4.904761904761905)" | "POINT(1 1 1)" | "LINESTRING(1 1 1,5 2 6)"
+(1 row)
+
+CYPHER WITH 'LINESTRING(1 1 3, 5 7 8)'::geometry as a, 'POINT(1 1 1)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -3104,7 +3210,12 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DShortestline(a,b)),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
-    WITH 'LINESTRING(1 0 5, 11 0 5)'::geometry as a, 'LINESTRING(5 2 0, 5 2 10, 5 0 13)'::geometry as b
+ st_3ddistance |         ?column?          | st_3ddwithin | st_3ddfullywithin |         st_asewkt         |   st_asewkt    |         st_asewkt         
+---------------+---------------------------+--------------+-------------------+---------------------------+----------------+---------------------------
+ 2.0           | 10.0498756211209::numeric | true         | false             | "LINESTRING(1 1 3,1 1 1)" | "POINT(1 1 3)" | "LINESTRING(5 7 8,1 1 1)"
+(1 row)
+
+CYPHER WITH 'LINESTRING(1 0 5, 11 0 5)'::geometry as a, 'LINESTRING(5 2 0, 5 2 10, 5 0 13)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -3112,54 +3223,205 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DShortestline(a,b)),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
-    WITH 'LINESTRING(1 1 1 , 2 2 2)'::geometry as a, 'POLYGON((0 0 0, 2 2 2, 3 3 3, 0 0 0))'::geometry as b
+ st_3ddistance |  ?column?   | st_3ddwithin | st_3ddfullywithin |         st_asewkt         |   st_asewkt    |          st_asewkt          
+---------------+-------------+--------------+-------------------+---------------------------+----------------+-----------------------------
+ 2.0           | 10::numeric | true         | false             | "LINESTRING(5 0 5,5 2 5)" | "POINT(5 0 5)" | "LINESTRING(11 0 5,5 0 13)"
+(1 row)
+
+CYPHER WITH 'LINESTRING(1 1 1 , 2 2 2)'::geometry as a, 'POLYGON((0 0 0, 2 2 2, 3 3 3, 0 0 0))'::geometry as b
 RETURN 	ST_3DDistance(a,b);
-    WITH 'LINESTRING(1 1 1 , 2 2 2)'::geometry as a, 'POLYGON((0 0 0, 2 2 2, 3 3 1, 0 0 0))'::geometry as b
+ st_3ddistance 
+---------------
+ 0.0
+(1 row)
+
+CYPHER WITH 'LINESTRING(1 1 1 , 2 2 2)'::geometry as a, 'POLYGON((0 0 0, 2 2 2, 3 3 1, 0 0 0))'::geometry as b
 RETURN 	ST_3DDistance(a,b);
+ st_3ddistance 
+---------------
+ 0.0
+(1 row)
+
 -- 3D mixed dimmentionality #2034
 --closestpoint with 2d as first point and 3d as second
 RETURN st_astext(st_3dclosestpoint('linestring(0 0,1 1,2 0)'::geometry, 'linestring(0 2 3, 3 2 3)'::geometry));
+NOTICE:  One or both of the geometries is missing z-value. The unknown z-value will be regarded as "any value"
+     st_astext     
+-------------------
+ "POINT Z (1 1 3)"
+(1 row)
+
 --closestpoint with 3d as first point and 2d as second
 RETURN st_astext(st_3dclosestpoint('linestring(0 0 1,1 1 2,2 0 3)'::geometry, 'linestring(0 2, 3 2)'::geometry));
+NOTICE:  One or both of the geometries is missing z-value. The unknown z-value will be regarded as "any value"
+     st_astext     
+-------------------
+ "POINT Z (1 1 2)"
+(1 row)
+
 --shortestline with 2d as first point and 3d as second
 RETURN st_astext(st_3dshortestline('linestring(0 0,1 1,2 0)'::geometry, 'linestring(0 2 3, 3 2 3)'::geometry));
+NOTICE:  One or both of the geometries is missing z-value. The unknown z-value will be regarded as "any value"
+          st_astext           
+------------------------------
+ "LINESTRING Z (1 1 3,1 2 3)"
+(1 row)
+
 --shortestline with 3d as first point and 2d as second
 RETURN st_astext(st_3dshortestline('linestring(0 0 1,1 1 2,2 0 3)'::geometry, 'linestring(0 2, 3 2)'::geometry));
+NOTICE:  One or both of the geometries is missing z-value. The unknown z-value will be regarded as "any value"
+          st_astext           
+------------------------------
+ "LINESTRING Z (1 1 2,1 2 2)"
+(1 row)
+
 --distance with 2d as first point and 3d as second
 RETURN st_3ddistance('linestring(0 0,1 1,2 0)'::geometry, 'linestring(0 2 3, 3 2 3)'::geometry);
+ st_3ddistance 
+---------------
+ 1.0
+(1 row)
+
 --distance with 3d as first point and 2d as second
 RETURN st_3ddistance('linestring(0 0 1,1 1 2,2 0 3)'::geometry, 'linestring(0 2, 3 2)'::geometry);
+ st_3ddistance 
+---------------
+ 1.0
+(1 row)
+
 RETURN ST_AsText(ST_3DClosestPoint('POINT(0 0 0)', 'POINT(0 0)'));
+NOTICE:  One or both of the geometries is missing z-value. The unknown z-value will be regarded as "any value"
+     st_astext     
+-------------------
+ "POINT Z (0 0 0)"
+(1 row)
+
 RETURN ST_AsText(ST_3DShortestLine('LINESTRING(2 1, 3 0)', 'LINESTRING(0 0 2, 3 3 -4)'));
+NOTICE:  One or both of the geometries is missing z-value. The unknown z-value will be regarded as "any value"
+             st_astext              
+------------------------------------
+ "LINESTRING Z (2 1 -1,1.5 1.5 -1)"
+(1 row)
+
 /*
  * Polyheadral Surface
  */
  -- ST_Dimension on 2D: not closed
 RETURN ST_Dimension('POLYHEDRALSURFACE(((0 0,0 0,0 1,0 0)))'::geometry);
+ st_dimension 
+--------------
+ 2
+(1 row)
+
 RETURN ST_Dimension('GEOMETRYCOLLECTION(POLYHEDRALSURFACE(((0 0,0 0,0 1,0 0))))'::geometry);
+ st_dimension 
+--------------
+ 2
+(1 row)
+
 -- ST_Dimension on 3D: closed
 RETURN ST_Dimension('POLYHEDRALSURFACE(((0 0 0,0 0 1,0 1 0,0 0 0)),((0 0 0,0 1 0,1 0 0,0 0 0)),((0 0 0,1 0 0,0 0 1,0 0 0)),((1 0 0,0 1 0,0 0 1,1 0 0)))'::geometry);
+ st_dimension 
+--------------
+ 3
+(1 row)
+
 RETURN  ST_Dimension('GEOMETRYCOLLECTION(POLYHEDRALSURFACE(((0 0 0,0 0 1,0 1 0,0 0 0)),((0 0 0,0 1 0,1 0 0,0 0 0)),((0 0 0,1 0 0,0 0 1,0 0 0)),((1 0 0,0 1 0,0 0 1,1 0 0))))'::geometry);
+ st_dimension 
+--------------
+ 3
+(1 row)
+
 -- ST_Dimension on 4D: closed
 RETURN ST_Dimension('POLYHEDRALSURFACE(((0 0 0 0,0 0 1 0,0 1 0 2,0 0 0 0)),((0 0 0 0,0 1 0 0,1 0 0 4,0 0 0 0)),((0 0 0 0,1 0 0 0,0 0 1 6,0 0 0 0)),((1 0 0 0,0 1 0 0,0 0 1 0,1 0 0 0)))'::geometry);
+ st_dimension 
+--------------
+ 3
+(1 row)
+
 RETURN ST_Dimension('GEOMETRYCOLLECTION(POLYHEDRALSURFACE(((0 0 0 0,0 0 1 0,0 1 0 2,0 0 0 0)),((0 0 0 0,0 1 0 0,1 0 0 4,0 0 0 0)),((0 0 0 0,1 0 0 0,0 0 1 6,0 0 0 0)),((1 0 0 0,0 1 0 0,0 0 1 0,1 0 0 0))))'::geometry);
+ st_dimension 
+--------------
+ 3
+(1 row)
+
 -- ST_Dimension on 3D: invalid polyedron (a single edge is shared 3 times)
 RETURN ST_Dimension('POLYHEDRALSURFACE(((0 0 0,0 0 1,0 1 0,0 0 0)),((0 0 0,0 1 0,1 0 0,0 0 0)),((0 0 0,0 1 0,0 0 1,0 0 0)),((1 0 0,0 1 0,0 0 1,1 0 0)))'::geometry);
+ st_dimension 
+--------------
+ 2
+(1 row)
+
 -- ST_Dimension on 3D: invalid polyedron (redundant point inside each face)
 RETURN ST_Dimension('POLYHEDRALSURFACE(((0 0 0,1 0 0,1 0 0,0 0 0)),((0 0 1,1 0 1,1 0 1,0 0 1)),((0 0 2,1 0 2,1 0 2,0 0 2)),((0 0 3,1 0 3,1 0 3,0 0 3)))'::geometry);
+ st_dimension 
+--------------
+ 2
+(1 row)
+
 -- ST_NumPatches
 RETURN ST_NumPatches('POLYHEDRALSURFACE EMPTY'::geometry);
+ st_numpatches 
+---------------
+ 0
+(1 row)
+
 RETURN ST_NumPatches('POLYHEDRALSURFACE(((0 0,0 0,0 1,0 0)))'::geometry);
+ st_numpatches 
+---------------
+ 1
+(1 row)
+
 RETURN ST_NumPatches('POLYHEDRALSURFACE(((0 0 0,0 0 1,0 1 0,0 0 0)),((0 0 0,0 1 0,1 0 0,0 0 0)),((0 0 0,1 0 0,0 0 1,0 0 0)),((1 0 0,0 1 0,0 0 1,1 0 0)))'::geometry);
+ st_numpatches 
+---------------
+ 4
+(1 row)
+
 -- ST_PatchN
 RETURN ST_AsEWKT(ST_patchN('POLYHEDRALSURFACE EMPTY'::geometry, 1));
+ st_asewkt 
+-----------
+ 
+(1 row)
+
 RETURN ST_AsEWKT(ST_patchN('POLYHEDRALSURFACE(((0 0,0 0,0 1,0 0)))'::geometry, 1));
+          st_asewkt           
+------------------------------
+ "POLYGON((0 0,0 0,0 1,0 0))"
+(1 row)
+
 RETURN ST_AsEWKT(ST_patchN('POLYHEDRALSURFACE(((0 0,0 0,0 1,0 0)))'::geometry, 0));
+ st_asewkt 
+-----------
+ 
+(1 row)
+
 RETURN ST_AsEWKT(ST_patchN('POLYHEDRALSURFACE(((0 0,0 0,0 1,0 0)))'::geometry, 2));
+ st_asewkt 
+-----------
+ 
+(1 row)
+
 RETURN ST_AsEWKT(ST_patchN('POLYHEDRALSURFACE(((0 0 0,0 0 1,0 1 0,0 0 0)),((0 0 0,0 1 0,1 0 0,0 0 0)),((0 0 0,1 0 0,0 0 1,0 0 0)),((1 0 0,0 1 0,0 0 1,1 0 0)))'::geometry, 2));
+              st_asewkt               
+--------------------------------------
+ "POLYGON((0 0 0,0 1 0,1 0 0,0 0 0))"
+(1 row)
+
 -- PolyedralSurface (TODO)
 RETURN ST_AsText(ST_Reverse('POLYHEDRALSURFACE EMPTY'::geometry));
+         st_astext         
+---------------------------
+ "POLYHEDRALSURFACE EMPTY"
+(1 row)
+
 RETURN ST_AsText(ST_Reverse('POLYHEDRALSURFACE (((0 0,0 0,0 1,0 0)),((0 0,0 1,1 0,0 0)),((0 0,1 0,0 0,0 0)),((1 0,0 1,0 0,1 0)))'::geometry));
+                                              st_astext                                               
+------------------------------------------------------------------------------------------------------
+ "POLYHEDRALSURFACE(((0 0,0 1,0 0,0 0)),((0 0,1 0,0 1,0 0)),((0 0,0 0,1 0,0 0)),((1 0,0 0,0 1,1 0)))"
+(1 row)
+
 -- TODO KNN
     WITH ST_GeomFromText(
 'PolyhedralSurface(
@@ -3168,17 +3430,32 @@ RETURN ST_AsText(ST_Reverse('POLYHEDRALSURFACE (((0 0,0 0,0 1,0 0)),((0 0,0 1,1 
 ((0 1 0, 0 1 1, 1 1 1, 1 1 0, 0 1 0)),  ((0 0 1, 1 0 1, 1 1 1, 0 1 1, 0 0 1))
 )') as a
 RETURN ST_Translate(a,100, 450,1000);
+ERROR:  syntax error at or near ")"
+LINE 2: 'PolyhedralSurface(
+        ^
     WITH ST_GeomFromText(
 'PolyhedralSurface(
 ((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)),
 ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)) )') as a
 RETURN ST_Translate(a,100, 450,1000);
+ERROR:  syntax error at or near ")"
+LINE 2: 'PolyhedralSurface(
+        ^
+-- #68 --
+--RETURN '#68a', ST_AsText(ST_ShiftLongitude(ST_GeomFromText('MULTIPOINT(1 3, 4 5)')));
+--RETURN '#68b', ST_AsText(ST_ShiftLongitude(ST_GeomFromText('CIRCULARSTRING(1 3, 4 5, 6 7)')));
 CREATE (:j {j: 'PolyhedralSurface(((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)), ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)) )'::geometry })  ;
+--
+(0 rows)
+
 CREATE (:j {j: 'PolyhedralSurface(
 ((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)),
 ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)), ((0 0 0, 1 0 0, 1 0 1, 0 0 1, 0 0 0)),  ((1 1 0, 1 1 1, 1 0 1, 1 0 0, 1 1 0)),
 ((0 1 0, 0 1 1, 1 1 1, 1 1 0, 0 1 0)),  ((0 0 1, 1 0 1, 1 1 1, 0 1 1, 0 0 1))
 )'::geometry })  ;
+--
+(0 rows)
+
 SET enable_mergejoin = ON;
 SET enable_hashjoin = ON;
 SET enable_nestloop = ON;
@@ -3186,27 +3463,64 @@ SET enable_seqscan = false;
 SET enable_sort = false;
 CREATE INDEX ON postgis.j USING gist((properties->'"j"') gist_geometry_ops_nd);
 \d+ postgis.j
+                                                                                   Table "postgis.j"
+   Column   |  Type   | Collation | Nullable |                                             Default                                             | Storage  | Stats target | Description 
+------------+---------+-----------+----------+-------------------------------------------------------------------------------------------------+----------+--------------+-------------
+ id         | graphid |           | not null | _graphid(_label_id('postgis'::name, 'j'::name)::integer, nextval('postgis.j_id_seq'::regclass)) | plain    |              | 
+ properties | gtype   |           | not null | gtype_build_map()                                                                               | extended |              | 
+Indexes:
+    "j_expr_idx" gist ((properties -> '"j"'::gtype) gist_geometry_ops_nd)
+Inherits: postgis._ag_label_vertex
+
 EXPLAIN (costs off)
     MATCH (a:j)
     WHERE a.j &&& 'PolyhedralSurface(((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)), ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)) )'::geometry
 RETURN a;
+ERROR:  syntax error at or near "MATCH"
+LINE 2:     MATCH (a:j)
+            ^
     MATCH (a:j)
     WHERE a.j &&& 'PolyhedralSurface(((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)), ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)) )'::geometry
 RETURN a;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     a                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"id": 844424930131969, "label": "j", "properties": {"j": 010F000080020000000103000080010000000500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000F03F0000000000000000000000000000F03F000000000000F03F0000000000000000000000000000F03F0000000000000000000000000000000000000000000000000000000000000000010300008001000000050000000000000000000000000000000000000000000000000000000000000000000000000000000000F03F0000000000000000000000000000F03F000000000000F03F0000000000000000000000000000F03F00000000000000000000000000000000000000000000000000000000000000000000000000000000}}
+ {"id": 844424930131970, "label": "j", "properties": {"j": 010F000080060000000103000080010000000500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000F03F0000000000000000000000000000F03F000000000000F03F0000000000000000000000000000F03F0000000000000000000000000000000000000000000000000000000000000000010300008001000000050000000000000000000000000000000000000000000000000000000000000000000000000000000000F03F0000000000000000000000000000F03F000000000000F03F0000000000000000000000000000F03F0000000000000000000000000000000000000000000000000000000000000000000000000000000001030000800100000005000000000000000000000000000000000000000000000000000000000000000000F03F00000000000000000000000000000000000000000000F03F0000000000000000000000000000F03F00000000000000000000000000000000000000000000F03F00000000000000000000000000000000000000000000000001030000800100000005000000000000000000F03F000000000000F03F0000000000000000000000000000F03F000000000000F03F000000000000F03F000000000000F03F0000000000000000000000000000F03F000000000000F03F00000000000000000000000000000000000000000000F03F000000000000F03F0000000000000000010300008001000000050000000000000000000000000000000000F03F00000000000000000000000000000000000000000000F03F000000000000F03F000000000000F03F000000000000F03F000000000000F03F000000000000F03F000000000000F03F00000000000000000000000000000000000000000000F03F00000000000000000103000080010000000500000000000000000000000000000000000000000000000000F03F000000000000F03F0000000000000000000000000000F03F000000000000F03F000000000000F03F000000000000F03F0000000000000000000000000000F03F000000000000F03F00000000000000000000000000000000000000000000F03F}}
+(2 rows)
+
 EXPLAIN (costs off)
     MATCH (a:j)
 RETURN a ORDER BY a.j <<->> 'PolyhedralSurface(((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)), ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)) )';
+ERROR:  syntax error at or near "MATCH"
+LINE 2:     MATCH (a:j)
+            ^
     MATCH (a:j)
 RETURN a ORDER BY a.j <<->> 'PolyhedralSurface(((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)), ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)) )';
+ERROR:  syntax error at or near "ORDER"
+LINE 2: RETURN a ORDER BY a.j <<->> 'PolyhedralSurface(((0 0 0, 0 0 ...
+                 ^
 --
 -- 2D Gist Indices
 --
 CREATE (:i {i: 'POLYGON( (0 0, 10 0, 10 10, 0 10, 0 0) )'::geometry });
+--
+(0 rows)
+
 CREATE (:i {i: 'POLYGON( (0 0, 10 0, 10 10, 0 10, 0 0) )'::geometry }) ;
+--
+(0 rows)
+
 CREATE (:i {i: 'POLYGON( (0 0, 10 0, 10 10, 0 10, 0 0) )'::geometry })  ;
+--
+(0 rows)
+
 SELECT create_vlabel('postgis', 'i');
+ERROR:  label "i" already exists
 CREATE INDEX ON postgis.i USING gist ((properties->'"i"') gist_geometry_ops_2d);
 CREATE (:i {i: 'POLYGON( (0 0, 10 0, 10 10, 0 10, 0 0) )'::geometry });
+--
+(0 rows)
+
 /*
 
 
@@ -3230,36 +3544,119 @@ RETURN i;
 -- To Geometry
 --
 RETURN topoint('(1, 2)')::geometry ;
+                  ?column?                  
+--------------------------------------------
+ 0101000000000000000000F03F0000000000000040
+(1 row)
+
 RETURN topath('(1, 2), (3, 4)')::geometry ;
+                                      ?column?                                      
+------------------------------------------------------------------------------------
+ 010200000002000000000000000000F03F000000000000004000000000000008400000000000001040
+(1 row)
+
 RETURN topolygon('(1,1), (2,2), (3, 3), (4, 4)')::geometry ;
+                                                                                          ?column?                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 01030000000100000005000000000000000000F03F000000000000F03F000000000000004000000000000000400000000000000840000000000000084000000000000010400000000000001040000000000000F03F000000000000F03F
+(1 row)
+
 SELECT 'POLYGON((0 0,1 1,1 3,2 3,2 0,0 0))'::geometry::gtype;
+                                                                                                           gtype                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 0103000000010000000600000000000000000000000000000000000000000000000000F03F000000000000F03F000000000000F03F0000000000000840000000000000004000000000000008400000000000000040000000000000000000000000000000000000000000000000
+(1 row)
+
 RETURN topoint('POINT(1 1)'::geometry);
+ topoint 
+---------
+ (1,1)
+(1 row)
+
 RETURN 'POINT(1 1)'::geometry;
+                  ?column?                  
+--------------------------------------------
+ 0101000000000000000000F03F000000000000F03F
+(1 row)
+
 --
 -- From Box3D
 --
 -- gtype Box3D to box3d
 RETURN toBox3D('BOX3D(1 2 3, 4 5 6)');
+      tobox3d       
+--------------------
+ BOX3D(1 2 3,4 5 6)
+(1 row)
+
 -- gtype string to box3d
 RETURN 'BOX3D(1 2 3, 4 5 6)' ;
+       ?column?        
+-----------------------
+ "BOX3D(1 2 3, 4 5 6)"
+(1 row)
+
 -- gtype Box3D to gtype box2d
 RETURN toBox3D('BOX3D(1 2 3, 4 5 6)')::box2d ;
+   ?column?   
+--------------
+ BOX(1 2,4 5)
+(1 row)
+
 -- gtype Box3D to gtype geometry
 RETURN toBox3D('BOX3D(1 2 3, 4 5 6)')::geometry;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ?column?                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 010F0000800600000001030000800100000005000000000000000000F03F00000000000000400000000000000840000000000000F03F00000000000014400000000000000840000000000000104000000000000014400000000000000840000000000000104000000000000000400000000000000840000000000000F03F0000000000000040000000000000084001030000800100000005000000000000000000F03F00000000000000400000000000001840000000000000104000000000000000400000000000001840000000000000104000000000000014400000000000001840000000000000F03F00000000000014400000000000001840000000000000F03F0000000000000040000000000000184001030000800100000005000000000000000000F03F00000000000000400000000000000840000000000000F03F00000000000000400000000000001840000000000000F03F00000000000014400000000000001840000000000000F03F00000000000014400000000000000840000000000000F03F000000000000004000000000000008400103000080010000000500000000000000000010400000000000000040000000000000084000000000000010400000000000001440000000000000084000000000000010400000000000001440000000000000184000000000000010400000000000000040000000000000184000000000000010400000000000000040000000000000084001030000800100000005000000000000000000F03F00000000000000400000000000000840000000000000104000000000000000400000000000000840000000000000104000000000000000400000000000001840000000000000F03F00000000000000400000000000001840000000000000F03F0000000000000040000000000000084001030000800100000005000000000000000000F03F00000000000014400000000000000840000000000000F03F00000000000014400000000000001840000000000000104000000000000014400000000000001840000000000000104000000000000014400000000000000840000000000000F03F00000000000014400000000000000840
+(1 row)
+
 -- gtype Box3D to geometry 
 RETURN toBox3D('BOX3D(1 2 3, 4 5 6)');
+      tobox3d       
+--------------------
+ BOX3D(1 2 3,4 5 6)
+(1 row)
+
 --
 -- From Box2D
 --
 -- gtype Box2d to Box2d
 RETURN toBox2D('box(1 2, 5 6)') ;
+   tobox2d    
+--------------
+ BOX(1 2,5 6)
+(1 row)
+
 -- gtype string to Box2d
 RETURN 'box(1 2, 5 6)' ;
+    ?column?     
+-----------------
+ "box(1 2, 5 6)"
+(1 row)
+
 -- gtype Box2d to geometry
 RETURN toBox2D('box(1 2, 5 6)') ;
+   tobox2d    
+--------------
+ BOX(1 2,5 6)
+(1 row)
+
 -- gtype Box3D to box2d
 RETURN toBox3D('BOX3D(1 2 3, 4 5 6)') ;
+      tobox3d       
+--------------------
+ BOX3D(1 2 3,4 5 6)
+(1 row)
+
 DROP GRAPH postgis CASCADE;
-ERROR:  syntax error at or near "cypher"
-LINE 1: SELECT  * FROM cypher('postgis', ;
-                       ^
+NOTICE:  drop cascades to 4 other objects
+DETAIL:  drop cascades to table postgis._ag_label_vertex
+drop cascades to table postgis._ag_label_edge
+drop cascades to table postgis.j
+drop cascades to table postgis.i
+NOTICE:  graph "postgis" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+

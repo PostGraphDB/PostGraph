@@ -777,26 +777,16 @@ SELECT ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 
 -- temporary disjoint
 SELECT ST_CPAWithin( 'LINESTRINGM(0 0 0, 10 0 10)'::geometry ,'LINESTRINGM(10 0 11, 10 10 20)'::geometry, 1e15);
 SELECT ST_CPAWithin( 'LINESTRING(0 0 0, 1 0 0)'::geometry ,'LINESTRING(0 0 3 0, 1 0 2 1)'::geometry, 1e16);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 0.0);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 1.0);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 0.5);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 1);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 2);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 1.9);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 2);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 1 0 1)'::geometry ,'LINESTRINGM(0 0 0, 1 0 1)'::geometry, 2.0001);
 -- temporary disjoint
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRINGM(0 0 0, 10 0 10)'::geometry ,'LINESTRINGM(10 0 11, 10 10 20)'::geometry, 1e15);
-SELECT  * FROM cypher('postgis', ;
 RETURN ST_CPAWithin( 'LINESTRING(0 0 0, 1 0 0)'::geometry ,'LINESTRING(0 0 3 0, 1 0 2 1)'::geometry, 1e16);
 --
 -- GEOS
@@ -831,7 +821,7 @@ RETURN ST_AsEWKT(ST_Simplify('POLYGON((0 0,1 1,1 3,2 3,2 0,0 0))'::geometry, 1))
 --3D Distance functions
 
 
-    WITH 'POINT(1 1 1)'::geometry as a, 'POINT(3 2 7)'::geometry as b
+CYPHER WITH 'POINT(1 1 1)'::geometry as a, 'POINT(3 2 7)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -840,7 +830,7 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
 
-    WITH 'POINT(1 1 1)'::geometry as a, 'LINESTRING(0 0 0, 2 2 2)'::geometry as b
+CYPHER WITH 'POINT(1 1 1)'::geometry as a, 'LINESTRING(0 0 0, 2 2 2)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -849,7 +839,7 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
 
-    WITH 'POINT(1 1 1)'::geometry as a, 'LINESTRING(5 2 6, -3 -2 4)'::geometry as b
+CYPHER WITH 'POINT(1 1 1)'::geometry as a, 'LINESTRING(5 2 6, -3 -2 4)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -860,7 +850,7 @@ RETURN 	ST_3DDistance(a,b),
 
 
 
-    WITH 'LINESTRING(1 1 3, 5 7 8)'::geometry as a, 'POINT(1 1 1)'::geometry as b
+CYPHER WITH 'LINESTRING(1 1 3, 5 7 8)'::geometry as a, 'POINT(1 1 1)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -869,7 +859,7 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
 
-    WITH 'LINESTRING(1 0 5, 11 0 5)'::geometry as a, 'LINESTRING(5 2 0, 5 2 10, 5 0 13)'::geometry as b
+CYPHER WITH 'LINESTRING(1 0 5, 11 0 5)'::geometry as a, 'LINESTRING(5 2 0, 5 2 10, 5 0 13)'::geometry as b
 RETURN 	ST_3DDistance(a,b),
 		    ST_3DMaxDistance(a,b)::numeric,
 			ST_3DDWithin(a,b,5),
@@ -878,11 +868,11 @@ RETURN 	ST_3DDistance(a,b),
 			ST_ASEWKT(ST_3DClosestpoint(a,b)),
 			ST_ASEWKT(ST_3DLongestline(a,b));
 
-    WITH 'LINESTRING(1 1 1 , 2 2 2)'::geometry as a, 'POLYGON((0 0 0, 2 2 2, 3 3 3, 0 0 0))'::geometry as b
+CYPHER WITH 'LINESTRING(1 1 1 , 2 2 2)'::geometry as a, 'POLYGON((0 0 0, 2 2 2, 3 3 3, 0 0 0))'::geometry as b
 RETURN 	ST_3DDistance(a,b);
 
 
-    WITH 'LINESTRING(1 1 1 , 2 2 2)'::geometry as a, 'POLYGON((0 0 0, 2 2 2, 3 3 1, 0 0 0))'::geometry as b
+CYPHER WITH 'LINESTRING(1 1 1 , 2 2 2)'::geometry as a, 'POLYGON((0 0 0, 2 2 2, 3 3 1, 0 0 0))'::geometry as b
 RETURN 	ST_3DDistance(a,b);
 
 
@@ -947,6 +937,10 @@ RETURN ST_AsEWKT(ST_patchN('POLYHEDRALSURFACE(((0 0 0,0 0 1,0 1 0,0 0 0)),((0 0 
 
 RETURN ST_AsText(ST_Reverse('POLYHEDRALSURFACE EMPTY'::geometry));
 RETURN ST_AsText(ST_Reverse('POLYHEDRALSURFACE (((0 0,0 0,0 1,0 0)),((0 0,0 1,1 0,0 0)),((0 0,1 0,0 0,0 0)),((1 0,0 1,0 0,1 0)))'::geometry));
+
+
+
+
 -- TODO KNN
 
     WITH ST_GeomFromText(
@@ -962,6 +956,10 @@ RETURN ST_Translate(a,100, 450,1000);
 ((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)),
 ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)) )') as a
 RETURN ST_Translate(a,100, 450,1000);
+
+-- #68 --
+--RETURN '#68a', ST_AsText(ST_ShiftLongitude(ST_GeomFromText('MULTIPOINT(1 3, 4 5)')));
+--RETURN '#68b', ST_AsText(ST_ShiftLongitude(ST_GeomFromText('CIRCULARSTRING(1 3, 4 5, 6 7)')));
 
 CREATE (:j {j: 'PolyhedralSurface(((0 0 0, 0 0 1, 0 1 1, 0 1 0, 0 0 0)), ((0 0 0, 0 1 0, 1 1 0, 1 0 0, 0 0 0)) )'::geometry })  ;
 CREATE (:j {j: 'PolyhedralSurface(
