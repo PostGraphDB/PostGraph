@@ -367,6 +367,120 @@ CREATE OPERATOR ~~= (
         JOIN = gserialized_gist_joinsel_nd*/
 );
 
+CREATE FUNCTION ST_DistanceCPA (gtype, gtype)
+RETURNS gtype
+LANGUAGE c
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+PARALLEL SAFE
+COST 5000
+AS 'MODULE_PATHNAME', 'gtype_ST_DistanceCPA';
+
+CREATE OPERATOR |=| (
+    LEFTARG = gtype, RIGHTARG = gtype,
+    PROCEDURE = ST_DistanceCPA,
+    COMMUTATOR = '|=|'
+);
+
+-- Availability: 2.2.0
+CREATE OR REPLACE FUNCTION gtype_distance_centroid_nd(gtype, gtype)
+RETURNS gtype
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME', 'gtype_distance_nd';
+
+-- Availability: 2.2.0
+CREATE OPERATOR <<->> (
+	LEFTARG = gtype,
+    RIGHTARG = gtype,
+	PROCEDURE = gtype_distance_centroid_nd,
+	COMMUTATOR = '<<->>'
+);
+
+
+-- Availability: 2.2.0
+CREATE OR REPLACE FUNCTION gtype_gist_distance_nd(internal,gtype,integer)
+RETURNS gtype
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME', 'gtype_gist_distance';
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION gtype_gist_consistent_nd(internal,gtype,integer)
+RETURNS gtype
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME', 'gtype_gist_consistent';
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION gtype_gist_compress_nd(internal)
+RETURNS internal
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME','gtype_gist_compress';
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION gtype_gist_penalty_nd(internal,internal,internal)
+RETURNS internal
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME' ,'gtype_gist_penalty';
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION gtype_gist_picksplit_nd(internal, internal)
+RETURNS internal
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME' ,'gtype_gist_picksplit';
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION gtype_gist_union_nd(bytea, internal)
+RETURNS internal
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME' ,'gtype_gist_union';
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION gtype_gist_same_nd(gtype, gtype, internal)
+RETURNS internal
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME' ,'gtype_gist_same';
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION gtype_gist_decompress_nd(internal)
+RETURNS internal
+PARALLEL SAFE
+LANGUAGE 'c' 
+AS 'MODULE_PATHNAME' ,'gtype_gist_decompress';
+
+
+-- Availability: 2.0.0
+CREATE OPERATOR CLASS gist_geometry_ops_nd
+	FOR TYPE gtype USING GIST AS
+	STORAGE 	public.gidx,
+	OPERATOR        3        &&&	,
+	-- Availability: 3.0.0
+	OPERATOR        6        ~~=	,
+	-- Availability: 3.0.0
+	OPERATOR        7        ~~	,
+	-- Availability: 3.0.0
+	OPERATOR        8        @@	,
+	-- Availability: 2.2.0
+	OPERATOR        13       <<->> FOR ORDER BY pg_catalog.float_ops,
+	-- Availability: 2.2.0
+	OPERATOR        20       |=| FOR ORDER BY pg_catalog.float_ops,
+	-- Availability: 2.2.0
+	FUNCTION        8        gtype_gist_distance_nd (internal, gtype, integer),
+	FUNCTION        1        gtype_gist_consistent_nd (internal, gtype, integer),
+	FUNCTION        2        gtype_gist_union_nd (bytea, internal),
+	FUNCTION        3        gtype_gist_compress_nd (internal),
+	FUNCTION        4        gtype_gist_decompress_nd (internal),
+	FUNCTION        5        gtype_gist_penalty_nd (internal, internal, internal),
+	FUNCTION        6        gtype_gist_picksplit_nd (internal, internal),
+	FUNCTION        7        gtype_gist_same_nd (gtype, gtype, internal);
 
 --
 -- PostGIS Functions
@@ -638,20 +752,7 @@ PARALLEL SAFE
 COST 5000
 AS 'MODULE_PATHNAME', 'gtype_ST_ClosestPointOfApproach';
 
-CREATE FUNCTION ST_DistanceCPA (gtype, gtype)
-RETURNS gtype
-LANGUAGE c
-IMMUTABLE
-RETURNS NULL ON NULL INPUT
-PARALLEL SAFE
-COST 5000
-AS 'MODULE_PATHNAME', 'gtype_ST_DistanceCPA';
 
-CREATE OPERATOR |=| (
-    LEFTARG = gtype, RIGHTARG = gtype,
-    PROCEDURE = ST_DistanceCPA,
-    COMMUTATOR = '|=|'
-);
 
 CREATE FUNCTION ST_IsValidTrajectory (gtype)
 RETURNS gtype
@@ -788,7 +889,7 @@ AS 'MODULE_PATHNAME', 'gtype_snaptogrid';
 
 CREATE OR REPLACE FUNCTION ST_SnapToGrid(gtype, gtype, gtype)
 RETURNS gtype
-AS 'SELECT ST_SnapToGrid($1, 0, 0, $2, $3)'
+AS $$ SELECT ST_SnapToGrid($1, '0'::gtype, '0'::gtype, $2, $3) $$
 LANGUAGE sql 
 IMMUTABLE 
 RETURNS NULL ON NULL INPUT
@@ -797,7 +898,7 @@ COST 50;
 
 CREATE OR REPLACE FUNCTION ST_SnapToGrid(gtype, gtype)
 RETURNS gtype
-AS 'SELECT ST_SnapToGrid($1, 0, 0, $2, $2)'
+AS $$ SELECT ST_SnapToGrid($1, '0'::gtype, '0'::gtype, $2, $2) $$
 LANGUAGE sql
 IMMUTABLE 
 RETURNS NULL ON NULL INPUT
@@ -891,7 +992,7 @@ COST 50;
 
 CREATE OR REPLACE FUNCTION ST_Translate(gtype, gtype, gtype, gtype)
 RETURNS gtype
-AS 'SELECT ST_Affine($1, 1, 0, 0, 0, 1, 0, 0, 0, 1, $2, $3, $4)'
+AS $$ SELECT ST_Affine($1, '1'::gtype, '0'::gtype, '0'::gtype, '0'::gtype, '1'::gtype, '0'::gtype, '0'::gtype, '0'::gtype, '1'::gtype, $2, $3, $4) $$
 LANGUAGE 'sql'
 IMMUTABLE 
 RETURNS NULL ON NULL INPUT
@@ -1001,4 +1102,196 @@ PARALLEL SAFE
 COST 50
 AS 'MODULE_PATHNAME', 'gtype_force_multi';
 
+---------------------------------------------------------------
+-- 3D-functions
+---------------------------------------------------------------
 
+CREATE OR REPLACE FUNCTION ST_3DDistance(geom1 gtype, geom2 gtype)
+RETURNS gtype
+LANGUAGE 'c'
+IMMUTABLE
+STRICT
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME', 'gtype_3DDistance';
+
+CREATE OR REPLACE FUNCTION ST_3DMaxDistance(geom1 gtype, geom2 gtype)
+RETURNS gtype
+LANGUAGE 'c'
+IMMUTABLE
+STRICT
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME', 'gtype_maxdistance3d';
+
+CREATE OR REPLACE FUNCTION ST_3DClosestPoint(geom1 gtype, geom2 gtype)
+RETURNS gtype
+LANGUAGE 'c'
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME', 'gtype_closestpoint3d';
+
+CREATE OR REPLACE FUNCTION ST_3DShortestLine(geom1 gtype, geom2 gtype)
+RETURNS gtype
+LANGUAGE 'c'
+IMMUTABLE
+STRICT
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME', 'gtype_shortestline3d';
+
+CREATE OR REPLACE FUNCTION ST_3DLongestLine(geom1 gtype, geom2 gtype)
+RETURNS gtype
+LANGUAGE 'c'
+IMMUTABLE 
+STRICT
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME', 'gtype_longestline3d';
+
+
+-- PostGIS equivalent function: AsText(geometry)
+CREATE OR REPLACE FUNCTION ST_AsText(gtype)
+RETURNS gtype
+LANGUAGE 'c'
+IMMUTABLE 
+STRICT
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME','gtype_asText';
+
+-- Availability: 2.5.0
+-- PostGIS equivalent function: AsText(gtype, gtype)
+CREATE OR REPLACE FUNCTION ST_AsText(gtype, gtype)
+RETURNS gtype
+LANGUAGE 'c'
+IMMUTABLE 
+STRICT
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME','gtype_asText';
+
+
+CREATE OR REPLACE FUNCTION ST_3DDWithin(geom1 gtype, geom2 gtype,gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 500
+AS 'MODULE_PATHNAME', 'gtype_dwithin3d'
+;
+
+
+CREATE OR REPLACE FUNCTION ST_3DDFullyWithin(geom1 gtype, geom2 gtype,gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 500
+AS 'MODULE_PATHNAME', 'gtype_dfullywithin3d'
+;
+
+
+CREATE OR REPLACE FUNCTION ST_Dimension(geom gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 10
+AS 'MODULE_PATHNAME', 'gtype_dimension'
+;
+
+
+CREATE OR REPLACE FUNCTION ST_GeometryType(geom gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 10
+AS 'MODULE_PATHNAME', 'gtype_geometrytype';
+
+
+-- PostGIS equivalent function: NumGeometries(geometry)
+CREATE OR REPLACE FUNCTION ST_NumGeometries(geom gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 10
+AS 'MODULE_PATHNAME', 'gtype_numgeometries_collection';
+
+-- PostGIS equivalent function: ST_GeometryN(geometry)
+CREATE OR REPLACE FUNCTION ST_GeometryN(geom gtype, gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 10
+AS 'MODULE_PATHNAME', 'gtype_geometryn_collection';
+
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION ST_NumPatches(gtype)
+RETURNS gtype
+LANGUAGE 'sql' 
+IMMUTABLE
+STRICT 
+PARALLEL SAFE
+COST 10
+AS $$
+	SELECT CASE WHEN @extschema@.ST_GeometryType($1) = ('"ST_PolyhedralSurface"'::gtype)
+	THEN @extschema@.ST_NumGeometries($1)
+	ELSE NULL END
+$$;
+
+
+-- Availability: 2.0.0
+CREATE OR REPLACE FUNCTION ST_PatchN(gtype, gtype)
+RETURNS gtype
+LANGUAGE 'sql' 
+IMMUTABLE
+STRICT 
+PARALLEL SAFE
+COST 10
+AS $$
+	SELECT CASE WHEN @extschema@.ST_GeometryType($1) = ('"ST_PolyhedralSurface"'::gtype)
+	THEN @extschema@.ST_GeometryN($1, $2)
+	ELSE NULL END
+$$;
+
+-- PostGIS equivalent function: NumGeometries(geometry)
+CREATE OR REPLACE FUNCTION ST_Reverse(geom gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 10
+AS 'MODULE_PATHNAME', 'gtype_st_reverse';
+
+CREATE OR REPLACE FUNCTION ST_GeomFromText(gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME','gtype_from_text';
+
+-- PostGIS equivalent function: ST_GeometryFromText(gtype, gtype)
+CREATE OR REPLACE FUNCTION ST_GeomFromText(gtype, gtype)
+RETURNS gtype
+LANGUAGE 'c' 
+IMMUTABLE 
+STRICT 
+PARALLEL SAFE
+COST 50
+AS 'MODULE_PATHNAME','gtype_from_text';

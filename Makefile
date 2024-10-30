@@ -112,7 +112,8 @@ REGRESS = new_cypher \
           cypher_setop \
           aggregation \
           traversal_functions \
-          variable_edge_functions
+          variable_edge_functions \
+          postgis
 
 srcdir=`pwd`
 POSTGIS_DIR ?= postgis_dir
