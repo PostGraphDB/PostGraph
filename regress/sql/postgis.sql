@@ -571,6 +571,14 @@ RETURN '225', ST_Expand('BOX(-2 3, -1 6'::BOX2D, 4, 2);
 RETURN '226', ST_SRID(ST_Expand('SRID=4326;POINT (0 0)'::geometry, 1))=4326;
 
 
+
+RETURN '#3069',  postgis_getbbox('SRID=0;POINT(1 1)'::geometry);
+RETURN '#3069',  postgis_getbbox('SRID=0;LINESTRING(0 0, 1 1)'::geometry);
+RETURN '#3069',  postgis_getbbox('SRID=0;MULTILINESTRING((0 0, 1 1))'::geometry);
+RETURN '#3069',  postgis_getbbox('SRID=0;MULTIPOINT(1 1)'::geometry);
+RETURN '#3069',  postgis_getbbox('SRID=0;MULTILINESTRING((0 0,1 1))'::geometry);
+
+
 --
 -- Measures
 --

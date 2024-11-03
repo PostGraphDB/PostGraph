@@ -94,6 +94,11 @@ COST 1
 AS 'MODULE_PATHNAME', 'gtype_zmax';
 
 
+
+-----------------------------------------------------------------------------
+--  Overloaded ST_Expand FUNCTIONS
+-----------------------------------------------------------------------------
+
 -- Availability: 1.2.2
 CREATE OR REPLACE FUNCTION ST_Expand(gtype,gtype)
 RETURNS gtype
@@ -115,6 +120,17 @@ LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 CREATE OR REPLACE FUNCTION ST_Expand(geom gtype, dx gtype, dy gtype, dz gtype DEFAULT '0.0'::gtype, dm gtype DEFAULT '0.0'::gtype)
 RETURNS gtype
 AS 'MODULE_PATHNAME', 'gtype_ST_Expand'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+
+-----------------------------------------------------------------------------
+--  BOX2D FUNCTIONS
+-----------------------------------------------------------------------------
+
+-- Availability: 1.5.0
+CREATE OR REPLACE FUNCTION postgis_getbbox(gtype)
+RETURNS gtype
+AS 'MODULE_PATHNAME','gtype_to_BOX2DF'
 LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 
 

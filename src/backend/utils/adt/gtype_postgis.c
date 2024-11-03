@@ -1474,6 +1474,23 @@ gtype_ST_Expand(PG_FUNCTION_ARGS) {
     }
 }
 
+/*convert a GSERIALIZED to BOX2D */
+PG_FUNCTION_INFO_V1(gtype_to_BOX2DF);
+Datum gtype_to_BOX2DF(PG_FUNCTION_ARGS)
+{
+	GBOX gbox;
+    gtype_value gtv =  { .type = AGTV_BOX2D };
+	
+    if (gserialized_datum_get_gbox_p(convert_to_scalar(gtype_to_geometry_internal, AG_GET_ARG_GTYPE_P(0), "geometry"), &gtv.val.gbox) == LW_FAILURE)
+		PG_RETURN_NULL();
+
+	/* Strip out higher dimensions */
+	FLAGS_SET_Z(gbox.flags, 0);
+	FLAGS_SET_M(gbox.flags, 0);
+
+    AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
+}
+
 PG_FUNCTION_INFO_V1(gtype_ST_IsPolygonCW);
 Datum
 gtype_ST_IsPolygonCW(PG_FUNCTION_ARGS) {
