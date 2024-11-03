@@ -15,9 +15,30 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
---
--- Box3D Functions
---
+-----------------------------------------------------------------------------
+-- GEOMETRY Operators
+-----------------------------------------------------------------------------
+
+
+-- Availability: 2.2.0
+CREATE OR REPLACE FUNCTION ST_ShiftLongitude(gtype)
+RETURNS gtype
+LANGUAGE c
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+PARALLEL SAFE
+COST 1
+AS 'MODULE_PATHNAME', 'gtype_longitude_shift';
+
+-- TODO: ST_Wrapx
+
+
+
+
+-----------------------------------------------------------------------------
+--  BOX3D FUNCTIONS
+-----------------------------------------------------------------------------
+
 CREATE FUNCTION ST_XMin (gtype)
 RETURNS gtype
 LANGUAGE c
@@ -72,22 +93,30 @@ PARALLEL SAFE
 COST 1
 AS 'MODULE_PATHNAME', 'gtype_zmax';
 
------------------------------------------------------------------------------
--- GEOMETRY Operators
------------------------------------------------------------------------------
 
-
--- Availability: 2.2.0
-CREATE OR REPLACE FUNCTION ST_ShiftLongitude(gtype)
+-- Availability: 1.2.2
+CREATE OR REPLACE FUNCTION ST_Expand(gtype,gtype)
 RETURNS gtype
-LANGUAGE c
-IMMUTABLE
-RETURNS NULL ON NULL INPUT
-PARALLEL SAFE
-COST 1
-AS 'MODULE_PATHNAME', 'gtype_longitude_shift';
+AS 'MODULE_PATHNAME', 'gtype_ST_Expand'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 
--- TODO: ST_Wrapx
+CREATE OR REPLACE FUNCTION ST_Expand(gtype, dx float8, dy float8)
+RETURNS gtype
+AS 'MODULE_PATHNAME', 'gtype_ST_Expand'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Availability: 2.3.0
+CREATE OR REPLACE FUNCTION ST_Expand(box gtype, dx float8, dy float8, dz float8 DEFAULT 0)
+RETURNS gtype
+AS 'MODULE_PATHNAME', 'gtype_ST_Expand'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Availability: 2.3.0
+CREATE OR REPLACE FUNCTION ST_Expand(geom gtype, dx gtype, dy gtype, dz gtype DEFAULT '0.0'::gtype, dm gtype DEFAULT '0.0'::gtype)
+RETURNS gtype
+AS 'MODULE_PATHNAME', 'gtype_ST_Expand'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
 
 --
 -- PostGIS 2D Geometry Operators

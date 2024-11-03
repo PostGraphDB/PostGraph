@@ -537,6 +537,40 @@ RETURN ST_asewkt(ST_Scale('POINT(10 20 -5 3)'::geometry, ST_MakePoint(4, 2, -8))
 RETURN ST_asewkt(ST_Scale('POINT(-2 -1 3 2)'::geometry, ST_MakePointM(-2, 3, 4)));
 RETURN ST_asewkt(ST_Scale('POINT(10 20 -5 3)'::geometry, ST_MakePoint(-3, 2, -1, 3)));
 RETURN ST_asewkt(st_scale('LINESTRING(1 1, 2 2)'::geometry, 'POINT(2 2)'::geometry, 'POINT(1 1)'::geometry));
+
+
+
+RETURN '200', ST_Expand(null::geometry, 1);
+RETURN '201', ST_AsText(ST_Expand('LINESTRING (1 2 3, 10 20 30)'::geometry, 1));
+RETURN '202', ST_AsText(ST_Expand('LINESTRINGM (1 2 3, 10 20 30)'::geometry, 1));
+RETURN '203', ST_AsText(ST_Expand('LINESTRING (1 2, 10 20)'::geometry, 3));
+RETURN '204', ST_AsText(ST_Expand('POLYGON EMPTY'::geometry, 4));
+RETURN '205', ST_AsText(ST_Expand('POINT EMPTY'::geometry, 2));
+RETURN '206', ST_AsText(ST_Expand('POINT (2 3)'::geometry, 0));
+RETURN '207', ST_AsText(ST_Expand('LINESTRING (1 2, 3 4)'::geometry, 0));
+RETURN '208', ST_AsText(ST_Expand('POINT (0 0)'::geometry, -1));
+RETURN '209', ST_AsText(ST_Expand('LINESTRING (0 0, 10 10)'::geometry, -4));
+RETURN '210', ST_Expand(null::box3d, 1);
+RETURN '211', ST_Expand('BOX3D(-1 3 5, -1 6 8)'::BOX3D, 1);
+RETURN '212', ST_Expand(null::box2d, 1);
+RETURN '213', ST_Expand('BOX(-2 3, -1 6'::BOX2D, 4);
+
+RETURN '214', ST_Expand(null::geometry, 1, 1, 1, 1);
+RETURN '215', ST_AsText(ST_Expand('LINESTRING (1 2 3, 10 20 30)'::geometry, 1, 4, 2, 7));
+
+RETURN '216', ST_AsText(ST_Expand('LINESTRINGM (1 2 3, 10 20 30)'::geometry, 1, 4, 2, 7));
+RETURN '217', ST_AsText(ST_Expand('LINESTRING (1 2, 10 20)'::geometry, 1, 4, 2, 7));
+RETURN '218', ST_AsText(ST_Expand('POLYGON EMPTY'::geometry, 4, 3, 1, 1));
+RETURN '219', ST_AsText(ST_Expand('POINT EMPTY'::geometry, 2, 3, 1, -1));
+RETURN '220', ST_AsText(ST_Expand('POINT (2 3)'::geometry, 0, 4, -2, 8));
+RETURN '221', ST_AsText(ST_Expand('POINT (0 0)'::geometry, -1, -2));
+RETURN '222', ST_Expand(null::box3d, 1, 1, 1);
+RETURN '223', ST_Expand('BOX3D(-1 3 5, -1 6 8)'::BOX3D, 1, -1, 7);
+RETURN '224', ST_Expand(null::box2d, 1, 1);
+RETURN '225', ST_Expand('BOX(-2 3, -1 6'::BOX2D, 4, 2);
+RETURN '226', ST_SRID(ST_Expand('SRID=4326;POINT (0 0)'::geometry, 1))=4326;
+
+
 --
 -- Measures
 --

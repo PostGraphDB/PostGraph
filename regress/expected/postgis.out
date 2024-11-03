@@ -2229,6 +2229,167 @@ RETURN ST_asewkt(st_scale('LINESTRING(1 1, 2 2)'::geometry, 'POINT(2 2)'::geomet
  "LINESTRING(1 1,3 3)"
 (1 row)
 
+RETURN '200', ST_Expand(null::geometry, 1);
+ ?column? | st_expand 
+----------+-----------
+ "200"    | 
+(1 row)
+
+RETURN '201', ST_AsText(ST_Expand('LINESTRING (1 2 3, 10 20 30)'::geometry, 1));
+ ?column? |                      st_astext                      
+----------+-----------------------------------------------------
+ "201"    | "POLYGON Z ((0 1 2,0 21 2,11 21 31,11 1 31,0 1 2))"
+(1 row)
+
+RETURN '202', ST_AsText(ST_Expand('LINESTRINGM (1 2 3, 10 20 30)'::geometry, 1));
+ ?column? |                      st_astext                      
+----------+-----------------------------------------------------
+ "202"    | "POLYGON M ((0 1 2,0 21 2,11 21 31,11 1 31,0 1 2))"
+(1 row)
+
+RETURN '203', ST_AsText(ST_Expand('LINESTRING (1 2, 10 20)'::geometry, 3));
+ ?column? |                 st_astext                  
+----------+--------------------------------------------
+ "203"    | "POLYGON((-2 -1,-2 23,13 23,13 -1,-2 -1))"
+(1 row)
+
+RETURN '204', ST_AsText(ST_Expand('POLYGON EMPTY'::geometry, 4));
+ ?column? |    st_astext    
+----------+-----------------
+ "204"    | "POLYGON EMPTY"
+(1 row)
+
+RETURN '205', ST_AsText(ST_Expand('POINT EMPTY'::geometry, 2));
+ ?column? |   st_astext   
+----------+---------------
+ "205"    | "POINT EMPTY"
+(1 row)
+
+RETURN '206', ST_AsText(ST_Expand('POINT (2 3)'::geometry, 0));
+ ?column? |            st_astext             
+----------+----------------------------------
+ "206"    | "POLYGON((2 3,2 3,2 3,2 3,2 3))"
+(1 row)
+
+RETURN '207', ST_AsText(ST_Expand('LINESTRING (1 2, 3 4)'::geometry, 0));
+ ?column? |            st_astext             
+----------+----------------------------------
+ "207"    | "POLYGON((1 2,1 4,3 4,3 2,1 2))"
+(1 row)
+
+RETURN '208', ST_AsText(ST_Expand('POINT (0 0)'::geometry, -1));
+ ?column? |              st_astext               
+----------+--------------------------------------
+ "208"    | "POLYGON((1 1,1 -1,-1 -1,-1 1,1 1))"
+(1 row)
+
+RETURN '209', ST_AsText(ST_Expand('LINESTRING (0 0, 10 10)'::geometry, -4));
+ ?column? |            st_astext             
+----------+----------------------------------
+ "209"    | "POLYGON((4 4,4 6,6 6,6 4,4 4))"
+(1 row)
+
+RETURN '210', ST_Expand(null::box3d, 1);
+ ?column? | st_expand 
+----------+-----------
+ "210"    | 
+(1 row)
+
+RETURN '211', ST_Expand('BOX3D(-1 3 5, -1 6 8)'::BOX3D, 1);
+ ?column? |      st_expand      
+----------+---------------------
+ "211"    | BOX3D(-2 2 4,0 7 9)
+(1 row)
+
+RETURN '212', ST_Expand(null::box2d, 1);
+ ?column? | st_expand 
+----------+-----------
+ "212"    | 
+(1 row)
+
+RETURN '213', ST_Expand('BOX(-2 3, -1 6'::BOX2D, 4);
+ ?column? |    st_expand    
+----------+-----------------
+ "213"    | BOX(-6 -1,3 10)
+(1 row)
+
+RETURN '214', ST_Expand(null::geometry, 1, 1, 1, 1);
+ ?column? | st_expand 
+----------+-----------
+ "214"    | 
+(1 row)
+
+RETURN '215', ST_AsText(ST_Expand('LINESTRING (1 2 3, 10 20 30)'::geometry, 1, 4, 2, 7));
+ ?column? |                       st_astext                        
+----------+--------------------------------------------------------
+ "215"    | "POLYGON Z ((0 -2 1,0 24 1,11 24 32,11 -2 32,0 -2 1))"
+(1 row)
+
+RETURN '216', ST_AsText(ST_Expand('LINESTRINGM (1 2 3, 10 20 30)'::geometry, 1, 4, 2, 7));
+ ?column? |                         st_astext                         
+----------+-----------------------------------------------------------
+ "216"    | "POLYGON M ((0 -2 -4,0 24 -4,11 24 37,11 -2 37,0 -2 -4))"
+(1 row)
+
+RETURN '217', ST_AsText(ST_Expand('LINESTRING (1 2, 10 20)'::geometry, 1, 4, 2, 7));
+ ?column? |                st_astext                
+----------+-----------------------------------------
+ "217"    | "POLYGON((0 -2,0 24,11 24,11 -2,0 -2))"
+(1 row)
+
+RETURN '218', ST_AsText(ST_Expand('POLYGON EMPTY'::geometry, 4, 3, 1, 1));
+ ?column? |    st_astext    
+----------+-----------------
+ "218"    | "POLYGON EMPTY"
+(1 row)
+
+RETURN '219', ST_AsText(ST_Expand('POINT EMPTY'::geometry, 2, 3, 1, -1));
+ ?column? |   st_astext   
+----------+---------------
+ "219"    | "POINT EMPTY"
+(1 row)
+
+RETURN '220', ST_AsText(ST_Expand('POINT (2 3)'::geometry, 0, 4, -2, 8));
+ ?column? |              st_astext              
+----------+-------------------------------------
+ "220"    | "POLYGON((2 -1,2 7,2 7,2 -1,2 -1))"
+(1 row)
+
+RETURN '221', ST_AsText(ST_Expand('POINT (0 0)'::geometry, -1, -2));
+ ?column? |              st_astext               
+----------+--------------------------------------
+ "221"    | "POLYGON((1 2,1 -2,-1 -2,-1 2,1 2))"
+(1 row)
+
+RETURN '222', ST_Expand(null::box3d, 1, 1, 1);
+ ?column? | st_expand 
+----------+-----------
+ "222"    | 
+(1 row)
+
+RETURN '223', ST_Expand('BOX3D(-1 3 5, -1 6 8)'::BOX3D, 1, -1, 7);
+ ?column? |       st_expand       
+----------+-----------------------
+ "223"    | BOX3D(-2 4 -2,0 5 15)
+(1 row)
+
+RETURN '224', ST_Expand(null::box2d, 1, 1);
+ ?column? | st_expand 
+----------+-----------
+ "224"    | 
+(1 row)
+
+RETURN '225', ST_Expand('BOX(-2 3, -1 6'::BOX2D, 4, 2);
+ ?column? |   st_expand   
+----------+---------------
+ "225"    | BOX(-6 1,3 8)
+(1 row)
+
+RETURN '226', ST_SRID(ST_Expand('SRID=4326;POINT (0 0)'::geometry, 1))=4326;
+ERROR:  function postgraph.st_srid(gtype) does not exist
+LINE 1: RETURN '226', ST_SRID(ST_Expand('SRID=4326;POINT (0 0)'::geo...
+                      ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 --
 -- Measures
 --

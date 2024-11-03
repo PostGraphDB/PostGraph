@@ -1349,6 +1349,131 @@ Datum gtype_longitude_shift(PG_FUNCTION_ARGS)
     AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
 }
 
+
+static void
+expand_box3d_xyz(BOX3D *box, double dx, double dy, double dz)
+{
+	box->xmin -= dx;
+	box->xmax += dx;
+	box->ymin -= dy;
+	box->ymax += dy;
+	box->zmin -= dz;
+	box->zmax += dz;
+}
+
+//Overloaded Function are annoying
+PG_FUNCTION_INFO_V1(gtype_ST_Expand);
+Datum
+gtype_ST_Expand(PG_FUNCTION_ARGS) {
+    gtype *gt_1 = AG_GET_ARG_GTYPE_P(0);
+    
+    if (GT_IS_BOX2D(gt_1)) {
+        GBOX *box = (GBOX *)DatumGetPointer(convert_to_scalar(gtype_to_box2d_internal, gt_1, "box"));
+        gtype_value gtv =  { .type = AGTV_BOX2D };
+        GBOX *result = &gtv.val.gbox;
+        memcpy(result, box, sizeof(GBOX));
+
+        if (PG_NARGS() == 2)
+        {
+            double d = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(1), "float"));
+            gbox_expand(result, d);
+        }
+        else 
+        {
+            double dx = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(1), "float"));
+            double dy = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(2), "float"));
+
+            gbox_expand_xyzm(result, dx, dy, 0, 0);
+        } 
+
+        AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
+
+    } else if (GT_IS_BOX3D(gt_1)) {
+        BOX3D *box = (BOX3D *)DatumGetPointer(convert_to_scalar(gtype_to_box3d_internal, gt_1, "box3d"));
+        gtype_value gtv =  { .type = AGTV_BOX3D };
+        BOX3D *result = &gtv.val.box3d;
+        memcpy(result, box, sizeof(BOX3D));
+
+        if (PG_NARGS() == 2)
+        {
+            // Expand the box the same amount in all directions
+            double d = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(1), "float"));
+            expand_box3d(result, d);
+        }
+        else
+        {
+            double dx = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(1), "float"));
+            double dy = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(2), "float"));
+            double dz = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(3), "float"));
+
+            expand_box3d_xyz(result, dx, dy, dz);
+        }
+
+        AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
+    } else {
+        GSERIALIZED *geom = DatumGetPointer(convert_to_scalar(gtype_to_geometry_internal, gt_1, "geometry"));
+        LWGEOM *lwgeom = lwgeom_from_gserialized(geom);
+        int32_t srid = lwgeom_get_srid(lwgeom);
+        LWPOLY *poly;
+        GSERIALIZED *result;
+        GBOX gbox;
+
+        POSTGIS_DEBUG(2, "LWGEOM_expand called.");
+
+        // Can't expand an empty
+        if (lwgeom_is_empty(lwgeom))
+        {
+            lwgeom_free(lwgeom);
+            PG_RETURN_POINTER(gt_1);
+        }
+
+        // Can't expand something with no gbox! 
+        if (LW_FAILURE == lwgeom_calculate_gbox(lwgeom, &gbox))
+        {
+            lwgeom_free(lwgeom);
+            PG_RETURN_POINTER(gt_1);
+        }
+
+        if (PG_NARGS() == 2)
+        {
+            // Expand the box the same amount in all directions
+            double d = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(1), "float"));
+            gbox_expand(&gbox, d);
+        }
+        else
+        {
+            double dx = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(1), "float"));
+            double dy = DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(2), "float"));
+            double dz = PG_NARGS() < 4 ? 0.0 : DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(3), "float"));
+            double dm = PG_NARGS() < 5 ? 0.0 : DatumGetFloat8(convert_to_scalar(gtype_to_float8_internal, AG_GET_ARG_GTYPE_P(4), "float"));
+
+            gbox_expand_xyzm(&gbox, dx, dy, dz, dm);
+        }
+
+        {
+            POINT4D p1 = {gbox.xmin, gbox.ymin, gbox.zmin, gbox.mmin};
+            POINT4D p2 = {gbox.xmin, gbox.ymax, gbox.zmin, gbox.mmin};
+            POINT4D p3 = {gbox.xmax, gbox.ymax, gbox.zmax, gbox.mmax};
+            POINT4D p4 = {gbox.xmax, gbox.ymin, gbox.zmax, gbox.mmax};
+
+            poly = lwpoly_construct_rectangle(lwgeom_has_z(lwgeom), lwgeom_has_m(lwgeom), &p1, &p2, &p3, &p4);
+        }
+
+        lwgeom_add_bbox(lwpoly_as_lwgeom(poly));
+        lwgeom_set_srid(lwpoly_as_lwgeom(poly), srid);
+
+        // Construct GSERIALIZED
+        result = geometry_serialize(lwpoly_as_lwgeom(poly));
+
+        lwgeom_free(lwpoly_as_lwgeom(poly));
+        lwgeom_free(lwgeom);
+
+        gtype_value gtv = { .type = AGTV_GSERIALIZED, .val.gserialized = result };
+
+        AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
+    }
+}
+
 PG_FUNCTION_INFO_V1(gtype_ST_IsPolygonCW);
 Datum
 gtype_ST_IsPolygonCW(PG_FUNCTION_ARGS) {
