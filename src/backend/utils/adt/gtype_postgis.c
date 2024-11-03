@@ -1289,7 +1289,7 @@ gtype_snaptogrid_pointoff(PG_FUNCTION_ARGS) {
 
     Datum d = DirectFunctionCall6(LWGEOM_snaptogrid_pointoff, d1, d2, d3, d4, d5, d6);
 
-    gtype_value gtv = { .type = AGTV_GSERIALIZED, .val.boolean = DatumGetPointer(d) };
+    gtype_value gtv = { .type = AGTV_GSERIALIZED, .val.gserialized = DatumGetPointer(d) };
 
     AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
 }
@@ -1312,7 +1312,39 @@ gtype_snaptogrid(PG_FUNCTION_ARGS) {
 
     Datum d = DirectFunctionCall5(LWGEOM_snaptogrid, d1, d2, d3, d4, d5);
 
-    gtype_value gtv = { .type = AGTV_GSERIALIZED, .val.boolean = DatumGetPointer(d) };
+    gtype_value gtv = { .type = AGTV_GSERIALIZED, .val.gserialized = DatumGetPointer(d) };
+
+    AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
+}
+
+
+
+PG_FUNCTION_INFO_V1(gtype_longitude_shift);
+Datum gtype_longitude_shift(PG_FUNCTION_ARGS)
+{
+    gtype *gt_1 = AG_GET_ARG_GTYPE_P(0);
+	GSERIALIZED *geom;
+	LWGEOM *lwgeom;
+	GSERIALIZED *ret;
+
+	POSTGIS_DEBUG(2, "LWGEOM_longitude_shift called.");
+
+	geom = PG_DETOAST_DATUM_COPY(convert_to_scalar(gtype_to_geometry_internal, gt_1, "geometry"));
+	lwgeom = lwgeom_from_gserialized(geom);
+
+	/* Drop bbox, will be recomputed */
+	lwgeom_drop_bbox(lwgeom);
+
+	/* Modify geometry */
+	lwgeom_longitude_shift(lwgeom);
+
+	/* Construct GSERIALIZED */
+	ret = geometry_serialize(lwgeom);
+
+	/* Release deserialized geometry */
+	lwgeom_free(lwgeom);
+
+    gtype_value gtv = { .type = AGTV_GSERIALIZED, .val.gserialized = ret };
 
     AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
 }

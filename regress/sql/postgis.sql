@@ -938,8 +938,9 @@ RETURN ST_AsEWKT(ST_patchN('POLYHEDRALSURFACE(((0 0 0,0 0 1,0 1 0,0 0 0)),((0 0 
 RETURN ST_AsText(ST_Reverse('POLYHEDRALSURFACE EMPTY'::geometry));
 RETURN ST_AsText(ST_Reverse('POLYHEDRALSURFACE (((0 0,0 0,0 1,0 0)),((0 0,0 1,1 0,0 0)),((0 0,1 0,0 0,0 0)),((1 0,0 1,0 0,1 0)))'::geometry));
 
-
-
+RETURN ST_AsText(ST_ShiftLongitude('SRID=4326;POINT(270 0)'::geometry));
+RETURN ST_AsText(ST_ShiftLongitude('SRID=4326;POINT(-90 0)'::geometry));
+RETURN ST_AsText(ST_ShiftLongitude('SRID=4326;LINESTRING(174 12, 182 13)'::geometry));
 
 -- TODO KNN
 
