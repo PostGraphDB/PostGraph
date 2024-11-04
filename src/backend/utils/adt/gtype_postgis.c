@@ -32,6 +32,7 @@
 //PostGIS
 #include "libpgcommon/lwgeom_pg.h"
 #include "liblwgeom/liblwgeom.h"
+#include "liblwgeom/lwgeom_log.h"
 #include "libpgcommon/gserialized_gist.h"
 #include "libpgcommon/lwgeom_pg.h"
 #include "liblwgeom/liblwgeom_internal.h"
@@ -1487,6 +1488,76 @@ Datum gtype_to_BOX2DF(PG_FUNCTION_ARGS)
 	/* Strip out higher dimensions */
 	FLAGS_SET_Z(gbox.flags, 0);
 	FLAGS_SET_M(gbox.flags, 0);
+
+    AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
+}
+
+void gserialized_error_if_srid_mismatch1(const GSERIALIZED *g1, const GSERIALIZED *g2, const char *funcname);
+void
+gserialized_error_if_srid_mismatch1(const GSERIALIZED *g1, const GSERIALIZED *g2, const char *funcname)
+{
+	int32_t srid1 = gserialized_get_srid(g1);
+	int32_t srid2 = gserialized_get_srid(g2);
+	if (srid1 != srid2)
+        elog(ERROR, "Operation on mixed SRID geometries"); //TODO: investigate this error message
+/*
+           
+	if (srid1 != srid2)
+		lwerror("%s: Operation on mixed SRID geometries (%s, %d) != (%s, %d)",
+			funcname,
+			lwtype_name(gserialized1_get_type(g1)),
+			srid1,
+			lwtype_name(gserialized_get_type(g2)),
+			srid2);
+*/
+}
+
+PG_FUNCTION_INFO_V1(gtype_construct);
+Datum gtype_construct(PG_FUNCTION_ARGS)
+{
+	GSERIALIZED *pgmin = DatumGetPointer(convert_to_scalar(gtype_to_geometry_internal, AG_GET_ARG_GTYPE_P(0), "geometry"));
+	GSERIALIZED *pgmax = DatumGetPointer(convert_to_scalar(gtype_to_geometry_internal, AG_GET_ARG_GTYPE_P(1), "geometry"));
+	GBOX *result;
+	LWPOINT *minpoint, *maxpoint;
+	double min, max, tmp;
+	gserialized_error_if_srid_mismatch1(pgmin, pgmax, "ST_MakeBox2d"); //TODO: investigate this error message
+	minpoint = (LWPOINT *)lwgeom_from_gserialized(pgmin);
+	maxpoint = (LWPOINT *)lwgeom_from_gserialized(pgmax);
+
+	if ( (minpoint->type != POINTTYPE) || (maxpoint->type != POINTTYPE) ) {
+		elog(ERROR, "BOX2D_construct: arguments must be points");
+	}
+
+	if (lwpoint_is_empty(minpoint) || lwpoint_is_empty(maxpoint) ) {
+		elog(ERROR, "BOX2D_construct: args can not be empty points");
+	}
+		
+	result = gbox_new(lwflags(0, 0, 0));
+
+	/* Process X min/max */
+	min = lwpoint_get_x(minpoint);
+	max = lwpoint_get_x(maxpoint);
+	if ( min > max ) {
+		tmp = min;
+		min = max;
+		max = tmp;
+	}
+	result->xmin = min;
+	result->xmax = max;
+
+	/* Process Y min/max */
+	min = lwpoint_get_y(minpoint);
+	max = lwpoint_get_y(maxpoint);
+	if ( min > max ) {
+		tmp = min;
+		min = max;
+		max = tmp;
+	}
+	result->ymin = min;
+	result->ymax = max;
+    
+    gtype_value gtv =  { .type = AGTV_BOX2D };
+    memcpy(&gtv.val.gbox, result, sizeof(GBOX));
 
     AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
 }

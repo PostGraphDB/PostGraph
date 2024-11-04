@@ -578,6 +578,9 @@ RETURN '#3069',  postgis_getbbox('SRID=0;MULTILINESTRING((0 0, 1 1))'::geometry)
 RETURN '#3069',  postgis_getbbox('SRID=0;MULTIPOINT(1 1)'::geometry);
 RETURN '#3069',  postgis_getbbox('SRID=0;MULTILINESTRING((0 0,1 1))'::geometry);
 
+-- postgis-users/2006-July/012788.html
+RETURN ST_makebox2d('SRID=3;POINT(0 0)', 'SRID=3;POINT(1 1)');
+RETURN ST_makebox2d('POINT(0 0)', 'SRID=3;POINT(1 1)');
 
 --
 -- Measures

@@ -2420,6 +2420,15 @@ RETURN '#3069',  postgis_getbbox('SRID=0;MULTILINESTRING((0 0,1 1))'::geometry);
  "#3069"  | BOX(0 0,1 1)
 (1 row)
 
+-- postgis-users/2006-July/012788.html
+RETURN ST_makebox2d('SRID=3;POINT(0 0)', 'SRID=3;POINT(1 1)');
+ st_makebox2d 
+--------------
+ BOX(0 0,1 1)
+(1 row)
+
+RETURN ST_makebox2d('POINT(0 0)', 'SRID=3;POINT(1 1)');
+ERROR:  Operation on mixed SRID geometries
 --
 -- Measures
 --

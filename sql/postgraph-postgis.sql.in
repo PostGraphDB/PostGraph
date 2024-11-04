@@ -134,6 +134,12 @@ AS 'MODULE_PATHNAME','gtype_to_BOX2DF'
 LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 
 
+-- Availability: 1.2.2
+CREATE OR REPLACE FUNCTION ST_MakeBox2d(geom1 gtype, geom2 gtype)
+RETURNS gtype
+AS 'MODULE_PATHNAME', 'gtype_construct'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
 --
 -- PostGIS 2D Geometry Operators
 --
