@@ -17,8 +17,8 @@
  * Portions Copyright (c) 2021-2023, pgvector
  */
 
-#ifndef VECTOR_H
-#define VECTOR_H
+#ifndef POSTGRAPH_VECTOR_H
+#define POSTGRAPH_VECTOR_H
 
 #include "postgres.h"
 

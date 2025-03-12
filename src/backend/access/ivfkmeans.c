@@ -6,6 +6,9 @@
 #include "access/ivfflat.h"
 #include "miscadmin.h"
 
+static int
+GtypeCompareVectors(const void *a, const void *b);
+
 /*
  * Initialize with kmeans++
  *
@@ -29,7 +32,7 @@ InitCenters(Relation index, VectorArray samples, VectorArray centers, float8 *lo
      collation = index->rd_indcollation[0];
 
      // Choose an initial center uniformly at random 
-     VectorArraySet(centers, 0, VectorArrayGet(samples, RandomInt() % samples->length));
+     VectorArraySet(centers, 0, &samples->items[RandomInt() % samples->length]);
      centers->length++;
 
      for (j = 0; j < numSamples; j++)
@@ -41,11 +44,11 @@ InitCenters(Relation index, VectorArray samples, VectorArray centers, float8 *lo
         sum = 0.0;
 
         for (j = 0; j < numSamples; j++) {
-            vec = VectorArrayGet(samples, j);
-
+            vec = &samples->items[j];
+            
             // Only need to compute distance for new center 
             // TODO Use triangle inequality to reduce distance calculations 
-            distance = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(vec), PointerGetDatum(VectorArrayGet(centers, i))));
+            distance = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(vec), PointerGetDatum(&centers->items[i])));
 
             // Set lower bound 
             lowerBound[j * numCenters + i] = distance;
@@ -71,7 +74,7 @@ InitCenters(Relation index, VectorArray samples, VectorArray centers, float8 *lo
                 break;
         }
 
-        VectorArraySet(centers, i + 1, VectorArrayGet(samples, j));
+        VectorArraySet(centers, i + 1, &samples->items[j]);
         centers->length++;
      }
 
@@ -96,7 +99,7 @@ ApplyNorm(FmgrInfo *normprocinfo, Oid collation, gtype * vec) {
  * Compare vectors
  */
 static int
-CompareVectors(const void *a, const void *b) {
+GtypeCompareVectors(const void *a, const void *b) {
     return gtype_vector_cmp((Vector *) a, (Vector *) b);
 }
 
@@ -112,11 +115,11 @@ QuickCenters(Relation index, VectorArray samples, VectorArray centers) {
 
     // Copy existing vectors while avoiding duplicates 
     if (samples->length > 0) {
-        qsort(samples->items, samples->length, VECTOR_SIZE(samples->dim), CompareVectors);
+        qsort(samples->items, samples->length, VECTOR_SIZE(samples->dim), GtypeCompareVectors);
         for (int i = 0; i < samples->length; i++) {
-            vec = VectorArrayGet(samples, i);
+            vec = &samples->items[i];//GTypeVectorArrayGet(samples, i);
 
-            if (i == 0 || CompareVectors(vec, VectorArrayGet(samples, i - 1)) != 0) {
+            if (i == 0 || GtypeCompareVectors(vec, &samples->items[i -1]) != 0) {
                 VectorArraySet(centers, centers->length, vec);
                 centers->length++;
             }
@@ -125,8 +128,9 @@ QuickCenters(Relation index, VectorArray samples, VectorArray centers) {
 
     // Fill remaining with random data 
     while (centers->length < centers->maxlen) {
-        vec = VectorArrayGet(centers, centers->length);
-
+        //vec = GTypeVectorArrayGet(centers, centers->length);
+        vec = &(centers->items[centers->length]);
+        
         SET_VARSIZE(vec, VECTOR_SIZE(dimensions));
         vec->root.header = dimensions | GT_FEXTENDED_COMPOSITE;
         vec->root.children[0] = GT_HEADER_VECTOR;
@@ -221,9 +225,9 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
     halfcdist = palloc_extended(halfcdistSize, MCXT_ALLOC_HUGE);
     newcdist = palloc(newcdistSize);
 
-    newCenters = VectorArrayInit(numCenters, dimensions);
+    newCenters = GtypeVectorArrayInit(numCenters, dimensions);
     for (j = 0; j < numCenters; j++) {
-        vec = VectorArrayGet(newCenters, j);
+        vec = &newCenters->items[j];
         SET_VARSIZE(vec, VECTOR_SIZE(dimensions));
         vec->root.header = dimensions | GT_FEXTENDED_COMPOSITE;
         vec->root.children[0] = GT_HEADER_VECTOR;
@@ -263,11 +267,10 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
         // Step 1: For all centers, compute distance 
         for (j = 0; j < numCenters; j++)
         {
-            vec = VectorArrayGet(centers, j);
-
+            vec = &(centers->items[j]);
             for (k = j + 1; k < numCenters; k++)
             {
-                distance = 0.5 * DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(vec), PointerGetDatum(VectorArrayGet(centers, k))));
+                distance = 0.5 * DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(vec), PointerGetDatum(&(centers->items[k]))));
                 halfcdist[j * numCenters + k] = distance;
                 halfcdist[k * numCenters + j] = distance;
             }
@@ -313,12 +316,12 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
                 if (upperBound[j] <= halfcdist[closestCenters[j] * numCenters + k])
                     continue;
 
-                vec = VectorArrayGet(samples, j);
-
+                vec = &samples->items[j];
+                
                 // Step 3a 
                 if (rj)
                 {
-                    dxcx = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(vec), PointerGetDatum(VectorArrayGet(centers, closestCenters[j]))));
+                    dxcx = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(vec), PointerGetDatum(&(centers->items[closestCenters[j]]))));
 
                     // d(x,c(x)) computed, which is a form of d(x,c) 
                     lowerBound[j * numCenters + closestCenters[j]] = dxcx;
@@ -332,7 +335,7 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
                 // Step 3b 
                 if (dxcx > lowerBound[j * numCenters + k] || dxcx > halfcdist[closestCenters[j] * numCenters + k])
                 {
-                    dxc = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(vec), PointerGetDatum(VectorArrayGet(centers, k))));
+                    dxc = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(vec), PointerGetDatum(&(centers->items[k]))));
 
                     // d(x,c) calculated 
                     lowerBound[j * numCenters + k] = dxc;
@@ -354,7 +357,7 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
         // Step 4: For each center c, let m(c) be mean of all points assigned 
         for (j = 0; j < numCenters; j++)
         {
-            vec = VectorArrayGet(newCenters, j);
+            vec =&(newCenters->items[j]);
             for (k = 0; k < dimensions; k++)
                 *((float8 *)&vec->root.children[1 + (k * sizeof(float8))]) = 0.0;
 
@@ -363,11 +366,11 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
 
         for (j = 0; j < numSamples; j++)
         {
-            vec = VectorArrayGet(samples, j);
+            vec = &samples->items[j]; 
             closestCenter = closestCenters[j];
 
             // Increment sum and count of closest center 
-            newCenter = VectorArrayGet(newCenters, closestCenter);
+            newCenter = GTypeVectorArrayGet(newCenters, closestCenter);
             for (k = 0; k < dimensions; k++)
                 *((float8 *)&newCenter->root.children[1 + (k * sizeof(float8))]) += *((float8 *)(&vec->root.children[1 + (k * sizeof(float8))]));
 
@@ -376,7 +379,7 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
 
         for (j = 0; j < numCenters; j++)
         {
-            vec = VectorArrayGet(newCenters, j);
+            vec = GTypeVectorArrayGet(newCenters, j);
 
             if (centerCounts[j] > 0)
             {
@@ -405,7 +408,7 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
 
         // Step 5 
         for (j = 0; j < numCenters; j++)
-            newcdist[j] = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(VectorArrayGet(centers, j)), PointerGetDatum(VectorArrayGet(newCenters, j))));
+            newcdist[j] = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, PointerGetDatum(&centers->items[j]), PointerGetDatum(&newCenters->items[j])));
 
         for (j = 0; j < numSamples; j++)
         {
@@ -427,7 +430,7 @@ ElkanKmeans(Relation index, VectorArray samples, VectorArray centers)
 
         // Step 7 
         for (j = 0; j < numCenters; j++)
-            memcpy(VectorArrayGet(centers, j), VectorArrayGet(newCenters, j), VECTOR_SIZE(dimensions));
+            memcpy(&(centers->items[j]), &(newCenters->items[j]), VECTOR_SIZE(dimensions));
 
         if (changes == 0 && iteration != 0)
             break;
@@ -460,7 +463,8 @@ CheckCenters(Relation index, VectorArray centers)
     // Ensure no NaN or infinite values 
     for (int i = 0; i < centers->length; i++)
     {
-        vec = VectorArrayGet(centers, i);
+        //vec = GTypeVectorArrayGet(centers, i);
+        vec = &(centers->items[i]);
 
         for (int j = 0; j < AGT_ROOT_COUNT(vec); j++) {
             if (isnan((double) vec->root.children[1 + (j * sizeof(float8))]))
@@ -473,10 +477,11 @@ CheckCenters(Relation index, VectorArray centers)
 
     // Ensure no duplicate centers 
     // Fine to sort in-place 
-    qsort(centers->items, centers->length, VECTOR_SIZE(centers->dim), CompareVectors);
+    qsort(centers->items, centers->length, VECTOR_SIZE(centers->dim), GtypeCompareVectors);
     for (int i = 1; i < centers->length; i++)
     {
-        if (CompareVectors(VectorArrayGet(centers, i), VectorArrayGet(centers, i - 1)) == 0)
+        //if (GtypeCompareVectors(GTypeVectorArrayGet(centers, i), GTypeVectorArrayGet(centers, i - 1)) == 0)
+        if (GtypeCompareVectors(&(centers->items[i]), &(centers->items[i - 1])) == 0)
             elog(ERROR, "Duplicate centers detected. Please report a bug.");
     }
 
@@ -489,7 +494,7 @@ CheckCenters(Relation index, VectorArray centers)
 
         for (int i = 0; i < centers->length; i++)
         {
-            norm = DatumGetFloat8(FunctionCall1Coll(normprocinfo, collation, PointerGetDatum(VectorArrayGet(centers, i))));
+            norm = DatumGetFloat8(FunctionCall1Coll(normprocinfo, collation, PointerGetDatum(&(centers->items[i]))));
             if (norm == 0)
                 elog(ERROR, "Zero norm detected. Please report a bug.");
         }

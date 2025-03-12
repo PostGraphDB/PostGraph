@@ -278,17 +278,17 @@ typedef IvfflatScanOpaqueData * IvfflatScanOpaque;
 #define VECTOR_ARRAY_SIZE(_length, _dim) \
     (sizeof(VectorArrayData) + ((_length) * VECTOR_SIZE(_dim)))
 
-#define VECTOR_ARRAY_OFFSET(_arr, _offset) \
+#define GTYPE_VECTOR_ARRAY_OFFSET(_arr, _offset) \
     ((char*) (_arr)->items + ((_offset) * VECTOR_SIZE((_arr)->dim)))
 
-#define VectorArrayGet(_arr, _offset) \
-    ((gtype *) VECTOR_ARRAY_OFFSET(_arr, _offset))
+#define GTypeVectorArrayGet(_arr, _offset) \
+    ((gtype *) GTYPE_VECTOR_ARRAY_OFFSET(_arr, _offset))
 
 #define VectorArraySet(_arr, _offset, _val) \
-    memcpy(VECTOR_ARRAY_OFFSET(_arr, _offset), _val, VECTOR_SIZE((_arr)->dim))
+    memcpy(GTYPE_VECTOR_ARRAY_OFFSET(_arr, _offset), _val, VECTOR_SIZE((_arr)->dim))
 
 /* Methods */
-VectorArray VectorArrayInit(int maxlen, int dimensions);
+VectorArray GtypeVectorArrayInit(int maxlen, int dimensions);
 void VectorArrayFree(VectorArray arr);
 void IvfflatKmeans(Relation index, VectorArray samples, VectorArray centers);
 FmgrInfo *IvfflatOptionalProcInfo(Relation rel, uint16 procnum);

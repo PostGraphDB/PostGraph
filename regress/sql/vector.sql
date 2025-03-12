@@ -188,7 +188,20 @@ SELECT gtype_build_list('i'::text, tovector('"[0, 0, 0]"'::gtype));
 
 SELECT gtype_build_map('i'::text, tovector('"[0, 0, 0]"'::gtype))->'"i"';
 
+SELECT create_vlabel('vector', 'vlabel2');
+
+--CREATE (v:vlabel2 {"i": tovector('[0, 0, 0]')})
+--RETURN v, v->'i' <-> tovector('[1, 1, 1]'), v->'i' <=> tovector('[1, 2, 3]'), v->'i' <#> tovector('[1, 1, 1]');
+
+--CREATE (v:vlabel2 {"i": tovector('[1, 0, 0]')})
+--RETURN v, v.i <-> tovector('[1, 1, 1]'), v.i <=> tovector('[1, 2, 3]'), v.i <#> tovector('[1, 1, 1]');
+
+
+SELECT create_ivfflat_ip_ops_index('vector', 'vlabel2', 'i', 3, 100);
+
+--CREATE INDEX vec_idx ON vector.vlabel 
+
 --
--- cleanup
+-- clean up
 --
 DROP GRAPH vector CASCADE;

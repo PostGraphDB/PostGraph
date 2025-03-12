@@ -538,11 +538,11 @@ struct gtype_value
         BOX3D box3d;
         SPHEROID spheroid;
         GSERIALIZED *gserialized;
-	TSVector tsvector;
-	TSQuery tsquery;
-	RangeType *range;
-	MultirangeType *multirange;
-	struct { int len; gtype_container *data; } binary; // Array or object, in on-disk format
+        TSVector tsvector;
+        TSQuery tsquery;
+        RangeType *range;
+        MultirangeType *multirange;
+        struct { int len; gtype_container *data; } binary; // Array or object, in on-disk format
     } val;
 };
 

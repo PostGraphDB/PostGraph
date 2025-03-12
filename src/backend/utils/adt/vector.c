@@ -48,6 +48,8 @@ InitVectorGType(int dim)
 
     gtype_value *result = (gtype_value *) palloc(sizeof(gtype_value));
 
+    result->type = AGTV_VECTOR;
+
     result->val.vector.dim = dim;
 
     result->val.vector.x = palloc(sizeof(float8) * dim);

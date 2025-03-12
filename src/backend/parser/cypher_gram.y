@@ -17752,7 +17752,7 @@ cypher_in_expr:
    ;    
 
 cypher_b_expr:
-   /* cypher_b_expr OR cypher_b_expr
+    cypher_b_expr OR cypher_b_expr
         {
             $$ = make_or_expr($1, $3, @2);
         }
@@ -17764,7 +17764,7 @@ cypher_b_expr:
         {
             $$ = make_xor_expr($1, $3, @2);
         }
-    | NOT cypher_b_expr
+    /*| NOT cypher_b_expr
         {
             $$ = make_not_expr($2, @1);
         }
@@ -17922,11 +17922,11 @@ cypher_expr_atom:
 					else
 						$$ = $2;
         }
-	/*
+	
 	| cypher_var_name '{' map_proj_list_opt '}' %prec '{'
         {
 			ereport(ERROR, errmsg("map projections are not yet implemented"));
-        }*/
+        }
     | expr_case  
     | cypher_expr_func
 	| '(' cypher_query ')'			%prec UNARY_MINUS

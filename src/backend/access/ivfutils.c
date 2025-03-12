@@ -308,7 +308,7 @@ Datum create_ivfflat_l2_ops_index(PG_FUNCTION_ARGS)
  * Allocate a vector array
  */
 VectorArray
-VectorArrayInit(int maxlen, int dimensions) {
+GtypeVectorArrayInit(int maxlen, int dimensions) {
     VectorArray res = palloc0(sizeof(VectorArrayData));
 
     res->length = 0;
@@ -316,10 +316,10 @@ VectorArrayInit(int maxlen, int dimensions) {
     res->dim = dimensions;
     int gtype_size = VECTOR_SIZE(dimensions) * maxlen;
 
-    res->items = palloc_extended(gtype_size * 2, MCXT_ALLOC_ZERO | MCXT_ALLOC_HUGE);
+    res->items = palloc_extended(gtype_size, MCXT_ALLOC_ZERO | MCXT_ALLOC_HUGE);
 
-    for (int i = 0; i < dimensions; i++) {
-        gtype *vec = VectorArrayGet(res, i);
+    for (int i = 0; i < maxlen; i++) {
+        gtype *vec = &res->items[i];// GTypeVectorArrayGet(res, i);
 
         SET_VARSIZE(vec, VECTOR_SIZE(dimensions));
         vec->root.header = dimensions | GT_FEXTENDED_COMPOSITE;

@@ -185,7 +185,7 @@ AddTupleToSort(Relation index, ItemPointer tid, Datum *values, IvfflatBuildState
     // Find the list that minimizes the distance 
     for (int i = 0; i < centers->length; i++)
     {
-        distance = DatumGetFloat8(FunctionCall2Coll(buildstate->procinfo, buildstate->collation, value, PointerGetDatum(VectorArrayGet(centers, i))));
+        distance = DatumGetFloat8(FunctionCall2Coll(buildstate->procinfo, buildstate->collation, value, PointerGetDatum(&centers->items[i])));
 
         if (distance < minDistance)
         {
@@ -388,7 +388,7 @@ InitBuildState(IvfflatBuildState * buildstate, Relation heap, Relation index, In
     buildstate->slot = MakeSingleTupleTableSlot(buildstate->tupdesc);
 #endif
 
-    buildstate->centers = VectorArrayInit(buildstate->lists, buildstate->dimensions);
+    buildstate->centers = GtypeVectorArrayInit(buildstate->lists, buildstate->dimensions);
     buildstate->listInfo = palloc(sizeof(ListInfo) * buildstate->lists);
 
     // Reuse for each tuple 
@@ -445,7 +445,7 @@ ComputeCenters(IvfflatBuildState * buildstate)
 
     // Sample rows 
     // TODO Ensure within maintenance_work_mem 
-    buildstate->samples = VectorArrayInit(numSamples, buildstate->dimensions);
+    buildstate->samples = GtypeVectorArrayInit(numSamples, buildstate->dimensions);
     if (buildstate->heap != NULL) {
         SampleRows(buildstate);
 
@@ -510,7 +510,7 @@ CreateListPages(Relation index, VectorArray centers, int dimensions, int lists, 
         // Load list 
         list->startPage = InvalidBlockNumber;
         list->insertPage = InvalidBlockNumber;
-        memcpy(&list->center, VectorArrayGet(centers, i), VECTOR_SIZE(dimensions));
+        memcpy(&list->center, &centers->items[i], VECTOR_SIZE(dimensions));
 
         // Ensure free space 
         if (PageGetFreeSpace(page) < itemsz)
@@ -560,7 +560,7 @@ PrintKmeansMetrics(IvfflatBuildState * buildstate) {
                 if (j == i)
                     continue;
 
-                distance = DatumGetFloat8(FunctionCall2Coll(buildstate->procinfo, buildstate->collation, PointerGetDatum(VectorArrayGet(buildstate->centers, i)), PointerGetDatum(VectorArrayGet(buildstate->centers, j))));
+                distance = DatumGetFloat8(FunctionCall2Coll(buildstate->procinfo, buildstate->collation, PointerGetDatum(GTypeVectorArrayGet(buildstate->centers, i)), PointerGetDatum(GTypeVectorArrayGet(buildstate->centers, j))));
                 distance = (buildstate->listSums[i] + buildstate->listSums[j]) / distance;
 
                 if (distance > max)
