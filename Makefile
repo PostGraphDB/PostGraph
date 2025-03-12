@@ -108,6 +108,7 @@ REGRESS = new_cypher \
           cypher_merge \
           cypher_unwind \
           cypher_vle \
+          load_csv \
           order_by \
           cypher_setop \
           aggregation \

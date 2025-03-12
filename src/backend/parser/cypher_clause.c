@@ -153,6 +153,8 @@ static TargetEntry *placeholder_edge(cypher_parsestate *cpstate, char *name);
 static TargetEntry *placeholder_traversal(cypher_parsestate *cpstate, char *name);
 // call
 static Query *transform_cypher_call(cypher_parsestate *cpstate, cypher_clause *clause);
+// load csv
+static Query *transform_cypher_load_csv(cypher_parsestate *cpstate, cypher_clause *clause);
 // transform
 #define PREV_CYPHER_CLAUSE_ALIAS    "_"
 #define CYPHER_OPT_RIGHT_ALIAS      "_R"
@@ -221,6 +223,8 @@ Query *transform_cypher_clause(cypher_parsestate *cpstate, cypher_clause *clause
         result = transform_cypher_sub_pattern(cpstate, clause);
     } else if (is_ag_node(self, cypher_unwind)) {
         result = transform_cypher_unwind(cpstate, clause);
+    } else if (is_ag_node(self, cypher_load_csv)) {
+        result = transform_cypher_load_csv(cpstate, clause);
     } else {
         ereport(ERROR, (errmsg_internal("unexpected Node for cypher_clause")));
     }
@@ -326,6 +330,61 @@ static Node *transform_srf_function(cypher_parsestate *cpstate, Node *n, RangeTb
     }
     
     return NULL;
+}
+
+static Query *transform_cypher_load_csv(cypher_parsestate *cpstate, cypher_clause *clause) {
+    cypher_parsestate *child_cpstate = make_cypher_parsestate(cpstate);
+    ParseState *pstate = (ParseState *) child_cpstate;
+    cypher_load_csv *load = clause->self;
+    TargetEntry *te;
+    ParseNamespaceItem *pnsi;
+    FuncCall *fc = makeFuncCall(list_make2(makeString("postgraph"), makeString("cypher_load_csv")),
+                                list_make1(makeString(load->file)),
+                                COERCE_SQL_SYNTAX,
+                                -1);
+
+    Query *query = makeNode(Query);
+    query->commandType = CMD_SELECT;
+
+    /*if (clause->prev) {
+        int rtindex;
+
+        pnsi = transform_prev_cypher_clause(child_cpstate, clause->prev, true);
+        rtindex = list_length(pstate->p_rtable);
+        Assert(rtindex == 1); // rte is the first RangeTblEntry in pstate
+        query->targetList = expandNSItemAttrs(pstate, pnsi, 0, -1);
+    }*/
+
+    Expr *expr = NULL;
+    //if (!call->where)
+     {
+        expr = transform_cypher_expr(child_cpstate, fc, EXPR_KIND_SELECT_TARGET);
+        //te = makeTargetEntry((Expr *) expr, (AttrNumber) pstate->p_next_resno++, call->alias, false);
+        te = makeTargetEntry((Expr *) expr, (AttrNumber) pstate->p_next_resno++, "test", false);
+
+        expr = NULL;
+        query->targetList = lappend(query->targetList, te);
+    } /*else {
+       pnsi = add_srf_to_query(child_cpstate, call->func, call->alias);
+       Node *var = scanNSItemForColumn(pstate, pnsi, 0, call->alias, -1);
+       te = makeTargetEntry((Expr *) var, (AttrNumber) pstate->p_next_resno++, call->alias, false);
+       query->targetList = lappend(query->targetList, te);
+
+       transform_entity *entity = make_transform_entity(child_cpstate, ENT_FUNC_CALL, NULL, (Node *)var, call->alias);
+       child_cpstate->entities = lappend(child_cpstate->entities, entity);
+
+
+       expr = transform_cypher_expr(child_cpstate, call->where, EXPR_KIND_WHERE);
+    }*/
+
+    query->rtable = pstate->p_rtable;
+    query->jointree = makeFromExpr(pstate->p_joinlist, expr);
+    query->hasTargetSRFs = pstate->p_hasTargetSRFs;
+
+    assign_query_collations(pstate, query);
+
+    free_cypher_parsestate(child_cpstate);
+    return query;
 }
 
 static Query *transform_cypher_call(cypher_parsestate *cpstate, cypher_clause *clause) {

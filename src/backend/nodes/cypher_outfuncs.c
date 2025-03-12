@@ -212,6 +212,14 @@ void out_cypher_merge(StringInfo str, const ExtensibleNode *node)
     WRITE_NODE_FIELD(path);
 }
 
+// serialization function for the cypher_delete ExtensibleNode.
+void out_cypher_load_csv(StringInfo str, const ExtensibleNode *node)
+{
+    DEFINE_AG_NODE(cypher_load_csv);
+
+    WRITE_STRING_FIELD(file);
+}
+
 // serialization function for the cypher_path ExtensibleNode.
 void out_cypher_path(StringInfo str, const ExtensibleNode *node)
 {

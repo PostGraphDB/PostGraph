@@ -515,6 +515,13 @@ PARALLEL SAFE
 AS 'MODULE_PATHNAME', 'edge_unnest';
 
 
+CREATE FUNCTION cypher_load_csv (gtype)
+RETURNS SETOF gtype
+LANGUAGE C 
+STABLE 
+RETURNS NULL ON NULL INPUT 
+PARALLEL UNSAFE 
+AS 'MODULE_PATHNAME', 'cypher_load_csv';
 
 CREATE FUNCTION vle (IN gtype, IN vertex, IN vertex, IN gtype, IN gtype,
                      IN gtype, IN gtype, IN gtype, OUT edges variable_edge)

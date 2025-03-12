@@ -3084,3 +3084,58 @@ generate_series_step_gtype(PG_FUNCTION_ARGS)
 		/* do when there is no more left */
 		SRF_RETURN_DONE(funcctx);
 }
+
+typedef struct
+{
+
+} cypher_load_csv_ctx;
+
+PG_FUNCTION_INFO_V1(cypher_load_csv);
+
+Datum
+cypher_load_csv(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	cypher_load_csv_ctx *fctx;
+	int64		result;
+	MemoryContext oldcontext;
+
+	/* stuff done only on the first call of the function */
+	if (SRF_IS_FIRSTCALL())
+	{
+		/* create a function context for cross-call persistence */
+		funcctx = SRF_FIRSTCALL_INIT();
+
+		/* allocate memory for user context */
+		fctx = (generate_series_fctx *) palloc(sizeof(cypher_load_csv_ctx));
+
+
+		funcctx->user_fctx = fctx;
+		/*
+		 * switch to memory context appropriate for multiple function calls
+		 */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	/* stuff done on every call of the function */
+	funcctx = SRF_PERCALL_SETUP();
+
+	/*
+	 * get the saved state and use current as the result for this iteration
+	 */
+	fctx = funcctx->user_fctx;
+
+	/*if ((fctx->step > 0 && fctx->current <= fctx->finish) ||
+		(fctx->step < 0 && fctx->current >= fctx->finish))
+	{
+            //gtype_value gtv = { .type = AGTV_INTEGER, .val.int_value = result };
+
+
+		SRF_RETURN_NEXT(funcctx, GTYPE_P_GET_DATUM(gtype_value_to_gtype(&gtv)));
+	}*/
+	//else
+		SRF_RETURN_DONE(funcctx);
+}

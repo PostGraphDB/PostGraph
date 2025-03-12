@@ -581,6 +581,8 @@ makeSimpleCypherA_Expr(A_Expr_Kind kind, char *name,
 %type <node> call_stmt yield_item
 %type <list> yield_item_list
 
+%type <node> load_stmt
+
 /* common */
 %type <node> cypher_where_opt
 
@@ -11803,7 +11805,8 @@ cypher_query_start:
     | CYPHER with { $$ = $2; }
     | merge
     | CYPHER call_stmt { $$ = $2; }
-    | return
+    | CYPHER load_stmt { $$ = $2; }
+	| return
     | unwind
 ;
 
@@ -11827,10 +11830,20 @@ clause:
     | delete
     | merge
     | call_stmt
+	| load_stmt
     | return
     | unwind
     ;
 
+
+load_stmt:
+	LOAD CSV Sconst
+	{
+		cypher_load_csv *n = make_ag_node(cypher_load_csv);
+        n->file = $3;
+
+        $$ = n;
+	};
 
 UseGraphStmt:
     USE GRAPH BareColLabel

@@ -165,6 +165,13 @@ typedef struct cypher_call
     Node *query_tree;
 } cypher_call;
 
+typedef struct cypher_load_csv
+{
+    ExtensibleNode extensible;
+    char *file;
+} cypher_load_csv;
+
+
 /*
  * pattern
  */
