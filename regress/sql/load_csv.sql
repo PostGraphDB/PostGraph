@@ -25,4 +25,4 @@ USE GRAPH load_csv;
 CYPHER LOAD CSV '~/postgraph/regress/test.csv'
 RETURN *;
 
-DROP GRAPH load_csv;
+DROP GRAPH load_csv CASCADE;
