@@ -60,6 +60,8 @@
     ag_relation_id("ag_label_graph_oid_index", "index")
 #define ag_label_relation_index_id() \
     ag_relation_id("ag_label_relation_index", "index")
+#define ag_label_label_index_id() \
+    ag_relation_id("ag_label_ltree_index", "index")
 
 #define LABEL_ID_SEQ_NAME "_label_id_seq"
 
@@ -67,7 +69,7 @@
 #define LABEL_KIND_EDGE 'e'
 
 void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
-                  char label_kind, Oid label_relation);
+                  char label_kind, Oid label_relation, const char *ltree);
 void delete_label(Oid relation);
 
 int32 get_label_id(const char *label_name, Oid graph_oid);

@@ -1,27 +1,3 @@
-/*
- * For PostgreSQL Database Management System:
- * (formerly known as Postgres, then as Postgres95)
- *
- * Portions Copyright (c) 1996-2010, The PostgreSQL Global Development Group
- *
- * Portions Copyright (c) 1994, The Regents of the University of California
- *
- * Permission to use, copy, modify, and distribute this software and its documentation for any purpose,
- * without fee, and without a written agreement is hereby granted, provided that the above copyright notice
- * and this paragraph and the following two paragraphs appear in all copies.
- *
- * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY FOR DIRECT,
- * INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, INCLUDING LOST PROFITS,
- * ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS DOCUMENTATION, EVEN IF THE UNIVERSITY
- * OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES, INCLUDING,
- * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
- *
- * THE SOFTWARE PROVIDED HEREUNDER IS ON AN "AS IS" BASIS, AND THE UNIVERSITY OF CALIFORNIA
- * HAS NO OBLIGATIONS TO PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
- */
-
 #include "postgraph.h"
 
 #include "access/nbtree.h"
@@ -3906,6 +3882,38 @@ static char *make_endid_alias(char *var_name) {
     return str;
 }
 
+
+static char *make_lquery_string(char *var_name) {
+    return var_name;
+    char *str = palloc0(strlen(var_name) + 8);
+
+    str[0] = '.';
+    str[0] = '*';
+    str[1] = '\0';
+
+    return str;
+/*
+    str[1] = '.';
+    str[0] = '*';
+
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 2] = var_name[i];
+
+    str[i + 3] = '.';
+    str[i + 4] = '*';
+    str[i + 5] = '\0';
+
+    return str;
+*/
+}
+
+//ltree
+#include "ltree.h"
+
+
+PG_FUNCTION_INFO_V1(lquery_in);
+
 static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node, List **target_list, bool output_node) {
     ParseState *pstate = (ParseState *)cpstate;
     char *schema_name;
@@ -3916,9 +3924,11 @@ static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node
     TargetEntry *te;
     Expr *expr;
     ParseNamespaceItem *pnsi;
+    bool is_default_label = false;
 
-    if (!node->label) {
+    if (!node->label || !strcmp(node->label, AG_DEFAULT_LABEL_VERTEX)) {
         node->label = AG_DEFAULT_LABEL_VERTEX;
+        is_default_label = true;
     } else {
         label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
 
@@ -3927,7 +3937,7 @@ static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node
                             errmsg("label %s does not exists", node->label),
                             parser_errposition(pstate, node->location)));
 
-    if (lcd->kind != LABEL_KIND_VERTEX)
+        if (lcd->kind != LABEL_KIND_VERTEX)
             ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                             errmsg("label %s is for edges, not vertices", node->label),
                             parser_errposition(pstate, node->location)));
@@ -3948,30 +3958,65 @@ static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node
           transform_entity *entity = find_transform_entity(cpstate, node->name, ENT_VERTEX);
             if (entity)
                 return entity->expr;
-        }
-        else {
-        te = findTarget(*target_list, node->name);
-        expr = colNameToVar(pstate, node->name, false, node->location);
+        } else {
+            te = findTarget(*target_list, node->name);
+            expr = colNameToVar(pstate, node->name, false, node->location);
 
-        if (expr)
-            return (Expr*)expr;
+            if (expr)
+                return (Expr*)expr;
 
-        if (te != NULL) {
-            transform_entity *entity = find_variable(cpstate, node->name);
-            if (entity != NULL && (entity->type != ENT_VERTEX || !IS_DEFAULT_LABEL_VERTEX(node->label) || node->props))
-                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                         errmsg("variable %s already exists", node->name),
-                         parser_errposition(pstate, node->location)));
+            if (te != NULL) {
+                transform_entity *entity = find_variable(cpstate, node->name);
+                if (entity != NULL && (entity->type != ENT_VERTEX || !IS_DEFAULT_LABEL_VERTEX(node->label) || node->props))
+                    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("variable %s already exists", node->name),
+                            parser_errposition(pstate, node->location)));
 
-            return te->expr;
-        }
+                return te->expr;
+            }
         }
     } else {
         node->name = get_next_default_alias(cpstate);
     }
 
     schema_name = get_graph_namespace_name(cpstate->graph_name);
-    rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
+
+
+    Datum label_lquery;
+    if (is_default_label)
+        label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(node->label));
+    else
+        label_lquery = DirectFunctionCall2(ltree_addltree, 
+                            DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
+                            DirectFunctionCall1(ltree_in, CStringGetDatum(node->label)));
+    
+    int ltq_query_args[2];
+    ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+    ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+	
+    Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
+    
+    ScanKeyData scan_keys[1];
+    ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
+    
+    Relation label_catalog = table_open(ag_label_relation_id(), AccessShareLock);
+    SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
+
+    HeapTuple tuple = systable_getnext(scan_desc);
+
+    if (!HeapTupleIsValid(tuple))
+        ereport(ERROR,
+                (errcode(ERRCODE_UNDEFINED_SCHEMA),
+                 errmsg("not found %s", node->label)));
+    
+    bool is_null;
+    rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
+
+
+    systable_endscan(scan_desc);
+    table_close(label_catalog, AccessShareLock);
+
+    //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
     label_range_var = makeRangeVar(schema_name, rel_name, -1);
     alias = makeAlias(node->name, NIL);
 
@@ -3990,7 +4035,7 @@ static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node
 
     // id field
     Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
-   resno = pstate->p_next_resno++;
+    resno = pstate->p_next_resno++;
 
     te = makeTargetEntry(id, resno, make_id_alias(node->name), false);
     *target_list = lappend(*target_list, te);
@@ -3999,7 +4044,7 @@ static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node
      * properties field
      */
     Node *props = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
-   resno = pstate->p_next_resno++;
+    resno = pstate->p_next_resno++;
 
     te = makeTargetEntry(props, resno, make_property_alias(node->name), false);
     *target_list = lappend(*target_list, te);
@@ -4271,7 +4316,7 @@ static cypher_target_node * transform_create_cypher_edge(cypher_parsestate *cpst
 
         parent = list_make1(rv);
 
-        create_label(cpstate->graph_name, edge->label, LABEL_TYPE_EDGE, parent);
+        create_label(cpstate->graph_name, edge->label, LABEL_TYPE_EDGE, parent, NULL);
     }
 
     // lock the relation of the label
@@ -4505,7 +4550,7 @@ static cypher_target_node *transform_create_cypher_new_node(cypher_parsestate *c
 
         parent = list_make1(rv);
 
-        create_label(cpstate->graph_name, node->label, LABEL_TYPE_VERTEX, parent);
+        create_label(cpstate->graph_name, node->label, LABEL_TYPE_VERTEX, parent, NULL);
     }
 
     rel->flags = CYPHER_TARGET_NODE_FLAG_INSERT;
@@ -5278,7 +5323,7 @@ static cypher_target_node * transform_merge_cypher_edge(cypher_parsestate *cpsta
         parent = list_make1(rv);
 
         // create the label
-        create_label(cpstate->graph_name, edge->label, LABEL_TYPE_EDGE, parent);
+        create_label(cpstate->graph_name, edge->label, LABEL_TYPE_EDGE, parent, NULL);
     }
 
     // lock the relation of the label
@@ -5355,7 +5400,7 @@ static cypher_target_node *transform_merge_cypher_node(cypher_parsestate *cpstat
         parent = list_make1(rv);
 
         // create the label
-        create_label(cpstate->graph_name, node->label, LABEL_TYPE_VERTEX, parent);
+        create_label(cpstate->graph_name, node->label, LABEL_TYPE_VERTEX, parent, NULL);
     }
 
     rel->flags |= CYPHER_TARGET_NODE_FLAG_INSERT;

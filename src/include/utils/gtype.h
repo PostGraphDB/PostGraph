@@ -47,6 +47,9 @@
 // PostGIS
 #include "liblwgeom/liblwgeom.h"
 
+//ltree
+#include "ltree.h"
+
 // PostGraph
 #include "catalog/ag_namespace.h"
 #include "catalog/pg_type.h"

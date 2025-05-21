@@ -37,6 +37,8 @@
 #include "utils/rel.h"
 #include "utils/relcache.h"
 
+#include "ltree.h"
+
 #include "catalog/ag_graph.h"
 #include "catalog/ag_label.h"
 #include "commands/label_commands.h"
@@ -50,7 +52,7 @@ PG_FUNCTION_INFO_V1(ltree_addltree);
 // INSERT INTO CATALOG_SCHEMA.ag_label
 // VALUES (label_name, label_graph, label_id, label_kind, label_relation)
 void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
-                  char label_kind, Oid label_relation)
+                  char label_kind, Oid label_relation, const char *ltree)
 {
     NameData label_name_data;
     Datum values[Natts_ag_label + 1];
@@ -85,7 +87,15 @@ void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
 
     values[Anum_ag_label_relation - 1] = ObjectIdGetDatum(label_relation);
     nulls[Anum_ag_label_relation - 1] = false;
-
+/*
+    if (ltree == NULL) {
+        values[Anum_ag_label_label_path - 1] = NULL;
+        nulls[Anum_ag_label_label_path - 1] = false;
+    } else {
+        values[Anum_ag_label_label_path - 1] = DirectFunctionCall1(ltree_in, CStringGetDatum(ltree));
+        nulls[Anum_ag_label_label_path - 1] = true;
+    }*/
+    
     if (strcmp(label_name, "_ag_label_vertex") == 0 || strcmp(label_name, "_ag_label_edge") == 0) {
         values[5] = DirectFunctionCall1(ltree_in, CStringGetDatum(label_name));
         nulls[5] = false;
@@ -100,7 +110,6 @@ void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
                         DirectFunctionCall1(ltree_in, CStringGetDatum("_ag_label_edge")),
                         DirectFunctionCall1(ltree_in, CStringGetDatum(label_name)));
         nulls[5] = false;
-
     }
 
 

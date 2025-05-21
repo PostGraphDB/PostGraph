@@ -65,7 +65,7 @@ CREATE TABLE ag_label (
     id label_id, 
     kind label_kind, 
     relation regclass NOT NULL, 
-    label_path public.ltree NOT NULL,
+    label_path public.ltree NULL,
     CONSTRAINT fk_graph_oid FOREIGN KEY(graph) REFERENCES ag_graph(graphid)
 );
 
@@ -84,6 +84,10 @@ USING btree (relation);
 CREATE UNIQUE INDEX ag_label_path_graph_index
 ON ag_label
 USING btree (label_path, graph);
+
+CREATE INDEX ag_label_ltree_index 
+ON ag_label 
+USING gist (label_path public.gist_ltree_ops);
 
 CREATE TABLE session_graph_use (
    pid oid not null,

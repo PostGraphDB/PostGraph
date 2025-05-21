@@ -87,8 +87,8 @@ Datum create_graph_if_not_exists(PG_FUNCTION_ARGS)
 
     //Create the default label tables
     graph = graph_name->data;
-    create_label(graph, AG_DEFAULT_LABEL_VERTEX, LABEL_TYPE_VERTEX, NIL);
-    create_label(graph, AG_DEFAULT_LABEL_EDGE, LABEL_TYPE_EDGE, NIL);
+    create_label(graph, AG_DEFAULT_LABEL_VERTEX, LABEL_TYPE_VERTEX, NIL, NULL);
+    create_label(graph, AG_DEFAULT_LABEL_EDGE, LABEL_TYPE_EDGE, NIL, NULL);
 
     ereport(NOTICE,
             (errmsg("graph \"%s\" has been created", NameStr(*graph_name))));
@@ -208,8 +208,8 @@ Datum create_graph(PG_FUNCTION_ARGS)
 
     //Create the default label tables
     graph = graph_name_str;//graph_name->data;
-    create_label(graph, AG_DEFAULT_LABEL_VERTEX, LABEL_TYPE_VERTEX, NIL);
-    create_label(graph, AG_DEFAULT_LABEL_EDGE, LABEL_TYPE_EDGE, NIL);
+    create_label(graph, AG_DEFAULT_LABEL_VERTEX, LABEL_TYPE_VERTEX, NIL, NULL);
+    create_label(graph, AG_DEFAULT_LABEL_EDGE, LABEL_TYPE_EDGE, NIL, NULL);
 
     ereport(NOTICE,
             (errmsg("graph \"%s\" has been created", graph_name_str)));
