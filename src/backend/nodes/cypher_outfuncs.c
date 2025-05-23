@@ -451,6 +451,14 @@ void out_cypher_use_graph(StringInfo str, const ExtensibleNode *node)
     WRITE_STRING_FIELD(graph_name);
 }
 
+void out_cypher_label_tree_node(StringInfo str, const ExtensibleNode *node)
+{
+    DEFINE_AG_NODE(cypher_label_tree_node);
+
+    WRITE_NODE_FIELD(larg);
+    WRITE_NODE_FIELD(rarg);
+    WRITE_STRING_FIELD(label_name);
+}
 
 void out_cypher_drop_graph(StringInfo str, const ExtensibleNode *node)
 {

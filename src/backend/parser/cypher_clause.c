@@ -153,6 +153,8 @@ static Node *transform_VLE_Function(cypher_parsestate *cpstate, Node *n, RangeTb
 static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok);
 
 
+static Node *
+transform_cypher_union_tree_label(cypher_parsestate *cpstate, bool isTopLevel, List **targetlist, cypher_label_tree_node *label_tree_node);
 // utils XXX: Should be moved into its own file
 RangeFunction *make_range_function(FuncCall *func, Alias *alias, bool is_lateral, bool ordinality, bool is_rows_from);
 Alias *make_alias(char *name, List *colnames);
@@ -903,7 +905,7 @@ transform_cypher_union_tree(cypher_parsestate *cpstate, cypher_clause *clause, b
                  * where UNION fails to exclude duplicate results.
                  *
                  */
-        setup_parser_errposition_callback(&pcbstate, pstate, bestlocation);
+                setup_parser_errposition_callback(&pcbstate, pstate, bestlocation);
                 get_sort_group_operators(rescoltype, false, true, false, &sortop, &eqop, NULL, NULL);
                 cancel_parser_errposition_callback(&pcbstate);
 
@@ -939,11 +941,331 @@ transform_cypher_union_tree(cypher_parsestate *cpstate, cypher_clause *clause, b
     }//end else (is not leaf)
 }
 
-/*
- * Transform the Delete clause. Creates a _cypher_delete_clause
- * and passes the necessary information that is needed in the
- * execution phase.
- */
+
+static Query *transform_cypher_match_union_label(cypher_parsestate *cpstate, cypher_label_tree_node *label_tree_node) {
+    ParseState *pstate = (ParseState *)cpstate;
+    int leftmostRTI;
+    Query *leftmostQuery;
+    SetOperationStmt *cypher_union_statement;
+    Node *node;
+    ListCell *left_tlist, *lct, *lcm, *lcc;
+    List *targetvars, *targetnames, *sv_namespace;
+    int sv_rtable_length;
+    int tllen;
+    ParseNamespaceItem *nsitem;
+    ParseNamespaceColumn *sortnscolumns;
+    int sortcolindex;
+
+    Query *qry = makeNode(Query);
+    qry->commandType = CMD_SELECT;
+
+    qry->setOperations = transform_cypher_union_tree_label(cpstate, true, NULL, label_tree_node);
+
+    /*
+     * Re-find leftmost return (now it's a sub-query in rangetable)
+     */
+    node = ((SetOperationStmt *) qry->setOperations)->larg;
+    while (node && IsA(node, SetOperationStmt))
+        node = ((SetOperationStmt *) qry->setOperations)->larg;
+    
+    Assert(node && IsA(node, RangeTblRef));
+    leftmostRTI = ((RangeTblRef *) node)->rtindex;
+    leftmostQuery = rt_fetch(leftmostRTI, pstate->p_rtable)->subquery;
+    Assert(leftmostQuery != NULL);
+
+    /*
+     * Generate dummy targetlist for outer query using column names of
+     * leftmost return and common datatypes/collations of topmost set
+     * operation.  Also make lists of the dummy vars and their names for use
+     * in parsing ORDER BY.
+     *
+     * Note: we use leftmostRTI as the varno of the dummy variables. It
+     * shouldn't matter too much which RT index they have, as long as they
+     * have one that corresponds to a real RT entry; else funny things may
+     * happen when the tree is mashed by rule rewriting.
+     */
+    qry->targetList = NIL;
+    targetvars = NIL;
+    targetnames = NIL;
+    sortnscolumns = (ParseNamespaceColumn *)
+        palloc0(list_length(cypher_union_statement->colTypes) * sizeof(ParseNamespaceColumn));
+    sortcolindex = 0;
+
+    forfour(lct, cypher_union_statement->colTypes, lcm, cypher_union_statement->colTypmods,
+            lcc, cypher_union_statement->colCollations, left_tlist, leftmostQuery->targetList) {
+        Oid colType = lfirst_oid(lct);
+        int32 colTypmod = lfirst_int(lcm);
+        Oid colCollation = lfirst_oid(lcc);
+        TargetEntry *lefttle = (TargetEntry *) lfirst(left_tlist);
+        char *colName;
+        TargetEntry *tle;
+        Var *var;
+
+        Assert(!lefttle->resjunk);
+        colName = pstrdup(lefttle->resname);
+        var = makeVar(leftmostRTI, lefttle->resno, colType, colTypmod, colCollation, 0);
+        var->location = exprLocation((Node *) lefttle->expr);
+        tle = makeTargetEntry((Expr *) var, (AttrNumber) pstate->p_next_resno++, colName, false);
+        qry->targetList = lappend(qry->targetList, tle);
+        targetvars = lappend(targetvars, var);
+        targetnames = lappend(targetnames, makeString(colName));
+        sortnscolumns[sortcolindex].p_varno = leftmostRTI;
+        sortnscolumns[sortcolindex].p_varattno = lefttle->resno;
+        sortnscolumns[sortcolindex].p_vartype = colType;
+        sortnscolumns[sortcolindex].p_vartypmod = colTypmod;
+        sortnscolumns[sortcolindex].p_varcollid = colCollation;
+        sortnscolumns[sortcolindex].p_varnosyn = leftmostRTI;
+        sortnscolumns[sortcolindex].p_varattnosyn = lefttle->resno;
+        sortcolindex++;
+    }
+
+    /*
+     * As a first step towards supporting sort clauses that are expressions
+     * using the output columns, generate a namespace entry that makes the
+     * output columns visible.  A Join RTE node is handy for this, since we
+     * can easily control the Vars generated upon matches.
+     *
+     * Note: we don't yet do anything useful with such cases, but at least
+     * "ORDER BY upper(foo)" will draw the right error message rather than
+     * "foo not found".
+     */
+    sv_rtable_length = list_length(pstate->p_rtable);
+
+    nsitem = addRangeTableEntryForJoin(pstate, targetnames, sortnscolumns, JOIN_INNER, 0, targetvars, NIL, NIL, NULL, NULL, false);
+
+    sv_namespace = pstate->p_namespace;
+    pstate->p_namespace = NIL;
+
+    // add jrte to column namespace only 
+    addNSItemToQuery(pstate, nsitem, false, false, true);
+
+    tllen = list_length(qry->targetList);
+
+
+    // restore namespace, remove jrte from rtable 
+    pstate->p_namespace = sv_namespace;
+    pstate->p_rtable = list_truncate(pstate->p_rtable, sv_rtable_length);
+
+    if (tllen != list_length(qry->targetList))
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+             errmsg("invalid UNION ORDER BY clause"),
+             errdetail("Only result column names can be used, not expressions or functions."),
+             parser_errposition(pstate, exprLocation(list_nth(qry->targetList, tllen)))));
+
+    qry->rtable = pstate->p_rtable;
+    qry->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+    qry->hasAggs = pstate->p_hasAggs;
+
+    assign_query_collations(pstate, qry);
+
+    // this must be done after collations, for reliable comparison of exprs 
+    if (pstate->p_hasAggs || qry->groupClause || qry->groupingSets || qry->havingQual)
+        parse_check_aggregates(pstate, qry);
+
+    return qry;
+
+}
+
+Query *cypher_parse_sub_analyze_union_label(cypher_parsestate *cpstate, char *schema_name,
+                                            char *var_name, char *rel_name) {
+    cypher_parsestate *state = make_cypher_parsestate(cpstate);
+    ParseState *pstate = state;
+
+    Query *query = makeNode(Query);
+    query->commandType = CMD_SELECT;
+
+    //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
+    RangeVar *label_range_var = makeRangeVar(schema_name, rel_name, -1);
+    Node *alias = makeAlias(var_name, NIL);
+
+    ParseNamespaceItem *pnsi = addRangeTableEntry(pstate, label_range_var, alias, label_range_var->inh, true);
+    addNSItemToQuery(pstate, pnsi, true, true, true);
+
+    // make target entry and add it 
+    query->targetList =
+        lappend(query->targetList, 
+                makeTargetEntry(
+                    (Expr *)make_vertex_expr(cpstate, pnsi),
+                    ++pstate->p_next_resno,
+                    var_name,
+                    false));
+
+    // id
+    query->targetList =
+        lappend(query->targetList, 
+            makeTargetEntry(
+                scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1),
+                ++pstate->p_next_resno,
+                make_id_alias(var_name),
+                false));
+
+    //properties
+    query->targetList =
+        lappend(query->targetList, 
+            makeTargetEntry(
+                scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1),
+                ++pstate->p_next_resno,
+                make_property_alias(var_name),
+                false));
+
+    markTargetListOrigins(pstate, query->targetList);
+
+    query->hasSubLinks = pstate->p_hasSubLinks;
+    query->hasWindowFuncs = pstate->p_hasWindowFuncs;
+    query->hasTargetSRFs = pstate->p_hasTargetSRFs;
+    query->hasAggs = pstate->p_hasAggs;
+
+    assign_query_collations(pstate, query);
+
+    free_cypher_parsestate(state);
+
+    return query;
+}
+
+
+static Node *
+transform_cypher_union_tree_label(cypher_parsestate *cpstate, bool isTopLevel, List **targetlist, cypher_label_tree_node *label_tree_node) {
+    ParseState *pstate = (ParseState *)cpstate;
+    cypher_return *cmp;
+    ParseNamespaceItem *pnsi;
+
+    // Guard against queue overflow due to overly complex set-expressions 
+    check_stack_depth();
+    if (label_tree_node->larg) {
+        //process leaf return 
+        Query *returnQuery;
+        char returnName[32];
+        RangeTblEntry *rte PG_USED_FOR_ASSERTS_ONLY;
+        RangeTblRef *rtr;
+        ListCell *tl;
+        returnQuery = cypher_parse_sub_analyze_union_label(cpstate, cpstate->graph_name, label_tree_node->label_name, label_tree_node->label_name);
+
+
+        /*
+         * Extract a list of the non-junk TLEs for upper-level processing.
+         */
+        if (targetlist) {
+            *targetlist = NIL;
+            foreach(tl, returnQuery->targetList) {
+                TargetEntry *tle = (TargetEntry *) lfirst(tl);
+
+                if (!tle->resjunk)
+                    *targetlist = lappend(*targetlist, tle);
+            }
+        }
+
+        /*
+         * Make the leaf query be a subquery in the top-level rangetable.
+         */
+        snprintf(returnName, sizeof(returnName), "*SELECT* %d ", list_length(pstate->p_rtable) + 1);
+        pnsi = addRangeTableEntryForSubquery(pstate, returnQuery, makeAlias(returnName, NIL), false, false);
+        rte = pnsi->p_rte;
+        rtr = makeNode(RangeTblRef);
+        // assume new rte is at end 
+        rtr->rtindex = list_length(pstate->p_rtable);
+        Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
+        return (Node *) rtr;
+    }
+    else //is not a leaf 
+    {
+        // Process an internal node (set operation node) 
+        SetOperationStmt *op = makeNode(SetOperationStmt);
+        List *ltargetlist;
+        List *rtargetlist;
+        ListCell *ltl;
+        ListCell *rtl;
+        const char *context;
+
+        context = "UNION";
+
+        op->op = SETOP_UNION;
+        op->all = true;
+
+        op->larg = transform_cypher_union_tree_label(cpstate, false, &ltargetlist, label_tree_node->larg);
+        op->rarg = transform_cypher_union_tree_label(cpstate, false, &rtargetlist, label_tree_node->rarg);
+
+        /*
+         * Verify that the two children have the same number of non-junk
+         * columns, and determine the types of the merged output columns.
+         */
+        if (list_length(ltargetlist) != list_length(rtargetlist))
+            ereport(ERROR,
+                    (errcode(ERRCODE_SYNTAX_ERROR),
+                     errmsg("each %s query must have the same number of columns", context),
+                     parser_errposition(pstate, exprLocation((Node *) rtargetlist))));
+
+        if (targetlist)
+            *targetlist = NIL;
+
+        op->colTypes = NIL;
+        op->colTypmods = NIL;
+        op->colCollations = NIL;
+        op->groupClauses = NIL;
+
+        forboth(ltl, ltargetlist, rtl, rtargetlist) {
+            TargetEntry *ltle = (TargetEntry *) lfirst(ltl);
+            TargetEntry *rtle = (TargetEntry *) lfirst(rtl);
+            Node *lcolnode = (Node *) ltle->expr;
+            Node *rcolnode = (Node *) rtle->expr;
+            Oid lcoltype = exprType(lcolnode);
+            Oid rcoltype = exprType(rcolnode);
+            int32 lcoltypmod = exprTypmod(lcolnode);
+            int32 rcoltypmod = exprTypmod(rcolnode);
+            Node *bestexpr;
+            int bestlocation;
+            Oid rescoltype;
+            int32 rescoltypmod;
+            Oid rescolcoll;
+
+            // select common type, same as CASE et al 
+            rescoltype = select_common_type(pstate, list_make2(lcolnode, rcolnode), context, &bestexpr);
+            bestlocation = exprLocation(bestexpr);
+            // if same type and same typmod, use typmod; else default 
+            if (lcoltype == rcoltype && lcoltypmod == rcoltypmod)
+                rescoltypmod = lcoltypmod;
+            else
+                rescoltypmod = -1;
+    
+            if (lcoltype != UNKNOWNOID)
+                lcolnode = coerce_to_common_type(pstate, lcolnode, rescoltype, context);
+            else if (IsA(lcolnode, Const) || IsA(lcolnode, Param))
+                ltle->expr = (Expr *) coerce_to_common_type(pstate, lcolnode, rescoltype, context);
+
+            if (rcoltype != UNKNOWNOID)
+                rcolnode = coerce_to_common_type(pstate, rcolnode, rescoltype, context);
+            else if (IsA(rcolnode, Const) || IsA(rcolnode, Param))
+                rtle->expr = (Expr *) coerce_to_common_type(pstate, rcolnode, rescoltype, context);
+
+            rescolcoll = select_common_collation(pstate, list_make2(lcolnode, rcolnode), true);
+
+            // emit results 
+            op->colTypes = lappend_oid(op->colTypes, rescoltype);
+            op->colTypmods = lappend_int(op->colTypmods, rescoltypmod);
+            op->colCollations = lappend_oid(op->colCollations, rescolcoll);
+
+            /*
+             * Construct a dummy tlist entry to return.  We use a SetToDefault
+             * node for the expression, since it carries exactly the fields
+             * needed, but any other expression node type would do as well.
+             */
+            if (targetlist) {
+                SetToDefault *rescolnode = makeNode(SetToDefault);
+                TargetEntry *restle;
+
+                rescolnode->typeId = rescoltype;
+                rescolnode->typeMod = rescoltypmod;
+                rescolnode->collation = rescolcoll;
+                rescolnode->location = bestlocation;
+                restle = makeTargetEntry((Expr *) rescolnode, 0, NULL, false);
+                *targetlist = lappend(*targetlist, restle);
+            }
+        }
+
+        return (Node *)op;
+    }//end else (is not leaf)
+}
+
+
 static Query *transform_cypher_delete(cypher_parsestate *cpstate, cypher_clause *clause) {
     ParseState *pstate = (ParseState *)cpstate;
     cypher_delete *self = (cypher_delete *)clause->self;
@@ -3667,8 +3989,8 @@ static Node *make_qual(cypher_parsestate *cpstate, transform_entity *entity, cha
         args = list_make1(entity->expr);
         node = (Node *)makeFuncCall(qualified_name, args, COERCE_EXPLICIT_CALL, -1);
     } else {
-    int sublevels;
-    char *entity_name;
+        int sublevels;
+        char *entity_name;
         if (entity->type == ENT_EDGE)
             entity_name = entity->entity.node->name;
         else if (entity->type == ENT_VERTEX)
@@ -3676,16 +3998,17 @@ static Node *make_qual(cypher_parsestate *cpstate, transform_entity *entity, cha
         else
             ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("unknown entity type")));
 
-    ParseNamespaceItem *pnsi = refnameNamespaceItem(cpstate, NULL, entity_name, -1, &sublevels);
+        ParseNamespaceItem *pnsi = refnameNamespaceItem(cpstate, NULL, entity_name, -1, &sublevels);
 
         if (!pnsi) {
             Node *expr = colNameToVar(cpstate, get_alias_colref_name(col_name, entity_name), false, -1);
         
-        if (expr)
-            return expr;    
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("could not find ParseNamespaceItem %s here", get_alias_colref_name(col_name, entity_name))));
-    }
+            if (expr)
+                return expr;    
+            
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("could not find ParseNamespaceItem %s here", get_alias_colref_name(col_name, entity_name))));
+        }
         return scanNSItemForColumn(cpstate, pnsi, sublevels, col_name, -1);
     }
 
@@ -3882,32 +4205,6 @@ static char *make_endid_alias(char *var_name) {
     return str;
 }
 
-
-static char *make_lquery_string(char *var_name) {
-    return var_name;
-    char *str = palloc0(strlen(var_name) + 8);
-
-    str[0] = '.';
-    str[0] = '*';
-    str[1] = '\0';
-
-    return str;
-/*
-    str[1] = '.';
-    str[0] = '*';
-
-    int i = 0;
-    for (; i < strlen(var_name); i++)
-        str[i + 2] = var_name[i];
-
-    str[i + 3] = '.';
-    str[i + 4] = '*';
-    str[i + 5] = '\0';
-
-    return str;
-*/
-}
-
 //ltree
 #include "ltree.h"
 
@@ -3980,7 +4277,6 @@ static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node
     }
 
     schema_name = get_graph_namespace_name(cpstate->graph_name);
-
 
     Datum label_lquery;
     if (is_default_label)
@@ -4146,7 +4442,7 @@ if (clause->next)
 
 {
     Query *topquery;
-cypher_parsestate *new_cpstate = make_cypher_parsestate(cpstate);
+    cypher_parsestate *new_cpstate = make_cypher_parsestate(cpstate);
     topquery = makeNode(Query);
     topquery->commandType = CMD_SELECT;
     topquery->targetList = NIL;
@@ -4390,7 +4686,6 @@ static bool variable_exists(cypher_parsestate *cpstate, char *name) {
     return false;
 }
 
-// transform nodes, check to see if the variable name already exists.
 static cypher_target_node * transform_create_cypher_node(cypher_parsestate *cpstate, List **target_list, cypher_node *node) {
     ParseState *pstate = (ParseState *)cpstate;
 
@@ -4427,10 +4722,6 @@ static cypher_target_node * transform_create_cypher_node(cypher_parsestate *cpst
     return transform_create_cypher_new_node(cpstate, target_list, node);
 }
 
-/*
-* Returns the resno for the TargetEntry with the resname equal to the name
-* passed. Returns -1 otherwise.
-*/
 static int get_target_entry_resno(cypher_parsestate *cpstate, List *target_list, char *name) {
     ListCell *lc;
 
@@ -4503,10 +4794,6 @@ make_int_placeholder(cypher_parsestate *cpstate) {
     return (Node *)c;
 }       
 
-/*
- * Transform logic for a node in a create clause that was not previously
- * declared.
- */
 static cypher_target_node *transform_create_cypher_new_node(cypher_parsestate *cpstate, List **target_list, cypher_node *node) {
     ParseState *pstate = (ParseState *)cpstate;
     cypher_target_node *rel = make_ag_node(cypher_target_node);

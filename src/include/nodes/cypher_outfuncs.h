@@ -85,4 +85,8 @@ void out_cypher_create_graph(StringInfo str, const ExtensibleNode *node);
 void out_cypher_use_graph(StringInfo str, const ExtensibleNode *node);
 void out_cypher_drop_graph(StringInfo str, const ExtensibleNode *node);
 
+// internal label tree nodes
+void out_cypher_label_tree_node(StringInfo str, const ExtensibleNode *node);
+
+
 #endif

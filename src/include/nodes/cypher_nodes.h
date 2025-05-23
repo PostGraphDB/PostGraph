@@ -476,4 +476,12 @@ typedef struct cypher_typecast
     int location;
 } cypher_typecast;
 
+typedef struct cypher_label_tree_node
+{
+    ExtensibleNode extensible;
+    Node *larg;
+    Node *rarg;
+    char *label_name;
+} cypher_label_tree_node;
+
 #endif
