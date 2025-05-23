@@ -36,4 +36,7 @@ VALUES ('1'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
 
 SELECT * FROM vertex_am_tst;
 
+UPDATE vertex_am_tst SET id = '2'::postgraph.graphid;
 
+
+SELECT * FROM vertex_am_tst;

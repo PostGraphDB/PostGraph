@@ -2044,13 +2044,24 @@ bool vertex_index_fetch_tuple(struct IndexFetchTableData *scan,
  * according to `snapshot`. If a tuple was found and passed the visibility
  * test, returns true, false otherwise.
  */
-bool vertex_tuple_fetch_row_version(Relation rel, ItemPointer tid,
+bool vertex_tuple_fetch_row_version(Relation relation, ItemPointer tid,
                                     Snapshot snapshot, TupleTableSlot *slot) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
+	BufferHeapTupleTableSlot *bslot = (BufferHeapTupleTableSlot *) slot;
+	Buffer		buffer;
 
-    return false;
+	Assert(TTS_IS_BUFFERTUPLE(slot));
+
+	bslot->base.tupdata.t_self = *tid;
+	if (heap_fetch(relation, snapshot, &bslot->base.tupdata, &buffer))
+	{
+		/* store in slot, transferring existing pin */
+		ExecStorePinnedBufferHeapTuple(&bslot->base.tupdata, slot, buffer);
+		slot->tts_tableOid = RelationGetRelid(relation);
+
+		return true;
+	}
+
+	return false;
 }
 
 /*
@@ -2569,16 +2580,37 @@ l1:
 }
 
 /* see table_tuple_update() for reference about parameters */
-TM_Result vertex_tuple_update(Relation rel, ItemPointer otid, TupleTableSlot *slot,
+TM_Result vertex_tuple_update(Relation relation, ItemPointer otid, TupleTableSlot *slot,
                   CommandId cid, Snapshot snapshot, Snapshot crosscheck,
                   bool wait, TM_FailureData *tmfd, LockTupleMode *lockmode,
                   bool *update_indexes) {
 
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
+	bool		shouldFree = true;
+	HeapTuple	tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
+	TM_Result	result;
 
-return 0;
+	/* Update the tuple with table oid */
+	slot->tts_tableOid = RelationGetRelid(relation);
+	tuple->t_tableOid = slot->tts_tableOid;
+
+	result = heap_update(relation, otid, tuple, cid, crosscheck, wait,
+						 tmfd, lockmode);
+	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
+
+	/*
+	 * Decide whether new index entries are needed for the tuple
+	 *
+	 * Note: heap_update returns the tid (location) of the new tuple in the
+	 * t_self field.
+	 *
+	 * If it's a HOT update, we mustn't insert new index entries.
+	 */
+	*update_indexes = result == TM_Ok && !HeapTupleIsHeapOnly(tuple);
+
+	if (shouldFree)
+		pfree(tuple);
+
+	return result;
 }
 
 /* see table_tuple_lock() for reference about parameters */
