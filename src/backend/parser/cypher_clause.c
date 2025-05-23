@@ -636,9 +636,7 @@ static Query *transform_cypher_union(cypher_parsestate *cpstate, cypher_clause *
 
 /*
  * transform_cypher_union_tree
- *      Recursively transform leaves and internal nodes of a set-op tree,
- *      derived from postgresql's transformSetOperationTree. A lot of
- *      the general logic is similar, with adjustments made for AGE.
+ *      Recursively transform leaves and internal nodes of a set-op tree.
  *
  * In addition to returning the transformed node, if targetlist isn't NULL
  * then we return a list of its non-resjunk TargetEntry nodes.  For a leaf
@@ -688,7 +686,7 @@ transform_cypher_union_tree(cypher_parsestate *cpstate, cypher_clause *clause, b
 
     if (isLeaf) {
         //process leaf return 
-        Query *returnQuery;
+        Query *query;
         char returnName[32];
         RangeTblEntry *rte PG_USED_FOR_ASSERTS_ONLY;
         RangeTblRef *rtr;
@@ -715,25 +713,25 @@ transform_cypher_union_tree(cypher_parsestate *cpstate, cypher_clause *clause, b
          * is hiding it.
          */
 
-        returnQuery = cypher_parse_sub_analyze_union((cypher_clause *) clause, cpstate, NULL, false, false);
+        query = cypher_parse_sub_analyze_union((cypher_clause *) clause, cpstate, NULL, false, false);
         /*
          * Check for bogus references to Vars on the current query level (but
          * upper-level references are okay). Normally this can't happen
          * because the namespace will be empty, but it could happen if we are
          * inside a rule.
          */
-        if (pstate->p_namespace && contain_vars_of_level((Node *) returnQuery, 1))
+        if (pstate->p_namespace && contain_vars_of_level((Node *) query, 1))
                 ereport(ERROR,
                         (errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
                          errmsg("UNION member statement cannot refer to other relations of same query level"),
-                         parser_errposition(pstate, locate_var_of_level((Node *) returnQuery, 1))));
+                         parser_errposition(pstate, locate_var_of_level((Node *) query, 1))));
 
         /*
          * Extract a list of the non-junk TLEs for upper-level processing.
          */
         if (targetlist) {
             *targetlist = NIL;
-            foreach(tl, returnQuery->targetList) {
+            foreach(tl, query->targetList) {
                 TargetEntry *tle = (TargetEntry *) lfirst(tl);
 
                 if (!tle->resjunk)
@@ -745,7 +743,7 @@ transform_cypher_union_tree(cypher_parsestate *cpstate, cypher_clause *clause, b
          * Make the leaf query be a subquery in the top-level rangetable.
          */
         snprintf(returnName, sizeof(returnName), "*SELECT* %d ", list_length(pstate->p_rtable) + 1);
-        pnsi = addRangeTableEntryForSubquery(pstate, returnQuery, makeAlias(returnName, NIL), false, false);
+        pnsi = addRangeTableEntryForSubquery(pstate, query, makeAlias(returnName, NIL), false, false);
         rte = pnsi->p_rte;
         rtr = makeNode(RangeTblRef);
         // assume new rte is at end 
@@ -1058,9 +1056,6 @@ static Query *transform_cypher_match_union_label(cypher_parsestate *cpstate, cyp
 
     assign_query_collations(pstate, qry);
 
-    // this must be done after collations, for reliable comparison of exprs 
-    if (pstate->p_hasAggs || qry->groupClause || qry->groupingSets || qry->havingQual)
-        parse_check_aggregates(pstate, qry);
 
     return qry;
 
@@ -1078,15 +1073,16 @@ Query *cypher_parse_sub_analyze_union_label(cypher_parsestate *cpstate, char *sc
     RangeVar *label_range_var = makeRangeVar(schema_name, rel_name, -1);
     Node *alias = makeAlias(var_name, NIL);
 
-    ParseNamespaceItem *pnsi = addRangeTableEntry(pstate, label_range_var, alias, label_range_var->inh, true);
+    ParseNamespaceItem *pnsi = addRangeTableEntry(pstate, label_range_var, alias, false, true);
     addNSItemToQuery(pstate, pnsi, true, true, true);
+
 
     // make target entry and add it 
     query->targetList =
         lappend(query->targetList, 
                 makeTargetEntry(
-                    (Expr *)make_vertex_expr(cpstate, pnsi),
-                    ++pstate->p_next_resno,
+                    (Expr *)make_vertex_expr(state, pnsi),
+                    pstate->p_next_resno++,
                     var_name,
                     false));
 
@@ -1095,7 +1091,7 @@ Query *cypher_parse_sub_analyze_union_label(cypher_parsestate *cpstate, char *sc
         lappend(query->targetList, 
             makeTargetEntry(
                 scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1),
-                ++pstate->p_next_resno,
+                pstate->p_next_resno++,
                 make_id_alias(var_name),
                 false));
 
@@ -1104,7 +1100,7 @@ Query *cypher_parse_sub_analyze_union_label(cypher_parsestate *cpstate, char *sc
         lappend(query->targetList, 
             makeTargetEntry(
                 scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1),
-                ++pstate->p_next_resno,
+                pstate->p_next_resno++,
                 make_property_alias(var_name),
                 false));
 
@@ -1131,22 +1127,18 @@ transform_cypher_union_tree_label(cypher_parsestate *cpstate, bool isTopLevel, L
 
     // Guard against queue overflow due to overly complex set-expressions 
     check_stack_depth();
-    if (label_tree_node->larg) {
-        //process leaf return 
-        Query *returnQuery;
-        char returnName[32];
+    if (!label_tree_node->larg) {
         RangeTblEntry *rte PG_USED_FOR_ASSERTS_ONLY;
         RangeTblRef *rtr;
         ListCell *tl;
-        returnQuery = cypher_parse_sub_analyze_union_label(cpstate, cpstate->graph_name, label_tree_node->label_name, label_tree_node->label_name);
-
+        Query *query = cypher_parse_sub_analyze_union_label(cpstate, cpstate->graph_name, label_tree_node->label_name, label_tree_node->label_name);
 
         /*
          * Extract a list of the non-junk TLEs for upper-level processing.
          */
         if (targetlist) {
             *targetlist = NIL;
-            foreach(tl, returnQuery->targetList) {
+            foreach(tl, query->targetList) {
                 TargetEntry *tle = (TargetEntry *) lfirst(tl);
 
                 if (!tle->resjunk)
@@ -1157,8 +1149,8 @@ transform_cypher_union_tree_label(cypher_parsestate *cpstate, bool isTopLevel, L
         /*
          * Make the leaf query be a subquery in the top-level rangetable.
          */
-        snprintf(returnName, sizeof(returnName), "*SELECT* %d ", list_length(pstate->p_rtable) + 1);
-        pnsi = addRangeTableEntryForSubquery(pstate, returnQuery, makeAlias(returnName, NIL), false, false);
+        //snprintf(returnName, sizeof(returnName), "*SELECT* %d ", list_length(pstate->p_rtable) + 1);
+        pnsi = addRangeTableEntryForSubquery(pstate, query, makeAlias(label_tree_node->label_name, NIL), false, false);
         rte = pnsi->p_rte;
         rtr = makeNode(RangeTblRef);
         // assume new rte is at end 
@@ -4205,6 +4197,28 @@ static char *make_endid_alias(char *var_name) {
     return str;
 }
 
+static cypher_label_tree_node *push_new_label(cypher_label_tree_node * root, char *label_name) {
+    if (!root) {
+        root = make_ag_node(cypher_label_tree_node);
+        root->label_name = label_name;
+        root->larg = NULL;
+        root->rarg = NULL;
+        return root;
+    }
+
+
+    if (root->larg == NULL) {
+        cypher_label_tree_node *larg = make_ag_node(cypher_label_tree_node);
+        larg->label_name = label_name;
+        root->larg = larg;
+        root->rarg = push_new_label(root->rarg , label_name);
+    } else {
+        root->rarg = push_new_label(root->rarg , label_name);
+    }
+
+    return root;
+}
+
 //ltree
 #include "ltree.h"
 
@@ -4247,10 +4261,6 @@ static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node
         TargetEntry *te;
         Node *expr;
 
-        /*
-         * If we are in a WHERE clause transform, we don't want to create new
-         * variables, we want to use the existing ones. So, error if otherwise.
-         */
         if (pstate->p_expr_kind == EXPR_KIND_WHERE) {
           transform_entity *entity = find_transform_entity(cpstate, node->name, ENT_VERTEX);
             if (entity)
@@ -4288,65 +4298,107 @@ static Expr *transform_cypher_node(cypher_parsestate *cpstate, cypher_node *node
     
     int ltq_query_args[2];
     ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-    ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+    ltq_query_args[1] = ltq_query_args[0];//LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
 	
     Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
     
     ScanKeyData scan_keys[1];
-    ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
+    ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, 11, ltree_contains_oid, label_lquery);
     
     Relation label_catalog = table_open(ag_label_relation_id(), AccessShareLock);
+    int count = 0;
     SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
 
-    HeapTuple tuple = systable_getnext(scan_desc);
+    cypher_label_tree_node *root = NULL;
+    while(true) {
+        bool is_null;
+        HeapTuple tuple = systable_getnext(scan_desc);
+ 
+        if (!HeapTupleIsValid(tuple))
+            break;
 
-    if (!HeapTupleIsValid(tuple))
-        ereport(ERROR,
-                (errcode(ERRCODE_UNDEFINED_SCHEMA),
-                 errmsg("not found %s", node->label)));
-    
-    bool is_null;
-    rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
+        Oid rel_graph_oid = heap_getattr(tuple, Anum_ag_label_graph, RelationGetDescr(label_catalog), &is_null);
+        
+        if (rel_graph_oid != get_graph_oid(cpstate->graph_name))
+            continue;
+
+        rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
+        
+        root = push_new_label(root, rel_name);
+        count++;
+    }     
 
 
     systable_endscan(scan_desc);
     table_close(label_catalog, AccessShareLock);
 
-    //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
-    label_range_var = makeRangeVar(schema_name, rel_name, -1);
-    alias = makeAlias(node->name, NIL);
+    if (count == 0)
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("no data found for %s", node->name),
+                            parser_errposition(pstate, node->location)));
 
-    pnsi = addRangeTableEntry(pstate, label_range_var, alias, label_range_var->inh, true);
-    Assert(pnsi != NULL);
+    if (count == 1) {
+        //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
+        label_range_var = makeRangeVar(schema_name, rel_name, -1);
+        alias = makeAlias(node->name, NIL);
 
-    addNSItemToQuery(pstate, pnsi, true, true, true);
+        pnsi = addRangeTableEntry(pstate, label_range_var, alias, false, true);
+        Assert(pnsi != NULL);
 
-    resno = pstate->p_next_resno++;
+        addNSItemToQuery(pstate, pnsi, true, true, true);
 
-    expr = (Expr *)make_vertex_expr(cpstate, pnsi);
+        resno = pstate->p_next_resno++;
 
-    // make target entry and add it 
-    te = makeTargetEntry(expr, resno, node->name, false);
-    *target_list = lappend(*target_list, te);
+        expr = (Expr *)make_vertex_expr(cpstate, pnsi);
 
-    // id field
-    Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
-    resno = pstate->p_next_resno++;
+        // make target entry and add it 
+        te = makeTargetEntry(expr, resno, node->name, false);
+        *target_list = lappend(*target_list, te);
 
-    te = makeTargetEntry(id, resno, make_id_alias(node->name), false);
-    *target_list = lappend(*target_list, te);
+        // id field
+        Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
+        resno = pstate->p_next_resno++;
 
-    /*
-     * properties field
-     */
-    Node *props = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
-    resno = pstate->p_next_resno++;
+        te = makeTargetEntry(id, resno, make_id_alias(node->name), false);
+        *target_list = lappend(*target_list, te);
 
-    te = makeTargetEntry(props, resno, make_property_alias(node->name), false);
-    *target_list = lappend(*target_list, te);
+        // properties field
+        Node *props = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
+        resno = pstate->p_next_resno++;
+
+        te = makeTargetEntry(props, resno, make_property_alias(node->name), false);
+        *target_list = lappend(*target_list, te);
 
 
-    return expr;
+        return expr;
+
+    } else {
+
+
+        Query *query = transform_cypher_match_union_label(cpstate, root);
+        ParseNamespaceItem *pnsi = addRangeTableEntryForSubquery(pstate, query, makeAlias(node->name, NIL), false, true);
+
+        if (list_length(pstate->p_rtable) > 1) {
+            List *namespace = NULL;
+            int rtindex = 0;
+
+            rtindex = list_length(pstate->p_rtable);
+
+            if (pnsi->p_rte != rt_fetch(rtindex, pstate->p_rtable))
+                ereport(ERROR,
+                        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("rte must be last entry in p_rtable")));
+
+            namespace = list_make1(pnsi);
+
+            checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
+        }
+
+        addNSItemToQuery(pstate, pnsi, true, false, true);
+
+        return scanNSItemForColumn(pstate, pnsi, 0, node->name, -1);
+
+    }
 }
 
 static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi) {
