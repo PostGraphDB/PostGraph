@@ -30,6 +30,7 @@
 #include "catalog/pg_collation.h"
 #include "fmgr.h"
 #include "storage/lockdefs.h"
+#include "storage/shmem.h"
 #include "utils/builtins.h"
 #include "utils/catcache.h"
 #include "utils/fmgroids.h"
@@ -236,8 +237,8 @@ static void create_graph_name_cache(void)
      * Please see the comment of hash_create() for the nelem value 16 here.
      * HASH_BLOBS flag is set because the key for this hash is fixed-size.
      */
-    graph_name_cache_hash = hash_create("ag_graph (name) cache", 16, &hash_ctl,
-                                        HASH_ELEM | HASH_BLOBS | HASH_COMPARE);
+    graph_name_cache_hash = ShmemInitHash("ag_graph (name) cache",16, 1000, &hash_ctl,
+			     HASH_ELEM | HASH_BLOBS | HASH_COMPARE);
 }
 
 static void create_graph_namespace_cache(void)
@@ -252,7 +253,7 @@ static void create_graph_namespace_cache(void)
      * Please see the comment of hash_create() for the nelem value 16 here.
      * HASH_BLOBS flag is set because the size of the key is sizeof(uint32).
      */
-    graph_namespace_cache_hash = hash_create("ag_graph (namespace) cache", 16,
+    graph_namespace_cache_hash = ShmemInitHash("ag_graph (namespace) cache", 16, 1000,
                                              &hash_ctl,
                                              HASH_ELEM | HASH_BLOBS);
 }
@@ -515,8 +516,8 @@ static void create_label_name_graph_cache(void)
      * Please see the comment of hash_create() for the nelem value 16 here.
      * HASH_BLOBS flag is set because the key for this hash is fixed-size.
      */
-    label_name_graph_cache_hash = hash_create("ag_label (name, graph) cache",
-                                              16, &hash_ctl,
+    label_name_graph_cache_hash = ShmemInitHash("ag_label (name, graph) cache",
+                                              16, 1000, &hash_ctl,
                                               HASH_ELEM | HASH_BLOBS);
 }
 
@@ -532,7 +533,7 @@ static void create_label_graph_oid_cache(void)
      * Please see the comment of hash_create() for the nelem value 16 here.
      * HASH_BLOBS flag is set because the key for this hash is fixed-size.
      */
-    label_graph_oid_cache_hash = hash_create("ag_label (graph, id) cache", 16,
+    label_graph_oid_cache_hash = ShmemInitHash("ag_label (graph, id) cache", 16, 1000,
                                               &hash_ctl,
                                               HASH_ELEM | HASH_BLOBS);
 }
@@ -549,7 +550,7 @@ static void create_label_relation_cache(void)
      * Please see the comment of hash_create() for the nelem value 16 here.
      * HASH_BLOBS flag is set because the size of the key is sizeof(uint32).
      */
-    label_relation_cache_hash = hash_create("ag_label (relation) cache", 16,
+    label_relation_cache_hash = ShmemInitHash("ag_label (relation) cache", 16, 1000,
                                             &hash_ctl, HASH_ELEM | HASH_BLOBS);
 }
 
