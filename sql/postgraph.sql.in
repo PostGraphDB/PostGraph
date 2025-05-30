@@ -99,6 +99,18 @@ CREATE UNIQUE INDEX session_graph_use_index
 ON session_graph_use 
 USING btree (pid, graph_oid);
 
+
+-------------------------------------
+-- Table AM interface functions
+-------------------------------------
+CREATE FUNCTION vertex_tableam_handler(internal)
+RETURNS table_am_handler
+AS 'MODULE_PATHNAME'
+LANGUAGE C STRICT;
+
+CREATE ACCESS METHOD vertex TYPE TABLE
+HANDLER vertex_tableam_handler;
+
 --
 -- catalog lookup functions
 --

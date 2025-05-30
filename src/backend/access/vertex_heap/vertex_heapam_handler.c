@@ -130,8 +130,10 @@ GetVertexHeapamTableAmRoutine(void)
 	return &vertex_heapam_methods;
 }
 
+PG_FUNCTION_INFO_V1(vertex_tableam_handler);
 Datum
-vertex_heap_tableam_handler(PG_FUNCTION_ARGS)
+vertex_tableam_handler(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_POINTER(&vertex_heapam_methods);
 }
+
