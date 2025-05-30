@@ -89,6 +89,7 @@ EXTENSION = postgraph
 DATA = postgraph--0.1.0.sql
 
 REGRESS = new_cypher \
+	  vertex_am \
           graphid \
           gtype \
           expr \
