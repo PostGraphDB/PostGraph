@@ -29,6 +29,7 @@
 #include "access/tableam.h"
 #include "access/tsmapi.h"
 #include "access/xact.h"
+#include "access/valid.h"
 #include "catalog/catalog.h"
 #include "catalog/index.h"
 #include "catalog/storage.h"
@@ -46,6 +47,780 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 
+#define HEAP_OVERHEAD_BYTES_PER_TUPLE \
+        (MAXALIGN(SizeofHeapTupleHeader) + sizeof(ItemIdData))
+#define HEAP_USABLE_BYTES_PER_PAGE \
+        (BLCKSZ - SizeOfPageHeaderData)
+
+/* ----------------------------------------------------------------
+ *                         heap support routines
+ * ----------------------------------------------------------------
+ */
+
+/* ----------------
+ *        initscan - scan code common to heap_beginscan and heap_rescan
+ * ----------------
+ */
+static void
+initscan(HeapScanDesc scan, ScanKey key, bool keep_startblock)
+{
+    ParallelBlockTableScanDesc bpscan = NULL;
+    bool        allow_strat;
+    bool        allow_sync;
+
+    /*
+     * Determine the number of blocks we have to scan.
+     *
+     * It is sufficient to do this once at scan start, since any tuples added
+     * while the scan is in progress will be invisible to my snapshot anyway.
+     * (That is not true when using a non-MVCC snapshot.  However, we couldn't
+     * guarantee to return tuples added after scan start anyway, since they
+     * might go into pages we already scanned.  To guarantee consistent
+     * results for a non-MVCC snapshot, the caller must hold some higher-level
+     * lock that ensures the interesting tuple(s) won't change.)
+     */
+    if (scan->rs_base.rs_parallel != NULL)
+    {
+         bpscan = (ParallelBlockTableScanDesc) scan->rs_base.rs_parallel;
+         scan->rs_nblocks = bpscan->phs_nblocks;
+    }
+    else
+         scan->rs_nblocks = RelationGetNumberOfBlocks(scan->rs_base.rs_rd);
+
+    /*
+     * If the table is large relative to NBuffers, use a bulk-read access
+     * strategy and enable synchronized scanning (see syncscan.c).  Although
+     * the thresholds for these features could be different, we make them the
+     * same so that there are only two behaviors to tune rather than four.
+     * (However, some callers need to be able to disable one or both of these
+     * behaviors, independently of the size of the table; also there is a GUC
+     * variable that can disable synchronized scanning.)
+     *
+     * Note that table_block_parallelscan_initialize has a very similar test;
+     * if you change this, consider changing that one, too.
+     */
+    if (!RelationUsesLocalBuffers(scan->rs_base.rs_rd) && scan->rs_nblocks > NBuffers / 4) {
+        allow_strat = (scan->rs_base.rs_flags & SO_ALLOW_STRAT) != 0;
+        allow_sync = (scan->rs_base.rs_flags & SO_ALLOW_SYNC) != 0;
+    }
+    else
+        allow_strat = allow_sync = false;
+
+    if (allow_strat)
+    {
+        /* During a rescan, keep the previous strategy object. */
+        if (scan->rs_strategy == NULL)
+            scan->rs_strategy = GetAccessStrategy(BAS_BULKREAD);
+        }
+        else
+        {
+            if (scan->rs_strategy != NULL)
+                FreeAccessStrategy(scan->rs_strategy);
+            scan->rs_strategy = NULL;
+        }
+
+        if (scan->rs_base.rs_parallel != NULL)
+        {
+        /* For parallel scan, believe whatever ParallelTableScanDesc says. */
+            if (scan->rs_base.rs_parallel->phs_syncscan)
+                scan->rs_base.rs_flags |= SO_ALLOW_SYNC;
+            else
+                scan->rs_base.rs_flags &= ~SO_ALLOW_SYNC;
+         }
+         else if (keep_startblock)
+         {
+             /*
+              * When rescanning, we want to keep the previous startblock setting,
+              * so that rewinding a cursor doesn't generate surprising results.
+              * Reset the active syncscan setting, though.
+              */
+              if (allow_sync && synchronize_seqscans)
+                   scan->rs_base.rs_flags |= SO_ALLOW_SYNC;
+              else
+                   scan->rs_base.rs_flags &= ~SO_ALLOW_SYNC;
+        }
+        else if (allow_sync && synchronize_seqscans)
+        {
+             scan->rs_base.rs_flags |= SO_ALLOW_SYNC;
+             scan->rs_startblock = ss_get_location(scan->rs_base.rs_rd, scan->rs_nblocks);
+        }
+        else
+        {
+             scan->rs_base.rs_flags &= ~SO_ALLOW_SYNC;
+             scan->rs_startblock = 0;
+         }
+
+         scan->rs_numblocks = InvalidBlockNumber;
+         scan->rs_inited = false;
+         scan->rs_ctup.t_data = NULL;
+         ItemPointerSetInvalid(&scan->rs_ctup.t_self);
+         scan->rs_cbuf = InvalidBuffer;
+         scan->rs_cblock = InvalidBlockNumber;
+
+         /* page-at-a-time fields are always invalid when not rs_inited */
+
+         /*
+          * copy the scan key, if appropriate
+          */
+         if (key != NULL && scan->rs_base.rs_nkeys > 0)
+              memcpy(scan->rs_base.rs_key, key, scan->rs_base.rs_nkeys * sizeof(ScanKeyData));
+
+         /*
+          * Currently, we only have a stats counter for sequential heap scans (but
+          * e.g for bitmap scans the underlying bitmap index scans will be counted,
+          * and for sample scans we update stats for tuple fetches).
+          */
+         if (scan->rs_base.rs_flags & SO_TYPE_SEQSCAN)
+             pgstat_count_heap_scan(scan->rs_base.rs_rd);
+}
+
+
+
+/* ----------------
+ *        heapgettup - fetch next heap tuple
+ *
+ *        Initialize the scan if not already done; then advance to the next
+ *        tuple as indicated by "dir"; return the next tuple in scan->rs_ctup,
+ *        or set scan->rs_ctup.t_data = NULL if no more tuples.
+ *
+ * dir == NoMovementScanDirection means "re-fetch the tuple indicated
+ * by scan->rs_ctup".
+ *
+ * Note: the reason nkeys/key are passed separately, even though they are
+ * kept in the scan descriptor, is that the caller may not want us to check
+ * the scankeys.
+ *
+ * Note: when we fall off the end of the scan in either direction, we
+ * reset rs_inited.  This means that a further request with the same
+ * scan direction will restart the scan, which is a bit odd, but a
+ * request with the opposite scan direction will start a fresh scan
+ * in the proper direction.  The latter is required behavior for cursors,
+ * while the former case is generally undefined behavior in Postgres
+ * so we don't care too much.
+ * ----------------
+ */
+static void
+heapgettup(HeapScanDesc scan, ScanDirection dir, int nkeys, ScanKey key)
+{
+    HeapTuple    tuple = &(scan->rs_ctup);
+    Snapshot    snapshot = scan->rs_base.rs_snapshot;
+    bool        backward = ScanDirectionIsBackward(dir);
+    BlockNumber page;
+    bool        finished;
+    Page        dp;
+    int            lines;
+    OffsetNumber lineoff;
+    int            linesleft;
+    ItemId        lpp;
+
+    /*
+     * calculate next starting lineoff, given scan direction
+     */
+    if (ScanDirectionIsForward(dir))
+    {
+        if (!scan->rs_inited)
+        {
+            /*
+             * return null immediately if relation is empty
+             */
+            if (scan->rs_nblocks == 0 || scan->rs_numblocks == 0)
+            {
+                Assert(!BufferIsValid(scan->rs_cbuf));
+                tuple->t_data = NULL;
+                return;
+            }
+            if (scan->rs_base.rs_parallel != NULL)
+            {
+                ParallelBlockTableScanDesc pbscan =
+                      (ParallelBlockTableScanDesc) scan->rs_base.rs_parallel;
+                ParallelBlockTableScanWorker pbscanwork =
+                       scan->rs_parallelworkerdata;
+                                                                                                                                        table_block_parallelscan_startblock_init(scan->rs_base.rs_rd, pbscanwork, pbscan);
+
+                                                                                                                                        page = table_block_parallelscan_nextpage(scan->rs_base.rs_rd, pbscanwork, pbscan);
+
+                                                                                                                                        /* Other processes might have already finished the scan. */
+                if (page == InvalidBlockNumber) {
+                    Assert(!BufferIsValid(scan->rs_cbuf));
+                    tuple->t_data = NULL;
+                    return;
+                }
+            }
+            else
+                 page = scan->rs_startblock; /* first page */
+            
+	    heapgetpage((TableScanDesc) scan, page);
+            
+	    lineoff = FirstOffsetNumber;    /* first offnum */
+            scan->rs_inited = true;
+       }
+       else
+       {
+           /* continue from previously returned page/tuple */
+           page = scan->rs_cblock; /* current page */
+           lineoff =            /* next offnum */
+                OffsetNumberNext(ItemPointerGetOffsetNumber(&(tuple->t_self)));
+       }
+
+       LockBuffer(scan->rs_cbuf, BUFFER_LOCK_SHARE);
+
+       dp = BufferGetPage(scan->rs_cbuf);
+       TestForOldSnapshot(snapshot, scan->rs_base.rs_rd, dp);
+       lines = PageGetMaxOffsetNumber(dp);
+       /* page and lineoff now reference the physically next tid */
+
+       linesleft = lines - lineoff + 1;
+   }
+   else if (backward)
+   {
+        /* backward parallel scan not supported */
+        Assert(scan->rs_base.rs_parallel == NULL);
+
+        if (!scan->rs_inited)
+        {
+            /*
+             * return null immediately if relation is empty
+             */
+             if (scan->rs_nblocks == 0 || scan->rs_numblocks == 0)
+             {
+                 Assert(!BufferIsValid(scan->rs_cbuf));
+                 tuple->t_data = NULL;
+                 return;
+             }
+
+             /*
+              * Disable reporting to syncscan logic in a backwards scan; it's
+              * not very likely anyone else is doing the same thing at the same
+              * time, and much more likely that we'll just bollix things for
+              * forward scanners.
+              */
+             scan->rs_base.rs_flags &= ~SO_ALLOW_SYNC;
+
+             /*
+              * Start from last page of the scan.  Ensure we take into account
+              * rs_numblocks if it's been adjusted by heap_setscanlimits().
+              */
+             if (scan->rs_numblocks != InvalidBlockNumber)
+                  page = (scan->rs_startblock + scan->rs_numblocks - 1) % scan->rs_nblocks;
+             else if (scan->rs_startblock > 0)
+                  page = scan->rs_startblock - 1;
+             else
+                  page = scan->rs_nblocks - 1;
+             heapgetpage((TableScanDesc) scan, page);
+        }
+        else
+        {
+             /* continue from previously returned page/tuple */
+             page = scan->rs_cblock; /* current page */
+        }
+
+        LockBuffer(scan->rs_cbuf, BUFFER_LOCK_SHARE);
+
+        dp = BufferGetPage(scan->rs_cbuf);
+        TestForOldSnapshot(snapshot, scan->rs_base.rs_rd, dp);
+        lines = PageGetMaxOffsetNumber(dp);
+
+        if (!scan->rs_inited)
+        {
+            lineoff = lines;    /* final offnum */
+            scan->rs_inited = true;
+        }
+        else
+        {
+             /*
+              * The previous returned tuple may have been vacuumed since the
+              * previous scan when we use a non-MVCC snapshot, so we must
+              * re-establish the lineoff <= PageGetMaxOffsetNumber(dp)
+              * invariant
+              */
+             lineoff =            /* previous offnum */
+                   Min(lines,
+                       OffsetNumberPrev(ItemPointerGetOffsetNumber(&(tuple->t_self))));
+         }
+         /* page and lineoff now reference the physically previous tid */
+
+         linesleft = lineoff;
+     }
+     else
+     {
+         /*
+          * ``no movement'' scan direction: refetch prior tuple
+          */
+         if (!scan->rs_inited)
+         {
+              Assert(!BufferIsValid(scan->rs_cbuf));
+              tuple->t_data = NULL;
+              return;
+         }
+
+         page = ItemPointerGetBlockNumber(&(tuple->t_self));
+         if (page != scan->rs_cblock)
+              heapgetpage((TableScanDesc) scan, page);
+
+         /* Since the tuple was previously fetched, needn't lock page here */
+         dp = BufferGetPage(scan->rs_cbuf);
+         TestForOldSnapshot(snapshot, scan->rs_base.rs_rd, dp);
+         lineoff = ItemPointerGetOffsetNumber(&(tuple->t_self));
+         lpp = PageGetItemId(dp, lineoff);
+         Assert(ItemIdIsNormal(lpp));
+
+         tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
+         tuple->t_len = ItemIdGetLength(lpp);
+
+         return;
+     }
+
+     /*
+      * advance the scan until we find a qualifying tuple or run out of stuff
+      * to scan
+      */
+     lpp = PageGetItemId(dp, lineoff);
+     for (;;)
+     {
+         /*
+          * Only continue scanning the page while we have lines left.
+          *
+          * Note that this protects us from accessing line pointers past
+          * PageGetMaxOffsetNumber(); both for forward scans when we resume the
+          * table scan, and for when we start scanning a new page.
+          */
+          while (linesleft > 0)
+          {
+               if (ItemIdIsNormal(lpp))
+               {
+                   bool valid;
+
+                   tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
+                   tuple->t_len = ItemIdGetLength(lpp);
+                   ItemPointerSet(&(tuple->t_self), page, lineoff);
+
+                   /*
+                    * if current tuple qualifies, return it.
+                    */
+                   valid = HeapTupleSatisfiesVisibility(tuple,
+                         snapshot,
+                         scan->rs_cbuf);
+
+                   HeapCheckForSerializableConflictOut(valid, scan->rs_base.rs_rd,
+                                                 tuple, scan->rs_cbuf,
+                                                 snapshot);
+
+                   if (valid && key != NULL)
+                       HeapKeyTest(tuple, RelationGetDescr(scan->rs_base.rs_rd),
+                                                        nkeys, key, valid);
+
+                   if (valid)
+                   {
+                        LockBuffer(scan->rs_cbuf, BUFFER_LOCK_UNLOCK);
+                        return;
+                    }
+              }
+
+              /*
+               * otherwise move to the next item on the page
+               */
+               --linesleft;
+               if (backward)
+               {
+                    --lpp;            /* move back in this page's ItemId array */
+                    --lineoff;
+               }
+              else
+               {
+                    ++lpp;            /* move forward in this page's ItemId array */
+                    ++lineoff;
+               }
+          }
+
+          /*
+           * if we get here, it means we've exhausted the items on this page and
+           * it's time to move to the next.
+           */
+          LockBuffer(scan->rs_cbuf, BUFFER_LOCK_UNLOCK);
+
+          /*
+           * advance to next/prior page and detect end of scan
+           */
+          if (backward)
+          {
+               finished = (page == scan->rs_startblock) ||
+                           (scan->rs_numblocks != InvalidBlockNumber ? --scan->rs_numblocks == 0 : false);
+                if (page == 0)
+                     page = scan->rs_nblocks;
+                page--;
+          }
+          else if (scan->rs_base.rs_parallel != NULL)
+          {
+               ParallelBlockTableScanDesc pbscan =
+                       (ParallelBlockTableScanDesc) scan->rs_base.rs_parallel;
+               ParallelBlockTableScanWorker pbscanwork =
+                       scan->rs_parallelworkerdata;
+
+               page = table_block_parallelscan_nextpage(scan->rs_base.rs_rd,
+                                             pbscanwork, pbscan);
+                finished = (page == InvalidBlockNumber);
+         }
+         else
+         {
+              page++;
+              if (page >= scan->rs_nblocks)
+                  page = 0;
+               finished = (page == scan->rs_startblock) ||
+                               (scan->rs_numblocks != InvalidBlockNumber ? --scan->rs_numblocks == 0 : false);
+
+               /*
+                * Report our new scan position for synchronization purposes. We
+                * don't do that when moving backwards, however. That would just
+                * mess up any other forward-moving scanners.
+                *
+                * Note: we do this before checking for end of scan so that the
+                * final state of the position hint is back at the start of the
+                * rel.  That's not strictly necessary, but otherwise when you run
+                * the same query multiple times the starting position would shift
+                * a little bit backwards on every invocation, which is confusing.
+                * We don't guarantee any specific ordering in general, though.
+                */
+               if (scan->rs_base.rs_flags & SO_ALLOW_SYNC)
+                     ss_report_location(scan->rs_base.rs_rd, page);
+          }
+
+          /*
+           * return NULL if we've exhausted all the pages
+           */
+          if (finished)
+          {
+               if (BufferIsValid(scan->rs_cbuf))
+                    ReleaseBuffer(scan->rs_cbuf);
+               scan->rs_cbuf = InvalidBuffer;
+               scan->rs_cblock = InvalidBlockNumber;
+               tuple->t_data = NULL;
+               scan->rs_inited = false;
+               return;
+          }
+
+          heapgetpage((TableScanDesc) scan, page);
+
+          LockBuffer(scan->rs_cbuf, BUFFER_LOCK_SHARE);
+
+          dp = BufferGetPage(scan->rs_cbuf);
+          TestForOldSnapshot(snapshot, scan->rs_base.rs_rd, dp);
+          lines = PageGetMaxOffsetNumber((Page) dp);
+          linesleft = lines;
+          if (backward)
+          {
+               lineoff = lines;
+               lpp = PageGetItemId(dp, lines);
+          }
+          else
+          {
+               lineoff = FirstOffsetNumber;
+               lpp = PageGetItemId(dp, FirstOffsetNumber);
+          }
+     }
+}
+
+/* ----------------
+ *  *        heapgettup_pagemode - fetch next heap tuple in page-at-a-time mode
+ *   *
+ *    *        Same API as heapgettup, but used in page-at-a-time mode
+ *     *
+ *      * The internal logic is much the same as heapgettup's too, but there are some
+ *       * differences: we do not take the buffer content lock (that only needs to
+ *        * happen inside heapgetpage), and we iterate through just the tuples listed
+ *         * in rs_vistuples[] rather than all tuples on the page.  Notice that
+ *          * lineindex is 0-based, where the corresponding loop variable lineoff in
+ *           * heapgettup is 1-based.
+ *            * ----------------
+ *             */
+static void
+heapgettup_pagemode(HeapScanDesc scan,
+                            ScanDirection dir,
+                                                int nkeys,
+                                                                    ScanKey key)
+{
+        HeapTuple    tuple = &(scan->rs_ctup);
+            bool        backward = ScanDirectionIsBackward(dir);
+                BlockNumber page;
+                    bool        finished;
+                        Page        dp;
+                            int            lines;
+                                int            lineindex;
+                                    OffsetNumber lineoff;
+                                        int            linesleft;
+                                            ItemId        lpp;
+
+                                                /*
+                                                 *      * calculate next starting lineindex, given scan direction
+                                                 *           */
+                                                if (ScanDirectionIsForward(dir))
+                                                        {
+                                                                    if (!scan->rs_inited)
+                                                                                {
+                                                                                                /*
+                                                                                                 *              * return null immediately if relation is empty
+                                                                                                 *                           */
+                                                                                                if (scan->rs_nblocks == 0 || scan->rs_numblocks == 0)
+                                                                                                                {
+                                                                                                                                    Assert(!BufferIsValid(scan->rs_cbuf));
+                                                                                                                                                    tuple->t_data = NULL;
+                                                                                                                                                                    return;
+                                                                                                                                                                                }
+                                                                                                            if (scan->rs_base.rs_parallel != NULL)
+                                                                                                                            {
+                                                                                                                                                ParallelBlockTableScanDesc pbscan =
+                                                                                                                                                                    (ParallelBlockTableScanDesc) scan->rs_base.rs_parallel;
+                                                                                                                                                                ParallelBlockTableScanWorker pbscanwork =
+                                                                                                                                                                                    scan->rs_parallelworkerdata;
+
+                                                                                                                                                                                table_block_parallelscan_startblock_init(scan->rs_base.rs_rd,
+                                                                                                                                                                                                                                                 pbscanwork, pbscan);
+
+                                                                                                                                                                                                page = table_block_parallelscan_nextpage(scan->rs_base.rs_rd,
+                                                                                                                                                                                                                                                                 pbscanwork, pbscan);
+
+                                                                                                                                                                                                                /* Other processes might have already finished the scan. */
+                                                                                                                                                                                                                if (page == InvalidBlockNumber)
+                                                                                                                                                                                                                                    {
+                                                                                                                                                                                                                                                            Assert(!BufferIsValid(scan->rs_cbuf));
+                                                                                                                                                                                                                                                                                tuple->t_data = NULL;
+                                                                                                                                                                                                                                                                                                    return;
+                                                                                                                                                                                                                                                                                                                    }
+                                                                                                                                                                                                                            }
+                                                                                                                        else
+                                                                                                                                            page = scan->rs_startblock; /* first page */
+                                                                                                                                    heapgetpage((TableScanDesc) scan, page);
+                                                                                                                                                lineindex = 0;
+                                                                                                                                                            scan->rs_inited = true;
+                                                                                                                                                                    }
+                                                                            else
+                                                                                        {
+                                                                                                        /* continue from previously returned page/tuple */
+                                                                                                        page = scan->rs_cblock; /* current page */
+                                                                                                                    lineindex = scan->rs_cindex + 1;
+                                                                                                                            }
+
+                                                                                    dp = BufferGetPage(scan->rs_cbuf);
+                                                                                            TestForOldSnapshot(scan->rs_base.rs_snapshot, scan->rs_base.rs_rd, dp);
+                                                                                                    lines = scan->rs_ntuples;
+                                                                                                            /* page and lineindex now reference the next visible tid */
+
+                                                                                                            linesleft = lines - lineindex;
+                                                                                                                }
+                                                    else if (backward)
+                                                            {
+                                                                        /* backward parallel scan not supported */
+                                                                        Assert(scan->rs_base.rs_parallel == NULL);
+
+                                                                                if (!scan->rs_inited)
+                                                                                            {
+                                                                                                            /*
+                                                                                                             *              * return null immediately if relation is empty
+                                                                                                             *                           */
+                                                                                                            if (scan->rs_nblocks == 0 || scan->rs_numblocks == 0)
+                                                                                                                            {
+                                                                                                                                                Assert(!BufferIsValid(scan->rs_cbuf));
+                                                                                                                                                                tuple->t_data = NULL;
+                                                                                                                                                                                return;
+                                                                                                                                                                                            }
+
+                                                                                                                        /*
+                                                                                                                         *              * Disable reporting to syncscan logic in a backwards scan; it's
+                                                                                                                         *                           * not very likely anyone else is doing the same thing at the same
+                                                                                                                         *                                        * time, and much more likely that we'll just bollix things for
+                                                                                                                         *                                                     * forward scanners.
+                                                                                                                         *                                                                  */
+                                                                                                                        scan->rs_base.rs_flags &= ~SO_ALLOW_SYNC;
+
+                                                                                                                                    /*
+                                                                                                                                     *              * Start from last page of the scan.  Ensure we take into account
+                                                                                                                                     *                           * rs_numblocks if it's been adjusted by heap_setscanlimits().
+                                                                                                                                     *                                        */
+                                                                                                                                    if (scan->rs_numblocks != InvalidBlockNumber)
+                                                                                                                                                        page = (scan->rs_startblock + scan->rs_numblocks - 1) % scan->rs_nblocks;
+                                                                                                                                                else if (scan->rs_startblock > 0)
+                                                                                                                                                                    page = scan->rs_startblock - 1;
+                                                                                                                                                            else
+                                                                                                                                                                                page = scan->rs_nblocks - 1;
+                                                                                                                                                                        heapgetpage((TableScanDesc) scan, page);
+                                                                                                                                                                                }
+                                                                                        else
+                                                                                                    {
+                                                                                                                    /* continue from previously returned page/tuple */
+                                                                                                                    page = scan->rs_cblock; /* current page */
+                                                                                                                            }
+
+                                                                                                dp = BufferGetPage(scan->rs_cbuf);
+                                                                                                        TestForOldSnapshot(scan->rs_base.rs_snapshot, scan->rs_base.rs_rd, dp);
+                                                                                                                lines = scan->rs_ntuples;
+
+                                                                                                                        if (!scan->rs_inited)
+                                                                                                                                    {
+                                                                                                                                                    lineindex = lines - 1;
+                                                                                                                                                                scan->rs_inited = true;
+                                                                                                                                                                        }
+                                                                                                                                else
+                                                                                                                                            {
+                                                                                                                                                            lineindex = scan->rs_cindex - 1;
+                                                                                                                                                                    }
+                                                                                                                                        /* page and lineindex now reference the previous visible tid */
+
+                                                                                                                                        linesleft = lineindex + 1;
+                                                                                                                                            }
+                                                        else
+                                                                {
+                                                                            /*
+                                                                             *          * ``no movement'' scan direction: refetch prior tuple
+                                                                             *                   */
+                                                                            if (!scan->rs_inited)
+                                                                                        {
+                                                                                                        Assert(!BufferIsValid(scan->rs_cbuf));
+                                                                                                                    tuple->t_data = NULL;
+                                                                                                                                return;
+                                                                                                                                        }
+
+                                                                                    page = ItemPointerGetBlockNumber(&(tuple->t_self));
+                                                                                            if (page != scan->rs_cblock)
+                                                                                                            heapgetpage((TableScanDesc) scan, page);
+
+                                                                                                    /* Since the tuple was previously fetched, needn't lock page here */
+                                                                                                    dp = BufferGetPage(scan->rs_cbuf);
+                                                                                                            TestForOldSnapshot(scan->rs_base.rs_snapshot, scan->rs_base.rs_rd, dp);
+                                                                                                                    lineoff = ItemPointerGetOffsetNumber(&(tuple->t_self));
+                                                                                                                            lpp = PageGetItemId(dp, lineoff);
+                                                                                                                                    Assert(ItemIdIsNormal(lpp));
+
+                                                                                                                                            tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
+                                                                                                                                                    tuple->t_len = ItemIdGetLength(lpp);
+
+                                                                                                                                                            /* check that rs_cindex is in sync */
+                                                                                                                                                            Assert(scan->rs_cindex < scan->rs_ntuples);
+                                                                                                                                                                    Assert(lineoff == scan->rs_vistuples[scan->rs_cindex]);
+
+                                                                                                                                                                            return;
+                                                                                                                                                                                }
+
+                                                            /*
+                                                             *      * advance the scan until we find a qualifying tuple or run out of stuff
+                                                             *           * to scan
+                                                             *                */
+                                                            for (;;)
+                                                                    {
+                                                                                while (linesleft > 0)
+                                                                                            {
+                                                                                                            lineoff = scan->rs_vistuples[lineindex];
+                                                                                                                        lpp = PageGetItemId(dp, lineoff);
+                                                                                                                                    Assert(ItemIdIsNormal(lpp));
+
+                                                                                                                                                tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
+                                                                                                                                                            tuple->t_len = ItemIdGetLength(lpp);
+                                                                                                                                                                        ItemPointerSet(&(tuple->t_self), page, lineoff);
+
+                                                                                                                                                                                    /*
+                                                                                                                                                                                     *              * if current tuple qualifies, return it.
+                                                                                                                                                                                     *                           */
+                                                                                                                                                                                    if (key != NULL)
+                                                                                                                                                                                                    {
+                                                                                                                                                                                                                        bool        valid;
+
+                                                                                                                                                                                                                                        HeapKeyTest(tuple, RelationGetDescr(scan->rs_base.rs_rd),
+                                                                                                                                                                                                                                                                            nkeys, key, valid);
+                                                                                                                                                                                                                                                        if (valid)
+                                                                                                                                                                                                                                                                            {
+                                                                                                                                                                                                                                                                                                    scan->rs_cindex = lineindex;
+                                                                                                                                                                                                                                                                                                                        return;
+                                                                                                                                                                                                                                                                                                                                        }
+                                                                                                                                                                                                                                                                    }
+                                                                                                                                                                                                else
+                                                                                                                                                                                                                {
+                                                                                                                                                                                                                                    scan->rs_cindex = lineindex;
+                                                                                                                                                                                                                                                    return;
+                                                                                                                                                                                                                                                                }
+
+                                                                                                                                                                                                            /*
+                                                                                                                                                                                                             *              * otherwise move to the next item on the page
+                                                                                                                                                                                                             *                           */
+                                                                                                                                                                                                            --linesleft;
+                                                                                                                                                                                                                        if (backward)
+                                                                                                                                                                                                                                            --lineindex;
+                                                                                                                                                                                                                                    else
+                                                                                                                                                                                                                                                        ++lineindex;
+                                                                                                                                                                                                                                            }
+
+                                                                                        /*
+                                                                                         *          * if we get here, it means we've exhausted the items on this page and
+                                                                                         *                   * it's time to move to the next.
+                                                                                         *                            */
+                                                                                        if (backward)
+                                                                                                    {
+                                                                                                                    finished = (page == scan->rs_startblock) ||
+                                                                                                                                        (scan->rs_numblocks != InvalidBlockNumber ? --scan->rs_numblocks == 0 : false);
+                                                                                                                                if (page == 0)
+                                                                                                                                                    page = scan->rs_nblocks;
+                                                                                                                                            page--;
+                                                                                                                                                    }
+                                                                                                else if (scan->rs_base.rs_parallel != NULL)
+                                                                                                            {
+                                                                                                                            ParallelBlockTableScanDesc pbscan =
+                                                                                                                                            (ParallelBlockTableScanDesc) scan->rs_base.rs_parallel;
+                                                                                                                                        ParallelBlockTableScanWorker pbscanwork =
+                                                                                                                                                        scan->rs_parallelworkerdata;
+
+                                                                                                                                                    page = table_block_parallelscan_nextpage(scan->rs_base.rs_rd,
+                                                                                                                                                                                                                 pbscanwork, pbscan);
+                                                                                                                                                                finished = (page == InvalidBlockNumber);
+                                                                                                                                                                        }
+                                                                                                        else
+                                                                                                                    {
+                                                                                                                                    page++;
+                                                                                                                                                if (page >= scan->rs_nblocks)
+                                                                                                                                                                    page = 0;
+                                                                                                                                                            finished = (page == scan->rs_startblock) ||
+                                                                                                                                                                                (scan->rs_numblocks != InvalidBlockNumber ? --scan->rs_numblocks == 0 : false);
+
+                                                                                                                                                                        /*
+                                                                                                                                                                         *              * Report our new scan position for synchronization purposes. We
+                                                                                                                                                                         *                           * don't do that when moving backwards, however. That would just
+                                                                                                                                                                         *                                        * mess up any other forward-moving scanners.
+                                                                                                                                                                         *                                                     *
+                                                                                                                                                                         *                                                                  * Note: we do this before checking for end of scan so that the
+                                                                                                                                                                         *                                                                               * final state of the position hint is back at the start of the
+                                                                                                                                                                         *                                                                                            * rel.  That's not strictly necessary, but otherwise when you run
+                                                                                                                                                                         *                                                                                                         * the same query multiple times the starting position would shift
+                                                                                                                                                                         *                                                                                                                      * a little bit backwards on every invocation, which is confusing.
+                                                                                                                                                                         *                                                                                                                                   * We don't guarantee any specific ordering in general, though.
+                                                                                                                                                                         *                                                                                                                                                */
+                                                                                                                                                                        if (scan->rs_base.rs_flags & SO_ALLOW_SYNC)
+                                                                                                                                                                                            ss_report_location(scan->rs_base.rs_rd, page);
+                                                                                                                                                                                }
+
+                                                                                                                /*
+                                                                                                                 *          * return NULL if we've exhausted all the pages
+                                                                                                                 *                   */
+                                                                                                                if (finished)
+                                                                                                                            {
+                                                                                                                                            if (BufferIsValid(scan->rs_cbuf))
+                                                                                                                                                                ReleaseBuffer(scan->rs_cbuf);
+                                                                                                                                                        scan->rs_cbuf = InvalidBuffer;
+                                                                                                                                                                    scan->rs_cblock = InvalidBlockNumber;
+                                                                                                                                                                                tuple->t_data = NULL;
+                                                                                                                                                                                            scan->rs_inited = false;
+                                                                                                                                                                                                        return;
+                                                                                                                                                                                                                }
+
+                                                                                                                        heapgetpage((TableScanDesc) scan, page);
+
+                                                                                                                                dp = BufferGetPage(scan->rs_cbuf);
+                                                                                                                                        TestForOldSnapshot(scan->rs_base.rs_snapshot, scan->rs_base.rs_rd, dp);
+                                                                                                                                                lines = scan->rs_ntuples;
+                                                                                                                                                        linesleft = lines;
+                                                                                                                                                                if (backward)
+                                                                                                                                                                                lineindex = lines - 1;
+                                                                                                                                                                        else
+                                                                                                                                                                                        lineindex = 0;
+                                                                                                                                                                            }
+}
+
+
 
 /* ------------------------------------------------------------------------
  * Slot related callbacks for vertex heap AM
@@ -62,17 +837,118 @@ vertex_heapam_slot_callbacks(Relation relation)
  * Functions related to scaning
  * ------------------------------------------------------------------------
  */
-TableScanDesc vertex_scan_begin(Relation rel, Snapshot snapshot, int nkeys,
+TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
                 struct ScanKeyData *key, 
-                ParallelTableScanDesc pscan, uint32 flags) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_scan_begin not implemented")));
-    return NULL;
+                ParallelTableScanDesc parallel_scan, uint32 flags) {
+    HeapScanDesc scan;
+
+    /*
+     * increment relation ref count while scanning relation
+     *
+     * This is just to make really sure the relcache entry won't go away while
+     * the scan has a pointer to it.  Caller should be holding the rel open
+     * anyway, so this is redundant in all normal scenarios...
+     */
+    RelationIncrementReferenceCount(relation);
+
+    /*
+     * allocate and initialize scan descriptor
+     */
+    scan = (HeapScanDesc) palloc(sizeof(HeapScanDescData));
+
+    scan->rs_base.rs_rd = relation;
+    scan->rs_base.rs_snapshot = snapshot;
+    scan->rs_base.rs_nkeys = nkeys;
+    scan->rs_base.rs_flags = flags;
+    scan->rs_base.rs_parallel = parallel_scan;
+    scan->rs_strategy = NULL;    /* set in initscan */
+
+    /*
+     * Disable page-at-a-time mode if it's not a MVCC-safe snapshot.
+     * TODO: Research Non MVCC Snapshots and Page-at-a-time mode
+     */
+    if (!(snapshot && IsMVCCSnapshot(snapshot)))
+        scan->rs_base.rs_flags &= ~SO_ALLOW_PAGEMODE;
+
+    /*
+     * For seqscan and sample scans in a serializable transaction, acquire a
+     * predicate lock on the entire relation. This is required not only to
+     * lock all the matching tuples, but also to conflict with new insertions
+     * into the table. In an indexscan, we take page locks on the index pages
+     * covering the range specified in the scan qual, but in a heap scan there
+     * is nothing more fine-grained to lock. A bitmap scan is a different
+     * story, there we have already scanned the index and locked the index
+     * pages covering the predicate. But in that case we still have to lock
+     * any matching heap tuples. For sample scan we could optimize the locking
+     * to be at least page-level granularity, but we'd need to add per-tuple
+     * locking for that.
+     */
+    if (scan->rs_base.rs_flags & (SO_TYPE_SEQSCAN | SO_TYPE_SAMPLESCAN))
+    {
+            /*
+             * Ensure a missing snapshot is noticed reliably, even if the
+             * isolation mode means predicate locking isn't performed (and
+             * therefore the snapshot isn't used here).
+             */
+            Assert(snapshot);
+            PredicateLockRelation(relation, snapshot);
+        }
+
+    /* we only need to set this up once */
+    scan->rs_ctup.t_tableOid = RelationGetRelid(relation);
+
+    /*
+     * Allocate memory to keep track of page allocation for parallel workers
+     * when doing a parallel scan.
+     */
+    if (parallel_scan != NULL)
+        scan->rs_parallelworkerdata = palloc(sizeof(ParallelBlockTableScanWorkerData));
+    else
+        scan->rs_parallelworkerdata = NULL;
+
+    /*
+     * we do this here instead of in initscan() because heap_rescan also calls
+     * initscan() and we don't want to allocate memory again
+     */
+    if (nkeys > 0)
+        scan->rs_base.rs_key = (ScanKey) palloc(sizeof(ScanKeyData) * nkeys);
+    else
+        scan->rs_base.rs_key = NULL;
+
+    initscan(scan, key, false);
+
+    return (TableScanDesc) scan;
 }
 
-void vertex_scan_end(TableScanDesc scan) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_scan_end not implemented")));
+void vertex_scan_end(TableScanDesc sscan) {
+    HeapScanDesc scan = (HeapScanDesc) sscan;
+    
+    /* Note: no locking manipulations needed */
+
+    /*
+     * unpin scan buffers
+     */
+    if (BufferIsValid(scan->rs_cbuf))
+            ReleaseBuffer(scan->rs_cbuf);
+
+    /*
+     * decrement relation reference count and free scan descriptor storage
+     */
+    RelationDecrementReferenceCount(scan->rs_base.rs_rd);
+
+    if (scan->rs_base.rs_key)
+            pfree(scan->rs_base.rs_key);
+
+    if (scan->rs_strategy != NULL)
+            FreeAccessStrategy(scan->rs_strategy);
+
+    if (scan->rs_parallelworkerdata != NULL)
+            pfree(scan->rs_parallelworkerdata);
+
+    if (scan->rs_base.rs_flags & SO_TEMP_SNAPSHOT)
+            UnregisterSnapshot(scan->rs_base.rs_snapshot);
+
+    pfree(scan);
 }
 
 /*
@@ -89,11 +965,30 @@ void vertex_scan_rescan(TableScanDesc scan, struct ScanKeyData *key,
 /*
  * Return next tuple from `scan`, store in slot.
  */
-bool vertex_scan_getnextslot(TableScanDesc scan, ScanDirection direction,
+bool vertex_scan_getnextslot(TableScanDesc sscan, ScanDirection direction,
                 TupleTableSlot *slot) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_scan_getnextslot not implemented")));
-    return false;
+    HeapScanDesc scan = (HeapScanDesc) sscan;
+
+    /* Note: no locking manipulations needed */
+    if (sscan->rs_flags & SO_ALLOW_PAGEMODE)
+        heapgettup_pagemode(scan, direction, sscan->rs_nkeys, sscan->rs_key);
+    else
+        heapgettup(scan, direction, sscan->rs_nkeys, sscan->rs_key);
+
+    if (scan->rs_ctup.t_data == NULL) {
+        ExecClearTuple(slot);
+        return false;
+    }
+
+    /*
+     * if we get here it means we have a new current scan tuple, so point to
+     * the proper return buffer and return the tuple.
+     */
+
+    pgstat_count_heap_getnext(scan->rs_base.rs_rd);
+
+    ExecStoreBufferHeapTuple(&scan->rs_ctup, slot, scan->rs_cbuf);
+    return true;
 }
 
 /* ------------------------------------------------------------------------
@@ -276,13 +1171,23 @@ TransactionId vertex_index_delete_tuples(Relation rel, TM_IndexDeleteOp *delstat
  */
 
 /* see table_tuple_insert() for reference about parameters */
-void vertex_tuple_insert(Relation rel, TupleTableSlot *slot,
-             CommandId cid, int options,
-             struct BulkInsertStateData *bistate) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
+void vertex_tuple_insert(Relation relation, TupleTableSlot *slot,
+                         CommandId cid, int options,
+                         struct BulkInsertStateData *bistate) {
+    // TODO, this is not implemented, merely the framework of whats to come
+    bool shouldFree = true;
+    HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
 
+    /* Update the tuple with table oid */
+    slot->tts_tableOid = RelationGetRelid(relation);
+    tuple->t_tableOid = slot->tts_tableOid;
+
+    /* Perform the insertion, and copy the resulting ItemPointer */
+    heap_insert(relation, tuple, cid, options, bistate);
+    ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
+
+    if (shouldFree)
+            pfree(tuple);
 }
 
 /* see table_tuple_insert_speculative() for reference about parameters */
@@ -291,7 +1196,7 @@ void vertex_tuple_insert_speculative(Relation rel, TupleTableSlot *slot,
                      struct BulkInsertStateData *bistate,
                      uint32 specToken) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_tuple_insert_speculative not implemented")));
     
 
 
@@ -385,8 +1290,8 @@ void vertex_relation_set_new_filenode(Relation rel, const RelFileNode *newrnode,
     SMgrRelation srel;
 
     if(persistence != RELPERSISTENCE_PERMANENT || rel->rd_rel->relkind != RELKIND_RELATION)
-    	ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				errmsg_internal("vertex am can only work on permenant tables")));   
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg_internal("vertex am can only work on permenant tables")));   
 
     /*
      * Initialize to the minimum XID that could put tuples in the table. We
@@ -562,12 +1467,17 @@ void vertex_index_validate_scan(Relation table_rel, Relation index_rel,
  * point.
  */
 uint64 vertex_relation_size(Relation rel, ForkNumber forkNumber) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
+    uint64 nblocks = 0;
 
+    /* InvalidForkNumber indicates returning the size for all forks */
+    if (forkNumber == InvalidForkNumber) {
+        for (int i = 0; i < MAX_FORKNUM; i++)
+             nblocks += smgrnblocks(RelationGetSmgr(rel), i);
+        }
+    else
+        nblocks = smgrnblocks(RelationGetSmgr(rel), forkNumber);
 
-    return 0;
+    return nblocks * BLCKSZ;
 }
 
 
@@ -579,11 +1489,8 @@ uint64 vertex_relation_size(Relation rel, ForkNumber forkNumber) {
  * return false.
  */
 bool vertex_relation_needs_toast_table(Relation rel) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
-
+    // XXX: for now, no toast table, this will absolutely change, but we will
+    // do that later 
     return false;
 }
 
@@ -593,11 +1500,6 @@ bool vertex_relation_needs_toast_table(Relation rel) {
  * always returns false, this callback is not required.
  */
 Oid vertex_relation_toast_am(Relation rel) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
-
     return InvalidOid;
 }
 
@@ -609,14 +1511,9 @@ Oid vertex_relation_toast_am(Relation rel) {
 void vertex_relation_fetch_toast_slice(Relation toastrel, Oid valueid,
                                        int32 attrsize, int32 sliceoffset,
                                        int32 slicelength, struct varlena *result) {
-
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
-
+            errmsg_internal("vertex_relation_fetch_toat_slice not implemented")));
 }
-
 
 /* ------------------------------------------------------------------------
  * Planner related functions.
@@ -636,8 +1533,96 @@ void vertex_relation_fetch_toast_slice(Relation toastrel, Oid valueid,
 void vertex_relation_estimate_size(Relation rel, int32 *attr_widths,
                                    BlockNumber *pages, double *tuples,
                                    double *allvisfrac) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+    BlockNumber curpages;
+    BlockNumber relpages;
+    double reltuples;
+    BlockNumber relallvisible;
+    double density;
+    double overhead_bytes_per_tuple = HEAP_OVERHEAD_BYTES_PER_TUPLE;
+    double usable_bytes_per_page = HEAP_USABLE_BYTES_PER_PAGE;
+    
+    /* it should have storage, so we can call the smgr */
+    curpages = RelationGetNumberOfBlocks(rel);
+
+    /* coerce values in pg_class to more desirable types */
+    relpages = (BlockNumber) rel->rd_rel->relpages;
+    reltuples = (double) rel->rd_rel->reltuples;
+    relallvisible = (BlockNumber) rel->rd_rel->relallvisible;
+
+    /*
+     * HACK: if the relation has never yet been vacuumed, use a minimum size
+     * estimate of 10 pages.  The idea here is to avoid assuming a
+     * newly-created table is really small, even if it currently is, because
+     * that may not be true once some data gets loaded into it.  Once a vacuum
+     * or analyze cycle has been done on it, it's more reasonable to believe
+     * the size is somewhat stable.
+     *
+     * (Note that this is only an issue if the plan gets cached and used again
+     * after the table has been filled.  What we're trying to avoid is using a
+     * nestloop-type plan on a table that has grown substantially since the
+     * plan was made.  Normally, autovacuum/autoanalyze will occur once enough
+     * inserts have happened and cause cached-plan invalidation; but that
+     * doesn't happen instantaneously, and it won't happen at all for cases
+     * such as temporary tables.)
+     *
+     * We test "never vacuumed" by seeing whether reltuples < 0.
+     *
+     * If the table has inheritance children, we don't apply this heuristic.
+     * Totally empty parent tables are quite common, so we should be willing
+     * to believe that they are empty.
+     */
+    if (curpages < 10 && reltuples < 0 && !rel->rd_rel->relhassubclass)
+        curpages = 10;
+
+    /* report estimated # pages */
+    *pages = curpages;
+    /* quick exit if rel is clearly empty */
+    if (curpages == 0)
+    {
+        *tuples = 0;
+        *allvisfrac = 0;
+        return;
+    }
+
+    /* estimate number of tuples from previous tuple density */
+    if (reltuples >= 0 && relpages > 0)
+        density = reltuples / (double) relpages;
+    else {
+        /*
+         * When we have no data because the relation was never yet vacuumed,
+         * estimate tuple width from attribute datatypes.  We assume here that
+         * the pages are completely full, which is OK for tables but is
+         * probably an overestimate for indexes.  Fortunately
+         * get_relation_info() can clamp the overestimate to the parent
+         * table's size.
+         *
+         * Note: this code intentionally disregards alignment considerations,
+         * because (a) that would be gilding the lily considering how crude
+         * the estimate is, (b) it creates platform dependencies in the
+         * default plans which are kind of a headache for regression testing,
+         * and (c) different table AMs might use different padding schemes.
+         */
+        int32 tuple_width;
+
+        tuple_width = get_rel_data_width(rel, attr_widths);
+        tuple_width += overhead_bytes_per_tuple;
+        /* note: integer division is intentional here */
+        density = usable_bytes_per_page / tuple_width;
+    }
+    *tuples = rint(density * (double) curpages);
+
+    /*
+     * We use relallvisible as-is, rather than scaling it up like we do for
+     * the pages and tuples counts, on the theory that any pages added since
+     * the last VACUUM are most likely not marked all-visible.  But costsize.c
+     * wants it converted to a fraction.
+     */
+    if (relallvisible == 0 || curpages <= 0)
+        *allvisfrac = 0;
+    else if ((double) relallvisible >= curpages)
+        *allvisfrac = 1;
+    else
+        *allvisfrac = (double) relallvisible / curpages;
 }
 
 
