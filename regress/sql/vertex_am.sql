@@ -38,5 +38,7 @@ SELECT * FROM vertex_am_tst;
 
 UPDATE vertex_am_tst SET id = '2'::postgraph.graphid;
 
+INSERT INTO vertex_am_tst (id, props)
+VALUES ('4'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
 
 SELECT * FROM vertex_am_tst;

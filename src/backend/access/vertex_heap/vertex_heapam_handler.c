@@ -74,7 +74,10 @@ typedef struct vertex_hash_struct
 } vertex_hash_struct;
 
 
-
+static vertex_hash_struct *iterator = NULL;
+static HTAB *vertex_hash = NULL; 
+static HASH_SEQ_STATUS scanStatus;
+//BlackPink
 /*
  *  * Given infomask/infomask2, compute the bits that must be saved in the
  *   * "infobits" field of xl_heap_delete, xl_heap_update, xl_heap_lock,
@@ -1773,6 +1776,7 @@ vertex_heapam_slot_callbacks(Relation relation)
     return &TTSOpsBufferHeapTuple;
 }
 
+
 /* ------------------------------------------------------------------------
  * Functions related to scaning
  * ------------------------------------------------------------------------
@@ -1789,6 +1793,16 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
      * the scan has a pointer to it.  Caller should be holding the rel open
      * anyway, so this is redundant in all normal scenarios...
      */
+    HASHCTL hash_ctl;
+//BlackPink
+    MemSet(&hash_ctl, 0, sizeof(hash_ctl));
+    hash_ctl.keysize = sizeof(graphid);
+    hash_ctl.entrysize = sizeof(vertex_hash_struct);
+    vertex_hash = ShmemInitHash(RelationGetRelationName(relation),16, 1000, &hash_ctl,
+			     HASH_ELEM | HASH_BLOBS | HASH_COMPARE);
+    hash_seq_init(&scanStatus, vertex_hash);
+  
+
     RelationIncrementReferenceCount(relation);
 
     /*
@@ -1864,7 +1878,8 @@ void vertex_scan_end(TableScanDesc sscan) {
     HeapScanDesc scan = (HeapScanDesc) sscan;
     
     /* Note: no locking manipulations needed */
-
+hash_seq_term(&scanStatus);
+//BlackPink
     /*
      * unpin scan buffers
      */
@@ -1928,6 +1943,17 @@ bool vertex_scan_getnextslot(TableScanDesc sscan, ScanDirection direction,
     pgstat_count_heap_getnext(scan->rs_base.rs_rd);
 
     ExecStoreBufferHeapTuple(&scan->rs_ctup, slot, scan->rs_cbuf);
+
+//BlackPink
+    if ((iterator = hash_seq_search(&scanStatus)) != NULL) {
+        slot->tts_values[0] = GRAPHID_GET_DATUM(iterator->id);
+        slot->tts_values[1] = GTYPE_P_GET_DATUM(iterator->properties);
+    } else {
+        return false;
+    }
+
+
+
     return true;
 }
 
@@ -2150,7 +2176,7 @@ void vertex_tuple_insert(Relation relation, TupleTableSlot *slot,
     MemSet(&hash_ctl, 0, sizeof(hash_ctl));
     hash_ctl.keysize = sizeof(graphid);
     hash_ctl.entrysize = sizeof(vertex_hash_struct);
-
+//BlackPink
     HTAB *rel_hash_table = ShmemInitHash(RelationGetRelationName(relation),16, 1000, &hash_ctl,
 			     HASH_ELEM | HASH_BLOBS | HASH_COMPARE);  
     bool found;
