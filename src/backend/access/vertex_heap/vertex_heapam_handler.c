@@ -49,6 +49,9 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 
+#include "utils/graphid.h"
+#include "utils/gtype.h"
+
 #define HEAP_OVERHEAD_BYTES_PER_TUPLE \
         (MAXALIGN(SizeofHeapTupleHeader) + sizeof(ItemIdData))
 #define HEAP_USABLE_BYTES_PER_PAGE \
@@ -61,8 +64,16 @@ static XLogRecPtr log_heap_new_cid(Relation relation, HeapTuple tup);
 static MultiXactStatus
 get_mxact_status_for_lock(LockTupleMode mode, bool is_update);
 static bool heap_acquire_tuplock(Relation relation, ItemPointer tid,
-										 LockTupleMode mode, LockWaitPolicy wait_policy,
-										 								 bool *have_tuple_lock);
+								 LockTupleMode mode, LockWaitPolicy wait_policy,
+								 bool *have_tuple_lock);
+
+typedef struct vertex_hash_struct
+{
+    graphid id; // hash key
+    gtype *properties;
+} vertex_hash_struct;
+
+
 
 /*
  *  * Given infomask/infomask2, compute the bits that must be saved in the
@@ -75,69 +86,67 @@ static uint8
 compute_infobits(uint16 infomask, uint16 infomask2)
 {
 		return
-					((infomask & HEAP_XMAX_IS_MULTI) != 0 ? XLHL_XMAX_IS_MULTI : 0) |
-							((infomask & HEAP_XMAX_LOCK_ONLY) != 0 ? XLHL_XMAX_LOCK_ONLY : 0) |
-									((infomask & HEAP_XMAX_EXCL_LOCK) != 0 ? XLHL_XMAX_EXCL_LOCK : 0) |
-										/* note we ignore HEAP_XMAX_SHR_LOCK here */
-											((infomask & HEAP_XMAX_KEYSHR_LOCK) != 0 ? XLHL_XMAX_KEYSHR_LOCK : 0) |
-													((infomask2 & HEAP_KEYS_UPDATED) != 0 ?
-													 		 XLHL_KEYS_UPDATED : 0);
+			((infomask & HEAP_XMAX_IS_MULTI) != 0 ? XLHL_XMAX_IS_MULTI : 0) |
+				((infomask & HEAP_XMAX_LOCK_ONLY) != 0 ? XLHL_XMAX_LOCK_ONLY : 0) |
+					((infomask & HEAP_XMAX_EXCL_LOCK) != 0 ? XLHL_XMAX_EXCL_LOCK : 0) |
+					/* note we ignore HEAP_XMAX_SHR_LOCK here */
+					((infomask & HEAP_XMAX_KEYSHR_LOCK) != 0 ? XLHL_XMAX_KEYSHR_LOCK : 0) |
+				((infomask2 & HEAP_KEYS_UPDATED) != 0 ?
+			XLHL_KEYS_UPDATED : 0);
 }
 
-
 /*
- *  * MultiXactIdGetUpdateXid
- *   *
- *    * Given a multixact Xmax and corresponding infomask, which does not have the
- *     * HEAP_XMAX_LOCK_ONLY bit set, obtain and return the Xid of the updating
- *      * transaction.
- *       *
- *        * Caller is expected to check the status of the updating transaction, if
- *         * necessary.
- *          */
+ * MultiXactIdGetUpdateXid
+ *
+ * Given a multixact Xmax and corresponding infomask, which does not have the
+ * HEAP_XMAX_LOCK_ONLY bit set, obtain and return the Xid of the updating
+ * transaction.
+ *
+ * Caller is expected to check the status of the updating transaction, if
+ * necessary.
+ */
 static TransactionId
 MultiXactIdGetUpdateXid(TransactionId xmax, uint16 t_infomask)
 {
-		TransactionId update_xact = InvalidTransactionId;
-			MultiXactMember *members;
-				int			nmembers;
+	TransactionId update_xact = InvalidTransactionId;
+	MultiXactMember *members;
+	int			nmembers;
 
-					Assert(!(t_infomask & HEAP_XMAX_LOCK_ONLY));
-						Assert(t_infomask & HEAP_XMAX_IS_MULTI);
+	Assert(!(t_infomask & HEAP_XMAX_LOCK_ONLY));
+	Assert(t_infomask & HEAP_XMAX_IS_MULTI);
 
-							/*
-							 * 	 * Since we know the LOCK_ONLY bit is not set, this cannot be a multi from
-							 * 	 	 * pre-pg_upgrade.
-							 * 	 	 	 */
-							nmembers = GetMultiXactIdMembers(xmax, &members, false, false);
+	/*
+	 * Since we know the LOCK_ONLY bit is not set, this cannot be a multi from
+	 * pre-pg_upgrade.
+	 */
+	nmembers = GetMultiXactIdMembers(xmax, &members, false, false);
 
-								if (nmembers > 0)
-										{
-													int			i;
+	if (nmembers > 0)
+	{
+		int			i;
 
-															for (i = 0; i < nmembers; i++)
-																		{
-																						/* Ignore lockers */
-																						if (!ISUPDATE_from_mxstatus(members[i].status))
-																											continue;
+		for (i = 0; i < nmembers; i++)
+		{
+			/* Ignore lockers */
+			if (!ISUPDATE_from_mxstatus(members[i].status))
+		    	continue;
 
-																									/* there can be at most one updater */
-																									Assert(update_xact == InvalidTransactionId);
-																												update_xact = members[i].xid;
+			/* there can be at most one updater */
+			Assert(update_xact == InvalidTransactionId);
+            update_xact = members[i].xid;
 #ifndef USE_ASSERT_CHECKING
-
-																															/*
-																															 * 			 * in an assert-enabled build, walk the whole array to ensure
-																															 * 			 			 * there's no other updater.
-																															 * 			 			 			 */
-																															break;
+			/*
+			 * in an assert-enabled build, walk the whole array to ensure
+			 * there's no other updater.
+			 */
+			break;
 #endif
-																																	}
+		}
 
-																	pfree(members);
-																		}
+	    pfree(members);
+	}
 
-									return update_xact;
+	return update_xact;
 }
 
 
@@ -2019,7 +2028,7 @@ void vertex_index_fetch_end(struct IndexFetchTableData *data) {
  *
  * *all_dead, if all_dead is not NULL, should be set to true by
  * index_fetch_tuple iff it is guaranteed that no backend needs to see
- * that tuple. Index AMs can use that to avoid returning that tid in
+ * that tuple. Index AMs can use that to av-oid returning that tid in
  * future searches.
  */
 bool vertex_index_fetch_tuple(struct IndexFetchTableData *scan,
@@ -2034,7 +2043,7 @@ bool vertex_index_fetch_tuple(struct IndexFetchTableData *scan,
 }
 
 
-/* ------------------------------------------------------------------------
+/* -----------------------------------------------------------------------
  * Callbacks for non-modifying operations on individual tuples
  * ------------------------------------------------------------------------
  */
@@ -2123,6 +2132,29 @@ void vertex_tuple_insert(Relation relation, TupleTableSlot *slot,
     /* Update the tuple with table oid */
     slot->tts_tableOid = RelationGetRelid(relation);
     tuple->t_tableOid = slot->tts_tableOid;
+
+
+    graphid id = DATUM_GET_GRAPHID(slot->tts_values[0]);
+    gtype *properties = DATUM_GET_GTYPE_P(slot->tts_values[1]);
+
+
+
+    gtype *shmem_properties = ShmemAlloc(VARSIZE(properties));
+    memcpy(shmem_properties, properties, VARSIZE(properties)); 
+    vertex_hash_struct *ctl = ShmemAlloc(sizeof(vertex_hash_struct)); 
+    ctl->id = id, 
+    ctl->properties = shmem_properties;
+
+    HASHCTL hash_ctl;
+
+    MemSet(&hash_ctl, 0, sizeof(hash_ctl));
+    hash_ctl.keysize = sizeof(graphid);
+    hash_ctl.entrysize = sizeof(vertex_hash_struct);
+
+    HTAB *rel_hash_table = ShmemInitHash(RelationGetRelationName(relation),16, 1000, &hash_ctl,
+			     HASH_ELEM | HASH_BLOBS | HASH_COMPARE);  
+    bool found;
+    hash_search(rel_hash_table, ctl, HASH_ENTER, &found);
 
     /* Perform the insertion, and copy the resulting ItemPointer */
     heap_insert(relation, tuple, cid, options, bistate);
@@ -2678,6 +2710,15 @@ void vertex_relation_set_new_filenode(Relation rel, const RelFileNode *newrnode,
     srel = RelationCreateStorage(*newrnode, persistence);
 
     smgrclose(srel);
+    HASHCTL hash_ctl;
+
+    MemSet(&hash_ctl, 0, sizeof(hash_ctl));
+    hash_ctl.keysize = sizeof(graphid);
+    hash_ctl.entrysize = sizeof(vertex_hash_struct);
+
+    HTAB *rel_hash_table = ShmemInitHash(RelationGetRelationName(rel),16, 1000, &hash_ctl,
+			     HASH_ELEM | HASH_BLOBS | HASH_COMPARE);
+
 }
 
 /*

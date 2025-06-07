@@ -31,7 +31,7 @@ SELECT * FROM vertex_am_tst;
 DELETE FROM vertex_am_tst;
 
 INSERT INTO vertex_am_tst (id, props)
-VALUES ('1'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
+VALUES ('2'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
 
 
 SELECT * FROM vertex_am_tst;
