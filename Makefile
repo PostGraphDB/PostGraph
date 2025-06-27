@@ -26,6 +26,7 @@ OBJS = src/backend/postgraph.o \
        src/backend/access/ivfflat/ivfutils.o \
        src/backend/access/ivfflat/ivfvacuum.o \
        src/backend/access/vertex_heap/vertex_heapam_handler.o \
+       src/backend/access/vertex_heap/vertex_hash_search.o \
        src/backend/catalog/ag_catalog.o \
        src/backend/catalog/ag_graph.o \
        src/backend/catalog/ag_label.o \

@@ -20,7 +20,7 @@ LOAD 'postgraph';
 
 
 
-CREATE TABLE vertex_am_tst (id postgraph.graphid not null, props postgraph.gtype not null) USING vertex;
+CREATE TABLE vertex_am_tst (id postgraph.graphid not null, props postgraph.gtype null) USING vertex;
 
 INSERT INTO vertex_am_tst (id, props)
 VALUES ('1'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
@@ -40,5 +40,9 @@ UPDATE vertex_am_tst SET id = '2'::postgraph.graphid;
 
 INSERT INTO vertex_am_tst (id, props)
 VALUES ('4'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
+
+
+INSERT INTO vertex_am_tst (id, props)
+VALUES ('5'::postgraph.graphid, NULL);
 
 SELECT * FROM vertex_am_tst;
