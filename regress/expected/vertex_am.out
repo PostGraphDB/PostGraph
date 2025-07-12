@@ -1,1 +1,46 @@
+/*
+ * Copyright (C) 2024 PostGraphDB
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */ 
+-- Regression tests don't preload extensions, gotta load it first
+LOAD 'postgraph';
+CREATE TABLE vertex_am_tst (id postgraph.graphid not null, props postgraph.gtype not null) USING vertex_adjlist;
+INSERT INTO vertex_am_tst (id, props)
+VALUES ('1'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
+SELECT * FROM vertex_am_tst;
+ id |   props   
+----+-----------
+ 1  | {"id": 1}
+(1 row)
+
+DELETE FROM vertex_am_tst;
+INSERT INTO vertex_am_tst (id, props)
+VALUES ('2'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
+SELECT * FROM vertex_am_tst;
+ id |   props   
+----+-----------
+ 2  | {"id": 1}
+(1 row)
+
+UPDATE vertex_am_tst SET id = '2'::postgraph.graphid;
+INSERT INTO vertex_am_tst (id, props)
+VALUES ('4'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
+SELECT * FROM vertex_am_tst;
+ id |   props   
+----+-----------
+ 2  | {"id": 1}
+ 4  | {"id": 1}
+(2 rows)
 

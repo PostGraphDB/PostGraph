@@ -2,22 +2,15 @@
  * PostGraph
  * Copyright (C) 2023 by PostGraph
  *
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  * Portions Copyright (c) 2020-2023, Apache Software Foundation
  * Portions Copyright (c) 2019-2020, Bitnine Global
@@ -64,7 +57,8 @@ CREATE TABLE ag_label (
     graph oid NOT NULL, 
     id label_id, 
     kind label_kind, 
-    relation regclass NOT NULL, 
+    relation regclass NOT NULL,
+    vertex_adjlist regclass NULL,
     label_path public.ltree NULL,
     CONSTRAINT fk_graph_oid FOREIGN KEY(graph) REFERENCES ag_graph(graphid)
 );
@@ -103,13 +97,13 @@ USING btree (pid, graph_oid);
 -------------------------------------
 -- Table AM interface functions
 -------------------------------------
-CREATE FUNCTION vertex_tableam_handler(internal)
+CREATE FUNCTION vertex_adjlist_tableam_handler(internal)
 RETURNS table_am_handler
 AS 'MODULE_PATHNAME'
 LANGUAGE C STRICT;
 
-CREATE ACCESS METHOD vertex TYPE TABLE
-HANDLER vertex_tableam_handler;
+CREATE ACCESS METHOD vertex_adjlist TYPE TABLE
+HANDLER vertex_adjlist_tableam_handler;
 
 --
 -- catalog lookup functions

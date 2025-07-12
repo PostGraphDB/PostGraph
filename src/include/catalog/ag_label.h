@@ -69,7 +69,7 @@
 #define LABEL_KIND_EDGE 'e'
 
 void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
-                  char label_kind, Oid label_relation, const char *ltree);
+                  char label_kind, Oid label_relation, const char *ltree, Oid vertex_adjlist);
 void delete_label(Oid relation);
 
 int32 get_label_id(const char *label_name, Oid graph_oid);

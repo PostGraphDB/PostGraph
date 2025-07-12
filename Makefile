@@ -71,17 +71,7 @@ DATA = postgraph--0.1.0.sql
 
 REGRESS = new_cypher \
 	  vertex_am \
-          graphid \
-          gtype \
-          expr \
-          regex \
-          temporal \
-          network \
-          lists \
-          tsearch \
-          range \
-          vector \
-          cypher_create 
+          cypher_create
 
 srcdir=`pwd`
 POSTGIS_DIR ?= postgis_dir

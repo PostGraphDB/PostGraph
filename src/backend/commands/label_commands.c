@@ -78,6 +78,7 @@ static Constraint *build_id_default(char *graph_name, char *label_name,
 static FuncCall *build_id_default_func_expr(char *graph_name, char *label_name,
                                             char *schema_name, char *seq_name);
 static Constraint *build_not_null_constraint(void);
+static Constraint *build_null_constraint(void);
 static Constraint *build_properties_default(void);
 static void alter_sequence_owned_by_for_label(RangeVar *seq_range_var,
                                               char *rel_name);
@@ -85,14 +86,14 @@ static int32 get_new_label_id(Oid graph_oid, Oid nsp_id);
 static void change_label_id_default(char *graph_name, char *label_name,
                                     char *schema_name, char *seq_name,
                                     Oid relid);
-
+static List *create_vertex_adjlist_table_elements(void);
 // drop
 static void remove_relation(List *qname);
 static void range_var_callback_for_remove_relation(const RangeVar *rel,
                                                    Oid rel_oid,
                                                    Oid odl_rel_oid,
                                                    void *arg);
-
+static char *make_vertex_adjlist_alias(char *var_name);
 
 
 PG_FUNCTION_INFO_V1(create_vlabel);
@@ -531,6 +532,78 @@ Datum create_property_index(PG_FUNCTION_ARGS)
     PG_RETURN_VOID();
 }
 
+static char *make_vertex_adjlist_alias(char *var_name) {
+    char *str = palloc0(strlen(var_name) + 8);
+
+    str[0] = '_';
+    str[1] = 'a';
+    str[2] = 'd';
+    str[3] = 'j';
+    str[4] = '_';
+
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 5] = var_name[i];
+    str[i + 5] = '\0';
+
+    return str;
+}
+void create_vertex_adjlist(char *graph_name, char *label_name) {
+       CreateStmt *create_stmt;
+    PlannedStmt *wrapper;
+
+    create_stmt = makeNode(CreateStmt);
+    char *rel_name = make_vertex_adjlist_alias(label_name);
+
+    // relpersistence is set to RELPERSISTENCE_PERMANENT by makeRangeVar()
+    create_stmt->relation = makeRangeVar(graph_name, rel_name, -1);
+
+
+    create_stmt->tableElts = create_vertex_adjlist_table_elements();
+
+
+    create_stmt->inhRelations = NIL;
+    create_stmt->partbound = NULL;
+    create_stmt->ofTypename = NULL;
+    create_stmt->accessMethod = "vertex_adjlist";
+    create_stmt->constraints = NIL;
+    create_stmt->options = NIL;
+    create_stmt->oncommit = ONCOMMIT_NOOP;
+    create_stmt->tablespacename = NULL;
+    create_stmt->if_not_exists = false;
+
+    wrapper = makeNode(PlannedStmt);
+    wrapper->commandType = CMD_UTILITY;
+    wrapper->canSetTag = false;
+    wrapper->utilityStmt = (Node *)create_stmt;
+    wrapper->stmt_location = -1;
+    wrapper->stmt_len = 0;
+
+    ProcessUtility(wrapper, "(generated CREATE TABLE command)", false,
+                   PROCESS_UTILITY_SUBCOMMAND, NULL, NULL, None_Receiver,
+                   NULL);
+    // CommandCounterIncrement() is called in ProcessUtility() 
+}
+
+// CREATE TABLE `schema_name`.`rel_name` (
+//   "id" graphid PRIMARY KEY DEFAULT CATALOG_SCHEMA."_graphid"(...),
+//   "properties" gtype NOT NULL DEFAULT CATALOG_SCHEMA."gtype_build_map"()
+// )
+static List *create_vertex_adjlist_table_elements(void)
+{
+    ColumnDef *id;
+    ColumnDef *props;
+
+    // "id" graphid PRIMARY KEY DEFAULT CATALOG_SCHEMA."_graphid"(...)
+    id = makeColumnDef(AG_VERTEX_COLNAME_ID, GRAPHIDOID, -1, InvalidOid);
+    id->constraints = NIL;
+
+    // "properties" gtype NOT NULL DEFAULT CATALOG_SCHEMA."gtype_build_map"()
+    props = makeColumnDef("adjlist", GTYPEOID, -1, InvalidOid);
+    props->constraints = list_make1(build_null_constraint());
+
+    return list_make2(id, props);
+}
 
 
 /*
@@ -585,8 +658,16 @@ void create_label(char *graph_name, char *label_name, char label_type,
     // get a new "id" for the new label
     label_id = get_new_label_id(graph_oid, nsp_id);
 
-    insert_label(label_name, graph_oid, label_id, label_type, relation_id, NULL);
+    if (label_type == 'v') {
+        create_vertex_adjlist(graph_name, label_name);
+        Oid adj_oid = get_relname_relid(make_vertex_adjlist_alias(label_name), nsp_id);
+        insert_label(label_name, graph_oid, label_id, label_type, relation_id, NULL, adj_oid);
 
+    }else {
+        insert_label(label_name, graph_oid, label_id, label_type, relation_id, NULL, InvalidOid);
+
+    }
+    
     CommandCounterIncrement();
 }
 
@@ -849,6 +930,18 @@ static Constraint *build_not_null_constraint(void)
 
     return not_null;
 }
+
+
+// NULL
+static Constraint *build_null_constraint(void)
+{
+    Constraint *null = makeNode(Constraint);
+    null->contype = CONSTR_NULL;
+    null->location = -1;
+
+    return null;
+}
+
 
 // DEFAULT CATALOG_SCHEMA."gtype_build_map"()
 static Constraint *build_properties_default(void)

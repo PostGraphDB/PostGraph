@@ -67,6 +67,8 @@ static void set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, Index rti,
     case CYPHER_CLAUSE_CREATE:
         handle_cypher_create_clause(root, rel, rti, rte);
         break;
+    case CYPHER_CLAUSE_NONE:
+        break;
     default:
         ereport(ERROR, (errmsg_internal("invalid cypher_clause_kind")));
     }

@@ -967,9 +967,13 @@ static void fill_label_cache_data(label_cache_data *cache_data,
     value = heap_getattr(tuple, Anum_ag_label_relation, tuple_desc, &is_null);
     Assert(!is_null);
     cache_data->relation = DatumGetObjectId(value);
+
+    value = heap_getattr(tuple, 6, tuple_desc, &is_null);
+    cache_data->vertex_adjlist = DatumGetObjectId(value);
+
     // ag_label.label_path
-    //value = heap_getattr(tuple, 6, tuple_desc, &is_null);
+    value = heap_getattr(tuple, 7, tuple_desc, &is_null);
     //Assert(!is_null);
-    //cache_data->label_tree = DatumGetPointer(value);
+    cache_data->label_tree = DatumGetPointer(value);
 
 }

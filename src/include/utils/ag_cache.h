@@ -41,6 +41,7 @@ typedef struct label_cache_data
     int32 id;
     char kind;
     Oid relation;
+    Oid vertex_adjlist;
     ltree *label_tree;
 } label_cache_data;
 

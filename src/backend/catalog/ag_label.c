@@ -57,7 +57,7 @@ PG_FUNCTION_INFO_V1(ltree_addltree);
 // INSERT INTO CATALOG_SCHEMA.ag_label
 // VALUES (label_name, label_graph, label_id, label_kind, label_relation)
 void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
-                  char label_kind, Oid label_relation, const char *ltree)
+                  char label_kind, Oid label_relation, const char *ltree, Oid vertex_adjlist)
 {
     NameData label_name_data;
     Datum values[Natts_ag_label + 1];
@@ -93,20 +93,28 @@ void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
     values[Anum_ag_label_relation - 1] = ObjectIdGetDatum(label_relation);
     nulls[Anum_ag_label_relation - 1] = false;
 
-    if (strcmp(label_name, "_ag_label_vertex") == 0 || strcmp(label_name, "_ag_label_edge") == 0) {
-        values[5] = DirectFunctionCall1(ltree_in, CStringGetDatum(label_name));
+    if (vertex_adjlist != InvalidOid) {
+        values[5] = ObjectIdGetDatum(vertex_adjlist);
         nulls[5] = false;
+    } else { 
+        values[5] = NULL;
+        nulls[5] = true; 
+    }
+
+    if (strcmp(label_name, "_ag_label_vertex") == 0 || strcmp(label_name, "_ag_label_edge") == 0) {
+        values[6] = DirectFunctionCall1(ltree_in, CStringGetDatum(label_name));
+        nulls[6] = false;
     } else if (label_kind == 'v') {
-        values[5] = DirectFunctionCall2(ltree_addltree, 
+        values[6] = DirectFunctionCall2(ltree_addltree, 
 			DirectFunctionCall1(ltree_in, CStringGetDatum("_ag_label_vertex")),
 			DirectFunctionCall1(ltree_in, CStringGetDatum(label_name)));
-        nulls[5] = false;
+        nulls[6] = false;
 
     } else {
-        values[5] = DirectFunctionCall2(ltree_addltree,
+        values[6] = DirectFunctionCall2(ltree_addltree,
                         DirectFunctionCall1(ltree_in, CStringGetDatum("_ag_label_edge")),
                         DirectFunctionCall1(ltree_in, CStringGetDatum(label_name)));
-        nulls[5] = false;
+        nulls[6] = false;
     }
 
 
