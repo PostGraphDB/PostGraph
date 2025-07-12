@@ -37,7 +37,14 @@ struct cypher_clause
 
 Query *transform_cypher_clause(cypher_parsestate *cpstate,
                                cypher_clause *clause);
+                               
+Query *transform_cypher_return(cypher_parsestate *cpstate, cypher_clause *clause);
+Query *transform_cypher_with(cypher_parsestate *cpstate, cypher_clause *clause);
 
+List *
+transform_window_definitions(ParseState *pstate, List *windowdefs, List **targetlist);
+List * transform_group_clause(cypher_parsestate *cpstate, List *grouplist, List **groupingSets,
+                                     List **targetlist, List *sortClause, ParseExprKind exprKind);
 Query *cypher_parse_sub_analyze(Node *parseTree,
                                 cypher_parsestate *cpstate,
                                 CommonTableExpr *parentCTE,

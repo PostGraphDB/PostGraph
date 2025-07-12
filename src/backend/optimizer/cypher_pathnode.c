@@ -28,12 +28,7 @@
 
 const CustomPathMethods cypher_create_path_methods = {
     CREATE_PATH_NAME, plan_cypher_create_path, NULL};
-const CustomPathMethods cypher_set_path_methods = {
-    SET_PATH_NAME, plan_cypher_set_path, NULL};
-const CustomPathMethods cypher_delete_path_methods = {
-    DELETE_PATH_NAME, plan_cypher_delete_path, NULL};
-const CustomPathMethods cypher_merge_path_methods = {
-    MERGE_PATH_NAME, plan_cypher_merge_path, NULL};
+
 
 CustomPath *create_cypher_create_path(PlannerInfo *root, RelOptInfo *rel,
                                       List *custom_private)
@@ -67,128 +62,6 @@ CustomPath *create_cypher_create_path(PlannerInfo *root, RelOptInfo *rel,
     cp->custom_paths = rel->pathlist;
     cp->custom_private = custom_private;
     cp->methods = &cypher_create_path_methods;
-
-    return cp;
-}
-
-CustomPath *create_cypher_set_path(PlannerInfo *root, RelOptInfo *rel,
-                                   List *custom_private)
-{
-    CustomPath *cp;
-
-    cp = makeNode(CustomPath);
-
-    cp->path.pathtype = T_CustomScan;
-
-    cp->path.parent = rel;
-    cp->path.pathtarget = rel->reltarget;
-
-    cp->path.param_info = NULL;
-
-    // Do not allow parallel methods
-    cp->path.parallel_aware = false;
-    cp->path.parallel_safe = false;
-    cp->path.parallel_workers = 0;
-
-    cp->path.rows = 0; // Basic SET will not return rows
-    cp->path.startup_cost = 0; // Basic SET will not fetch any pages
-    cp->path.total_cost = 0;
-
-    // No output ordering for basic SET
-    cp->path.pathkeys = NULL;
-
-    // Disable all custom flags for now
-    cp->flags = 0;
-
-    cp->custom_paths = rel->pathlist;
-    cp->custom_private = custom_private;
-    cp->methods = &cypher_set_path_methods;
-
-    return cp;
-}
-
-/*
- * Creates a Delete Path. Makes the original path a child of the new
- * path. We leave it to the caller to replace the pathlist of the rel.
- */
-CustomPath *create_cypher_delete_path(PlannerInfo *root, RelOptInfo *rel,
-                                   List *custom_private)
-{
-    CustomPath *cp;
-
-    cp = makeNode(CustomPath);
-
-    cp->path.pathtype = T_CustomScan;
-
-    cp->path.parent = rel;
-    cp->path.pathtarget = rel->reltarget;
-
-    cp->path.param_info = NULL;
-
-    // Do not allow parallel methods
-    cp->path.parallel_aware = false;
-    cp->path.parallel_safe = false;
-    cp->path.parallel_workers = 0;
-
-    cp->path.rows = 0;
-    cp->path.startup_cost = 0;
-    cp->path.total_cost = 0;
-
-    // No output ordering for basic SET
-    cp->path.pathkeys = NULL;
-
-    // Disable all custom flags for now
-    cp->flags = 0;
-
-    // Make the original paths the children of the new path
-    cp->custom_paths = rel->pathlist;
-    // Store the metadata Delete will need in the execution phase.
-    cp->custom_private = custom_private;
-    // Tells Postgres how to turn this path to the correct CustomScan
-    cp->methods = &cypher_delete_path_methods;
-
-    return cp;
-}
-
-/*
- * Creates a Delete Path. Makes the original path a child of the new
- * path. We leave it to the caller to replace the pathlist of the rel.
- */
-CustomPath *create_cypher_merge_path(PlannerInfo *root, RelOptInfo *rel,
-                                   List *custom_private)
-{
-    CustomPath *cp;
-
-    cp = makeNode(CustomPath);
-
-    cp->path.pathtype = T_CustomScan;
-
-    cp->path.parent = rel;
-    cp->path.pathtarget = rel->reltarget;
-
-    cp->path.param_info = NULL;
-
-    // Do not allow parallel methods
-    cp->path.parallel_aware = false;
-    cp->path.parallel_safe = false;
-    cp->path.parallel_workers = 0;
-
-    cp->path.rows = 0;
-    cp->path.startup_cost = 0;
-    cp->path.total_cost = 0;
-
-    // No output ordering for basic SET
-    cp->path.pathkeys = NULL;
-
-    // Disable all custom flags for now
-    cp->flags = 0;
-
-    // Make the original paths the children of the new path
-    cp->custom_paths = rel->pathlist;
-    // Store the metadata Delete will need in the execution phase.
-    cp->custom_private = custom_private;
-    // Tells Postgres how to turn this path to the correct CustomScan
-    cp->methods = &cypher_merge_path_methods;
 
     return cp;
 }

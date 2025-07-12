@@ -21,7 +21,7 @@
 
 #include "fmgr.h"
 
-#include "access/ivfflat.h"
+
 #include "catalog/ag_catalog.h"
 #include "nodes/ag_nodes.h"
 #include "optimizer/cypher_paths.h"
@@ -35,19 +35,14 @@ void _PG_init(void)
 {
     register_ag_nodes();
     set_rel_pathlist_init();
-    //object_access_hook_init();
-    //process_utility_hook_init();
     parse_analyze_init();
     parse_init();
-    IvfflatInit();
 }
 
 void _PG_fini(void);
 
 void _PG_fini(void)
 {
-    //process_utility_hook_fini();
-    //object_access_hook_fini();
     set_rel_pathlist_fini();
     parse_analyze_fini();
     parse_fini();

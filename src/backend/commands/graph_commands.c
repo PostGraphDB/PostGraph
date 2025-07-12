@@ -171,7 +171,6 @@ Datum use_graph(PG_FUNCTION_ARGS)
     CommandCounterIncrement();
 
     update_session_graph_oid(get_graph_oid(graph_name_str));
-    //PopActiveSnapshot();
     
     PG_RETURN_VOID();
 }

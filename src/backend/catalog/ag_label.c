@@ -42,9 +42,14 @@
 #include "catalog/ag_graph.h"
 #include "catalog/ag_label.h"
 #include "commands/label_commands.h"
-#include "executor/cypher_utils.h"
 #include "utils/ag_cache.h"
 #include "utils/graphid.h"
+
+
+
+
+static ResultRelInfo *create_entity_result_rel_info(EState *estate, char *graph_name,
+                                             char *label_name);
 
 PG_FUNCTION_INFO_V1(ltree_in);
 PG_FUNCTION_INFO_V1(ltree_addltree);
@@ -87,15 +92,7 @@ void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
 
     values[Anum_ag_label_relation - 1] = ObjectIdGetDatum(label_relation);
     nulls[Anum_ag_label_relation - 1] = false;
-/*
-    if (ltree == NULL) {
-        values[Anum_ag_label_label_path - 1] = NULL;
-        nulls[Anum_ag_label_label_path - 1] = false;
-    } else {
-        values[Anum_ag_label_label_path - 1] = DirectFunctionCall1(ltree_in, CStringGetDatum(ltree));
-        nulls[Anum_ag_label_label_path - 1] = true;
-    }*/
-    
+
     if (strcmp(label_name, "_ag_label_vertex") == 0 || strcmp(label_name, "_ag_label_edge") == 0) {
         values[5] = DirectFunctionCall1(ltree_in, CStringGetDatum(label_name));
         nulls[5] = false;
@@ -277,6 +274,47 @@ RangeVar *get_label_range_var(char *graph_name, Oid graph_oid,
     return makeRangeVar(graph_name, relname, 2);
 }
 
+#include "parser/parse_node.h"
+/*
+ * Given the graph name and the label name, create a ResultRelInfo for the table
+ * those to variables represent. Open the Indices too.
+ */
+ResultRelInfo *create_entity_result_rel_info(EState *estate, char *graph_name,
+                                             char *label_name)
+{
+    RangeVar *rv;
+    Relation label_relation;
+    ResultRelInfo *resultRelInfo;
+
+    ParseState *pstate = make_parsestate(NULL);
+
+    resultRelInfo = palloc(sizeof(ResultRelInfo));
+
+    if (strlen(label_name) == 0)
+    {
+        rv = makeRangeVar(graph_name, AG_DEFAULT_LABEL_VERTEX, -1);
+    }
+    else
+    {
+        rv = makeRangeVar(graph_name, label_name, -1);
+    }
+
+    label_relation = parserOpenTable(pstate, rv, RowExclusiveLock);
+
+    // initialize the resultRelInfo
+    InitResultRelInfo(resultRelInfo, label_relation,
+                      list_length(estate->es_range_table), NULL,
+                      estate->es_instrument);
+
+    // open the parse state
+    ExecOpenIndices(resultRelInfo, false);
+
+    free_parsestate(pstate);
+
+    return resultRelInfo;
+}
+
+
 /*
  * Retrieves a list of all the names of a graph.
  *
@@ -334,7 +372,12 @@ List *get_all_edge_labels_per_graph(EState *estate, Oid graph_oid)
 
     table_endscan(scan_desc);
 
-    destroy_entity_result_rel_info(resultRelInfo);
+    // close the indices
+    ExecCloseIndices(resultRelInfo);
+
+    // close the rel
+    table_close(resultRelInfo->ri_RelationDesc, RowExclusiveLock);
+
     table_close(resultRelInfo->ri_RelationDesc, RowExclusiveLock);
 
     return labels;

@@ -164,15 +164,6 @@ RETURNS void
 LANGUAGE c 
 AS 'MODULE_PATHNAME';
 
-CREATE FUNCTION create_ivfflat_l2_ops_index(graph_name name, label_name name, property_name name, dimensions int, lists int)
-RETURNS void
-LANGUAGE c
-AS 'MODULE_PATHNAME';
-
-CREATE FUNCTION create_ivfflat_ip_ops_index(graph_name name, label_name name, property_name name, dimensions int, lists int)
-RETURNS void
-LANGUAGE c
-AS 'MODULE_PATHNAME';
 
 CREATE FUNCTION create_unique_properties_constraint(graph_name name, label_name name)
 RETURNS void
@@ -412,17 +403,6 @@ AS 'MODULE_PATHNAME';
 CREATE TYPE variable_edge (INPUT = variable_edge_in, OUTPUT = variable_edge_out, LIKE = jsonb);
 
 --
--- Access Methods
---
-
-CREATE FUNCTION ivfflathandler(internal) RETURNS index_am_handler AS 'MODULE_PATHNAME' LANGUAGE C;
-
-CREATE ACCESS METHOD ivfflat TYPE INDEX HANDLER ivfflathandler;
-
-COMMENT ON ACCESS METHOD ivfflat IS 'ivfflat index access method';
-
-
---
 -- MATCH edge uniqueness
 --
 CREATE FUNCTION _ag_enforce_edge_uniqueness(VARIADIC "any")
@@ -529,35 +509,6 @@ IMMUTABLE
 RETURNS NULL ON NULL INPUT 
 PARALLEL SAFE 
 AS 'MODULE_PATHNAME', 'edge_unnest';
-
-
-CREATE FUNCTION cypher_load_csv (gtype)
-RETURNS SETOF gtype
-LANGUAGE C 
-STABLE 
-RETURNS NULL ON NULL INPUT 
-PARALLEL UNSAFE 
-AS 'MODULE_PATHNAME', 'cypher_load_csv';
-
-CREATE FUNCTION vle (IN gtype, IN vertex, IN vertex, IN gtype, IN gtype,
-                     IN gtype, IN gtype, IN gtype, OUT edges variable_edge)
-RETURNS SETOF variable_edge 
-LANGUAGE C 
-STABLE 
-CALLED ON NULL INPUT 
-PARALLEL UNSAFE 
-COST 5000
-AS 'MODULE_PATHNAME', 'gtype_vle';
-
-CREATE FUNCTION match_vles(variable_edge, variable_edge) 
-RETURNS boolean 
-LANGUAGE C 
-IMMUTABLE 
-RETURNS NULL ON NULL INPUT 
-PARALLEL SAFE 
-AS 'MODULE_PATHNAME';
-
-CREATE OPERATOR !!= (FUNCTION = match_vles, LEFTARG = variable_edge, RIGHTARG = variable_edge);
 
 
 CREATE FUNCTION throw_error(gtype)

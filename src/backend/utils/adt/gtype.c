@@ -2723,10 +2723,6 @@ gtype_value *get_gtype_value(char *funcname, gtype *agt_arg,
     return agtv_value;
 }
 
-/*
- * Helper function to step through and retrieve keys from an object.
- * borrowed and modified from get_next_object_pair() in gtype_vle.c
- */
 static gtype_iterator *get_next_object_key(gtype_iterator *it, gtype_container *agtc, gtype_value *key) {
     gtype_iterator_token itok;
     gtype_value tmp;
@@ -2773,13 +2769,12 @@ static gtype_iterator *get_next_object_key(gtype_iterator *it, gtype_container *
 
 PG_FUNCTION_INFO_V1(vertex_keys);
 Datum vertex_keys(PG_FUNCTION_ARGS) {
-    gtype *agt_arg = NULL;
     gtype_value *agtv_result = NULL;
     gtype_value obj_key = {0};
     gtype_iterator *it = NULL;
     gtype_parse_state *parse_state = NULL;
     vertex *v = AG_GET_ARG_VERTEX(0);
-    agt_arg = extract_vertex_properties(v);
+    gtype *agt_arg = extract_vertex_properties(v);
 
     agtv_result = push_gtype_value(&parse_state, WGT_BEGIN_ARRAY, NULL);
 
@@ -3138,4 +3133,67 @@ cypher_load_csv(PG_FUNCTION_ARGS)
 	}*/
 	//else
 		SRF_RETURN_DONE(funcctx);
+}
+
+#include "common/hashfn.h"
+// TODO: move this somewhere that makes sense, that idiot John moved it into 
+// the vle code for some stupid reason that only an idiot could explain 
+// function checks the edges in a MATCH clause to see if they are unique or not.
+PG_FUNCTION_INFO_V1(_ag_enforce_edge_uniqueness);
+Datum _ag_enforce_edge_uniqueness(PG_FUNCTION_ARGS) {
+    Datum *args;
+    bool *nulls;
+    Oid *types;
+
+    int nargs = extract_variadic_args(fcinfo, 0, true, &args, &types, &nulls);
+
+    // configure the hash table 
+    HASHCTL exists_ctl;
+    MemSet(&exists_ctl, 0, sizeof(exists_ctl));
+    exists_ctl.keysize = sizeof(int64);
+    exists_ctl.entrysize = sizeof(int64);
+    exists_ctl.hash = tag_hash;
+
+    HTAB *exists_hash = hash_create("sdfg", nargs, &exists_ctl, HASH_ELEM | HASH_FUNCTION);
+
+    // insert arguments into hash table 
+    for (int i = 0; i < nargs; i++) {
+
+        if (nulls[i])
+            continue;
+
+        if (types[i] == GRAPHIDOID) {
+            graphid edge_id = DatumGetInt64(args[i]);
+
+	    bool found;
+            int64 *value = (int64 *)hash_search(exists_hash, (void *)&edge_id, HASH_ENTER, &found);
+
+            // if we found it, we're done, we have a duplicate 
+            if (found)
+                PG_RETURN_BOOL(false);
+
+            *value = edge_id;
+
+            continue;
+        }
+	    else if (types[i] == VARIABLEEDGEOID) {
+            VariableEdge *ve = DATUM_GET_VARIABLE_EDGE(args[i]);
+            char *ptr = &ve->children[1];
+            for (int i = 0; i < ve->children[0]; i++, ptr = ptr + VARSIZE(ptr)) {
+                if (i % 2 == 1) {
+                    continue;
+                } else {
+	            edge *e = (edge *)ptr;
+
+                    graphid i =  *((int64 *)(&e->children[0]));
+	            bool found;
+                    (int64 *)hash_search(exists_hash, (void *)&i, HASH_ENTER, &found);
+                    if (found)
+                        PG_RETURN_BOOL(false);
+	            }
+            }
+	   }
+    }
+
+    PG_RETURN_BOOL(true);
 }

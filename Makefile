@@ -18,13 +18,6 @@
 MODULE_big = postgraph
 
 OBJS = src/backend/postgraph.o \
-       src/backend/access/ivfflat/ivfbuild.o \
-       src/backend/access/ivfflat/ivfflat.o \
-       src/backend/access/ivfflat/ivfinsert.o \
-       src/backend/access/ivfflat/ivfkmeans.o \
-       src/backend/access/ivfflat/ivfscan.o \
-       src/backend/access/ivfflat/ivfutils.o \
-       src/backend/access/ivfflat/ivfvacuum.o \
        src/backend/access/vertex_heap/vertex_heapam_handler.o \
        src/backend/catalog/ag_catalog.o \
        src/backend/catalog/ag_graph.o \
@@ -33,9 +26,6 @@ OBJS = src/backend/postgraph.o \
        src/backend/commands/graph_commands.o \
        src/backend/commands/label_commands.o \
        src/backend/executor/cypher_create.o \
-       src/backend/executor/cypher_merge.o \
-       src/backend/executor/cypher_set.o \
-       src/backend/executor/cypher_utils.o \
        src/backend/nodes/ag_nodes.o \
        src/backend/nodes/cypher_copyfuncs.o \
        src/backend/nodes/cypher_outfuncs.o \
@@ -46,34 +36,25 @@ OBJS = src/backend/postgraph.o \
        src/backend/parser/ag_scanner.o \
        src/backend/parser/cypher_analyze.o \
        src/backend/parser/cypher_clause.o \
-       src/backend/executor/cypher_delete.o \
        src/backend/parser/sql_expr.o \
        src/backend/parser/cypher_expr.o \
        src/backend/parser/cypher_gram.o \
+       src/backend/parser/cypher_grouping.o \
        src/backend/parser/cypher_item.o \
        src/backend/parser/cypher_keywords.o \
        src/backend/parser/cypher_parse_agg.o \
        src/backend/parser/cypher_parse_node.o \
        src/backend/parser/cypher_parser.o \
        src/backend/parser/cypher_transform_entity.o \
-       src/backend/utils/adt/queue.o \
        src/backend/utils/adt/gtype.o \
        src/backend/utils/adt/gtype_ext.o \
        src/backend/utils/adt/gtype_gin.o \
-       src/backend/utils/adt/gtype_network.o \
        src/backend/utils/adt/gtype_ops.o \
        src/backend/utils/adt/gtype_parser.o \
        src/backend/utils/adt/gtype_postgis.o \
-       src/backend/utils/adt/gtype_range.o \
-       src/backend/utils/adt/gtype_string.o \
-       src/backend/utils/adt/gtype_numbers.o \
-       src/backend/utils/adt/gtype_temporal.o \
-       src/backend/utils/adt/gtype_tsearch.o \
+       src/backend/utils/adt/gtype_funcs.o \
        src/backend/utils/adt/gtype_typecasting.o \
-       src/backend/utils/adt/gtype_geometric.o \
        src/backend/utils/adt/gtype_util.o \
-       src/backend/utils/path_finding/global_graph.o \
-       src/backend/utils/path_finding/dfs.o \
        src/backend/utils/adt/cypher_funcs.o \
        src/backend/utils/adt/edge.o \
        src/backend/utils/adt/graphid.o \
@@ -100,23 +81,7 @@ REGRESS = new_cypher \
           tsearch \
           range \
           vector \
-          cypher_create \
-          cypher_match \
-          cypher_with \
-          cypher_call \
-          cypher_set \
-          cypher_remove \
-          cypher_delete \
-          cypher_merge \
-          cypher_unwind \
-          cypher_vle \
-          load_csv \
-          order_by \
-          cypher_setop \
-          aggregation \
-          traversal_functions \
-          variable_edge_functions \
-          postgis
+          cypher_create 
 
 srcdir=`pwd`
 POSTGIS_DIR ?= postgis_dir

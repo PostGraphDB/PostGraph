@@ -341,30 +341,7 @@ AS
     OPERATOR 5 >=, 
     FUNCTION 1 gtype_btree_cmp(gtype, gtype);
 
---
--- gtype - ivfflat Operator Classes
---
-CREATE OPERATOR CLASS gtype_l2_ops
-DEFAULT FOR TYPE gtype
-USING ivfflat AS 
-OPERATOR 1 <-> (gtype, gtype) FOR ORDER BY gtype_ops_btree,
-FUNCTION 1 l2_squared_distance(gtype, gtype),
-FUNCTION 3 l2_distance(gtype, gtype);
 
-CREATE OPERATOR CLASS gtype_ip_ops
-FOR TYPE gtype USING ivfflat AS
-OPERATOR 1 <#> (gtype, gtype) FOR ORDER BY gtype_ops_btree,
-FUNCTION 1 negative_inner_product(gtype, gtype),
-FUNCTION 3 spherical_distance(gtype, gtype),
-FUNCTION 4 norm(gtype);
-
-CREATE OPERATOR CLASS gtype_cosine_ops
-FOR TYPE gtype USING ivfflat AS
-OPERATOR 1 <=> (gtype, gtype) FOR ORDER BY gtype_ops_btree,
-FUNCTION 1 negative_inner_product(gtype, gtype),
-FUNCTION 2 norm(gtype),
-FUNCTION 3 spherical_distance(gtype, gtype),
-FUNCTION 4 norm(gtype);
 
 
 --

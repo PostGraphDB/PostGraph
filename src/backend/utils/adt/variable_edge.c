@@ -265,28 +265,6 @@ Datum variable_edge_contains_edge(PG_FUNCTION_ARGS) {
 }
 
 
-// match 2 VLE edges 
-PG_FUNCTION_INFO_V1(match_vles);
-Datum match_vles(PG_FUNCTION_ARGS) {
-    VariableEdge *lhs = AG_GET_ARG_VARIABLE_EDGE(0);
-    VariableEdge *rhs = AG_GET_ARG_VARIABLE_EDGE(1);
-
-    edge *left_edge = (edge *)&lhs->children[1];
-
-    char *ptr = &rhs->children[1];
-    for (int i = 0; i < rhs->children[0] - 1; i++, ptr = ptr + VARSIZE(ptr));
-    edge *right_edge = (edge *)ptr;
-
-    graphid left_start =  *((int64 *)(&left_edge->children[2]));
-    graphid left_end =  *((int64 *)(&left_edge->children[4]));
-
-    graphid right_start =  *((int64 *)(&right_edge->children[2]));
-    graphid right_end =  *((int64 *)(&right_edge->children[4]));
-
-PG_RETURN_BOOL(left_start == right_start || left_end == right_start ||
-		left_start == right_end || left_end == right_end);
-}
-
 PG_FUNCTION_INFO_V1(variable_edge_edges_overlap);
 Datum variable_edge_edges_overlap(PG_FUNCTION_ARGS) {
     VariableEdge *lhs = AG_GET_ARG_VARIABLE_EDGE(0);
