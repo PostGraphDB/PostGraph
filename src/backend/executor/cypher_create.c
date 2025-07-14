@@ -165,9 +165,8 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
         ereport(ERROR, (errmsg_internal("executor create found a traversal")));
 
     cypher_target_node *cypher_node = (cypher_target_node *)linitial(path->target_nodes);
-    label_cache_data *lcd = search_label_name_graph_cache(AG_DEFAULT_LABEL_VERTEX, css->graph_oid);
-
-    Relation rel = table_open(lcd->relation, RowExclusiveLock);
+    
+    Relation rel = table_open(cypher_node->relid, RowExclusiveLock);
     cypher_node->resultRelInfo = makeNode(ResultRelInfo);
     InitResultRelInfo(cypher_node->resultRelInfo, rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
     

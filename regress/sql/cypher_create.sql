@@ -32,6 +32,18 @@ MATCH () RETURN 1;
 CREATE VLABEL test;
 SELECT * FROM postgraph.ag_label;
 
+CREATE (:test);
+SELECT * FROM postgraph.ag_label;
+SELECT * FROM cypher_create.test;
+
+
+CREATE (:test2);
+SELECT * FROM postgraph.ag_label;
+SELECT * FROM cypher_create.test2;
+
+
+MATCH () RETURN 1;
+
 CREATE ()-[]->();
 
 CYPHER WITH 1 as a

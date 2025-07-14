@@ -253,6 +253,27 @@ static Expr *add_volatile_wrapper(Expr *node) {
 
     return (Expr *)makeFuncExpr(oid, GTYPEOID, list_make1(node), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
 }
+
+static void validate_or_create_vlabel(cypher_parsestate *cpstate, cypher_node *node) {
+    ParseState *pstate = (ParseState *)cpstate;
+    label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
+
+    if (lcd && lcd->kind != LABEL_KIND_VERTEX) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("label %s is for edges, not vertices", node->label),
+                        parser_errposition(pstate, node->location)));
+    } else if (!lcd)  {
+        List *parent;
+        RangeVar *rv;
+
+        rv = get_label_range_var(cpstate->graph_name, cpstate->graph_oid, AG_DEFAULT_LABEL_VERTEX);
+
+        parent = list_make1(rv);
+
+        create_label(cpstate->graph_name, node->label, LABEL_TYPE_VERTEX, parent, NULL);
+    }
+}
+
 static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause *clause) {
     ParseState *pstate = (ParseState *)cpstate;
     cypher_create *self = (cypher_create *)clause->self;
@@ -291,8 +312,10 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
 
         cypher_node *node = (cypher_node *)linitial(path->path);
 
-        if (node->label)
-            ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have labels")));
+        if (node->label) 
+            validate_or_create_vlabel(cpstate, node);
+        else
+            node->label = AG_DEFAULT_LABEL_VERTEX;
             
         if (node->name)
             ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have variable names")));
@@ -302,10 +325,11 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
 
         cypher_target_node *target = make_ag_node(cypher_target_node);
     
-        label_cache_data *lcd = search_label_name_graph_cache(AG_DEFAULT_LABEL_VERTEX, cpstate->graph_oid);
+        label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
 
         target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
-
+        target->relid = lcd->relation;
+        
         TargetEntry *te = makeTargetEntry(make_int_placeholder(cpstate), pstate->p_next_resno++, make_id_alias(get_next_default_alias(cpstate)), false);
 
         ccp->target_nodes = list_make1(target);
