@@ -78,6 +78,9 @@ static FuncExpr *make_clause_create_graph_func_expr(char *graph_name);
 static Query *cypher_create_graph_utility(ParseState *pstate, const char *graph_name);
 static FuncExpr *make_clause_use_graph_func_expr(char *graph_name);
 static Query *cypher_use_graph_utility(ParseState *pstate, const char *graph_name);
+static FuncExpr *make_clause_create_vlabel_func_expr(char *label_name);
+static Query *cypher_create_vlabel_utility(ParseState *pstate, const char *label_name);
+
 static Oid get_session_graph_oid();
 static CommandTag
 CypherCreateCommandTag(Node *parsetree);
@@ -1223,6 +1226,10 @@ cypher_parse_analyze(RawStmt *parseTree, const char *sourceText,
         cypher_drop_graph *ccg = n;
 
         query = cypher_drop_graph_utility(pstate, ccg->graph_name);
+    } else if (is_ag_node(n, cypher_create_vlabel)) {
+        cypher_create_vlabel *ccg = n;
+
+        query = cypher_create_vlabel_utility(pstate, ccg->label_name);
     } else {
         query = parse_analyze((makeRawStmt(n, 0)), sourceText, paramTypes, numParams, queryEnv);
 
@@ -1445,6 +1452,47 @@ cypher_use_graph_utility(ParseState *pstate, const char *graph_name) {
 
     // Create the target entry
     tle = makeTargetEntry((Expr *)func_expr, pstate->p_next_resno++, "use_graph", false);
+    query->targetList = lappend(query->targetList, tle);
+
+    query->rtable = pstate->p_rtable;
+    query->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+    return query;
+}
+
+
+
+/*
+ * Creates the function expression that represents the clause. Adds the
+ * extensible node that represents the metadata that the clause needs to
+ * handle the clause in the execution phase.
+ */
+static FuncExpr *make_clause_create_vlabel_func_expr(char *label_name) {
+
+    graph_cache_data *gcd = search_graph_namespace_cache(get_session_graph_oid());
+
+    Const *c = makeConst(TEXTOID, -1, InvalidOid, strlen(label_name), CStringGetTextDatum(label_name), false, false);
+    Const *c1 = makeConst(TEXTOID, -1, InvalidOid, strlen(gcd->name.data), CStringGetTextDatum(gcd->name.data), false, false);
+
+
+    Oid func_oid = get_ag_func_oid("create_vlabel", 2, TEXTOID, TEXTOID);
+
+    return makeFuncExpr(func_oid, VOIDOID, list_make2(c1, c), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+}
+
+static Query *
+cypher_create_vlabel_utility(ParseState *pstate, const char *label_name) {
+    Query *query;
+    TargetEntry *tle;
+    FuncExpr *func_expr;
+
+    query = makeNode(Query);
+    query->commandType = CMD_SELECT;
+    query->targetList = NIL;
+
+    func_expr = make_clause_create_vlabel_func_expr(label_name);
+
+    // Create the target entry
+    tle = makeTargetEntry((Expr *)func_expr, pstate->p_next_resno++, "create_vlabel", false);
     query->targetList = lappend(query->targetList, tle);
 
     query->rtable = pstate->p_rtable;

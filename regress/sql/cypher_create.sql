@@ -29,6 +29,9 @@ SELECT * FROM cypher_create._ag_label_vertex;
 
 MATCH () RETURN 1;
 
+CREATE VLABEL test;
+SELECT * FROM postgraph.ag_label;
+
 CREATE ()-[]->();
 
 CYPHER WITH 1 as a

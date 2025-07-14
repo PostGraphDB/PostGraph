@@ -808,10 +808,8 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
         bool is_null;
         rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
 
-
         systable_endscan(scan_desc);
         table_close(label_catalog, AccessShareLock);
-
 
         //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
         label_range_var = makeRangeVar(schema_name, rel_name, -1);
@@ -823,7 +821,6 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
         addNSItemToQuery(pstate, pnsi, true, true, true);
 
         resno = pstate->p_next_resno++;
-
         // XXX: End LTree Code here
 
         expr = (Expr *)make_vertex_expr(cpstate, pnsi);
@@ -839,9 +836,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
         te = makeTargetEntry(id, resno, make_id_alias(node->name), false);
         query->targetList = lappend(query->targetList, te);
 
-        /*
-        * properties field
-        */
+        // properties field
         Node *props = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
         resno = pstate->p_next_resno++;
 

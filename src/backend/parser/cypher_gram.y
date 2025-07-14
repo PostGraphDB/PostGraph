@@ -291,7 +291,7 @@ makeSimpleCypherA_Expr(A_Expr_Kind kind, char *name,
 	UNLISTEN UNLOGGED UNTIL UNWIND UPDATE USE USER USING
 
 	VACUUM VALID VALIDATE VALIDATOR VALUE_P VALUES VARCHAR VARIADIC VARYING
-	VERBOSE VERSION_P VIEW VIEWS VOLATILE
+	VERBOSE VERSION_P VIEW VIEWS VLABEL VOLATILE
 
 	WHEN WHERE WHITESPACE_P WINDOW WITH WITHIN WITHOUT WORK WRAPPER WRITE
 
@@ -345,7 +345,7 @@ makeSimpleCypherA_Expr(A_Expr_Kind kind, char *name,
 		CreateMatViewStmt RefreshMatViewStmt CreateAmStmt
 		CreatePublicationStmt AlterPublicationStmt
 		CreateSubscriptionStmt AlterSubscriptionStmt DropSubscriptionStmt
-		CreateGraphStmt UseGraphStmt DropGraphStmt
+		CreateGraphStmt CreateVLabelStmt UseGraphStmt DropGraphStmt
 
 %type <node> select_no_parens select_with_parens select_clause
              simple_select
@@ -936,6 +936,7 @@ toplevel_stmt:
 stmt:
            	CYPHER cypher_stmt { $$ = (Node *)$2; } 
 			| CreateGraphStmt
+			| CreateVLabelStmt
 			| DropGraphStmt
 			| UseGraphStmt
 			| AlterEventTrigStmt
@@ -11431,7 +11432,18 @@ CreateGraphStmt:
             $$ = (Node *)n;
         }
         ;
+		
+CreateVLabelStmt:
+    CREATE VLABEL BareColLabel
+        {
 
+            cypher_create_vlabel *n;
+            n = make_ag_node(cypher_create_vlabel);
+            n->label_name = $3;
+
+            $$ = (Node *)n;
+        }
+        ;
 
 /*****************************************************************************
  *

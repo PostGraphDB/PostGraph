@@ -222,6 +222,7 @@ typedef struct cypher_create_graph
     char *graph_name;
 } cypher_create_graph;
 
+
 typedef struct cypher_use_graph
 {
     ExtensibleNode extensible;
@@ -234,6 +235,12 @@ typedef struct cypher_drop_graph
     char *graph_name;
     bool cascade;
 } cypher_drop_graph;
+
+typedef struct cypher_create_vlabel
+{
+    ExtensibleNode extensible;
+    char *label_name;
+} cypher_create_vlabel;
 
 /*
  * expression

@@ -468,6 +468,14 @@ void out_cypher_drop_graph(StringInfo str, const ExtensibleNode *node)
     WRITE_BOOL_FIELD(cascade);
 }
 
+void out_cypher_create_vlabel(StringInfo str, const ExtensibleNode *node)
+{
+    DEFINE_AG_NODE(cypher_create_vlabel);
+
+    WRITE_STRING_FIELD(label_name);
+}
+
+
 /*
  * Copied from Postgres
  *

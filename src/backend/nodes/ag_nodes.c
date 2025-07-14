@@ -67,7 +67,8 @@ const char *node_names[] = {
     "cypher_create_graph",
     "cypher_use_graph",
     "cypher_drop_graph",
-    "cypher_label_tree_node"
+    "cypher_label_tree_node",
+    "cypher_create_vlabel"
 };
 
 /*
@@ -137,7 +138,8 @@ const ExtensibleNodeMethods node_methods[] = {
     DEFINE_NODE_METHODS(cypher_create_graph),
     DEFINE_NODE_METHODS(cypher_use_graph),
     DEFINE_NODE_METHODS(cypher_drop_graph),
-    DEFINE_NODE_METHODS(cypher_label_tree_node)
+    DEFINE_NODE_METHODS(cypher_label_tree_node),
+    DEFINE_NODE_METHODS(cypher_create_vlabel)
 };
 
 static bool equal_ag_node(const ExtensibleNode *a, const ExtensibleNode *b)

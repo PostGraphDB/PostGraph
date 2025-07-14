@@ -323,3 +323,11 @@ void read_cypher_drop_graph(struct ExtensibleNode *node)
     READ_STRING_FIELD(graph_name);
     READ_BOOL_FIELD(cascade);
 }
+
+
+void read_cypher_create_vlabel(struct ExtensibleNode *node)
+{
+    READ_LOCALS(cypher_create_vlabel);
+
+    READ_STRING_FIELD(label_name);
+}

@@ -97,21 +97,10 @@ static char *make_vertex_adjlist_alias(char *var_name);
 
 
 PG_FUNCTION_INFO_V1(create_vlabel);
-
-/*
- * This is a callback function
- * This function will be called when the user will call SELECT create_vlabel.
- * The function takes two parameters
- * 1. Graph name
- * 2. Label Name
- * Function will create a vertex label
- * Function returns an error if graph or label names or not provided
-*/
-
 Datum create_vlabel(PG_FUNCTION_ARGS)
 {
     char *graph;
-    Name graph_name;
+    text * graph_name;
     char *graph_name_str;
     Oid graph_oid;
     List *parent;
@@ -119,59 +108,34 @@ Datum create_vlabel(PG_FUNCTION_ARGS)
     RangeVar *rv;
 
     char *label;
-    Name label_name;
+    text * label_name;
     char *label_name_str;
 
-    // checking if user has not provided the graph name
-    if (PG_ARGISNULL(0))
-    {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                errmsg("graph name must not be NULL")));
-    }
+    graph_name = PG_GETARG_TEXT_PP(0);
+    label_name = PG_GETARG_TEXT_PP(1);
 
-    // checking if user has not provided the label name
-    if (PG_ARGISNULL(1))
-    {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                errmsg("label name must not be NULL")));
-    }
-
-    graph_name = PG_GETARG_NAME(0);
-    label_name = PG_GETARG_NAME(1);
-
-    graph_name_str = NameStr(*graph_name);
-    label_name_str = NameStr(*label_name);
+    graph_name_str = text_to_cstring(graph_name);
+    label_name_str = text_to_cstring(label_name);
 
     // Check if graph does not exist
     if (!graph_exists(graph_name_str))
-    {
-        ereport(ERROR,
-                (errcode(ERRCODE_UNDEFINED_SCHEMA),
-                        errmsg("graph \"%s\" does not exist.", graph_name_str)));
-    }
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_SCHEMA),
+                errmsg("graph \"%s\" does not exist.", graph_name_str)));
 
     graph_oid = get_graph_oid(graph_name_str);
 
     // Check if label with the input name already exists
     if (label_exists(label_name_str, graph_oid))
-    {
-        ereport(ERROR,
-                (errcode(ERRCODE_UNDEFINED_SCHEMA),
-                        errmsg("label \"%s\" already exists", label_name_str)));
-    }
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_SCHEMA),
+                errmsg("label \"%s\" already exists", label_name_str)));
 
-    //Create the default label tables
-    graph = graph_name->data;
-    label = label_name->data;
-
-    rv = get_label_range_var(graph, graph_oid, AG_DEFAULT_LABEL_VERTEX);
+    rv = get_label_range_var(graph_name_str, graph_oid, AG_DEFAULT_LABEL_VERTEX);
 
     parent = list_make1(rv);
 
-    create_label(graph, label, LABEL_TYPE_VERTEX, parent, NULL);
+    create_label(graph_name_str, label_name_str, LABEL_TYPE_VERTEX, parent, NULL);
 
-    ereport(NOTICE,
-            (errmsg("VLabel \"%s\" has been created", NameStr(*label_name))));
+    ereport(NOTICE, (errmsg("VLabel \"%s\" has been created", label_name_str)));
 
     PG_RETURN_VOID();
 }

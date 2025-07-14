@@ -58,4 +58,6 @@ void read_cypher_create_graph(struct ExtensibleNode *node);
 void read_cypher_use_graph(struct ExtensibleNode *node);
 void read_cypher_drop_graph(struct ExtensibleNode *node);
 
+void read_cypher_create_vlabel(struct ExtensibleNode *node);
+
 #endif

@@ -81,7 +81,8 @@ typedef enum ag_node_tag
     cypher_use_graph_t,
     // DROP GRAPH ident
     cypher_drop_graph_t,
-    cypher_label_tree_node_t
+    cypher_label_tree_node_t,
+    cypher_create_vlabel_t
 } ag_node_tag;
 
 void register_ag_nodes(void);

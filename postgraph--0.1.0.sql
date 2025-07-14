@@ -138,8 +138,9 @@ RETURNS void
 LANGUAGE c 
 AS 'MODULE_PATHNAME';
 
-CREATE FUNCTION create_vlabel(graph_name name, label_name name) 
+CREATE FUNCTION create_vlabel(graph_name text, label_name text) 
 RETURNS void 
+RETURNS NULL ON NULL INPUT
 LANGUAGE c 
 AS 'MODULE_PATHNAME';
 

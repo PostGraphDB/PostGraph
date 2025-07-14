@@ -48,6 +48,25 @@ MATCH () RETURN 1;
  1
 (1 row)
 
+CREATE VLABEL test;
+NOTICE:  VLabel "test" has been created
+ create_vlabel 
+---------------
+ 
+(1 row)
+
+SELECT * FROM postgraph.ag_label;
+       name       | graph | id | kind |            relation            |           vertex_adjlist            |      label_path       
+------------------+-------+----+------+--------------------------------+-------------------------------------+-----------------------
+ _ag_label_vertex | 18780 |  1 | v    | 18783                          | 18792                               | _ag_label_vertex
+ _ag_label_edge   | 18780 |  2 | e    | 18796                          |                                     | _ag_label_edge
+ _ag_label_vertex | 18805 |  1 | v    | 18808                          | 18817                               | _ag_label_vertex
+ _ag_label_edge   | 18805 |  2 | e    | 18821                          |                                     | _ag_label_edge
+ _ag_label_vertex | 18833 |  1 | v    | cypher_create._ag_label_vertex | cypher_create._adj__ag_label_vertex | _ag_label_vertex
+ _ag_label_edge   | 18833 |  2 | e    | cypher_create._ag_label_edge   |                                     | _ag_label_edge
+ test             | 18833 |  3 | v    | cypher_create.test             | cypher_create._adj_test             | _ag_label_vertex.test
+(7 rows)
+
 CREATE ()-[]->();
 ERROR:  CREATE doesn't work with paths
 CYPHER WITH 1 as a
@@ -59,10 +78,12 @@ ERROR:  CREATE doesn't work with next clauses
 -- Clean up
 --
 DROP GRAPH cypher_create CASCADE;
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 5 other objects
 DETAIL:  drop cascades to table cypher_create._ag_label_vertex
 drop cascades to table cypher_create._adj__ag_label_vertex
 drop cascades to table cypher_create._ag_label_edge
+drop cascades to table cypher_create.test
+drop cascades to table cypher_create._adj_test
 NOTICE:  graph "cypher_create" has been dropped
  drop_graph 
 ------------
