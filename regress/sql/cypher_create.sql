@@ -25,8 +25,16 @@ CREATE GRAPH cypher_create;
 USE GRAPH cypher_create;
 
 CREATE ();
+SELECT * FROM cypher_create._ag_label_vertex;
+
+MATCH () RETURN 1;
 
 CREATE ()-[]->();
+
+CYPHER WITH 1 as a
+CREATE ();
+
+CREATE () RETURN 1 as a;
 
 --
 -- Clean up

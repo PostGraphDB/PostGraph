@@ -788,7 +788,7 @@ static List *create_vertex_table_elements(char *graph_name, char *label_name,
     // "properties" gtype NOT NULL DEFAULT CATALOG_SCHEMA."gtype_build_map"()
     props = makeColumnDef(AG_VERTEX_COLNAME_PROPERTIES, GTYPEOID, -1,
                           InvalidOid);
-    props->constraints = list_make2(build_not_null_constraint(),
+    props->constraints = list_make2(build_null_constraint(),
                                     build_properties_default());
 
     return list_make2(id, props);

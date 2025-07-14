@@ -188,10 +188,6 @@ Datum create_graph(PG_FUNCTION_ARGS)
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                         errmsg("graph name must not be NULL")));
 
-    /*
-    graph_name = PG_GETARG_NAME(0);
-
-    graph_name_str = NameStr(*graph_name);*/
     graph_name_str =  TextDatumGetCString(PG_GETARG_DATUM(0));
     if (graph_exists(graph_name_str))
         ereport(ERROR,

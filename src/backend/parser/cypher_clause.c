@@ -81,6 +81,11 @@ static ParseNamespaceItem *get_namespace_item(ParseState *pstate, RangeTblEntry 
 static List *make_target_list_from_join(ParseState *pstate, RangeTblEntry *rte);
 static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok);
 
+static char *make_id_alias(char *var_name);
+static char *make_property_alias(char *var_name);
+
+static Node *make_vertex_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi);
+
 List *
 transform_window_definitions(ParseState *pstate, List *windowdefs, List **targetlist);
 
@@ -114,11 +119,226 @@ Query *transform_cypher_clause(cypher_parsestate *cpstate, cypher_clause *clause
 
     return result;
 }
-static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause *clause) {
-    ereport(ERROR, (errmsg_internal("unexpected Node for cypher_clause")));
+
+
+
+
+static FuncExpr *make_write_clause_function_placeholder(char *function_name, Node *clause_information) {
+    StringInfo str = makeStringInfo();
+
+    outNode(str, clause_information);
+
+    Const *c = makeConst(INTERNALOID, -1, InvalidOid, str->len, PointerGetDatum(str->data), false, false);
+
+    Oid func_oid = get_ag_func_oid(function_name, 1, INTERNALOID);
+
+    return makeFuncExpr(func_oid, GTYPEOID, list_make1(c), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+}
+
+static char *make_id_alias(char *var_name) {
+    char *str = palloc0(strlen(var_name) + 8);
+
+    str[0] = '_';
+    str[1] = 'i';
+    str[2] = 'd';
+    str[3] = '_';
+
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 4] = var_name[i];
+    str[i + 4] = '_';
+    str[i + 5] = '_';
+    str[i + 6] = '_';
+    str[i + 7] = '\0';
+
+    return str;
 }
 
 
+static char *make_property_alias(char *var_name) {
+    char *str = palloc0(strlen(var_name) + 8);
+
+    str[0] = '_';
+    str[1] = 'p';
+    str[2] = 'r';
+    str[3] = '_';
+
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 4] = var_name[i];
+
+    str[i + 5] = '_';
+    str[i + 6] = '_';
+    str[i + 7] = '\0';
+
+    return str;
+}
+
+static Node *make_vertex_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi) {
+    ParseState *pstate = (ParseState *)cpstate;
+
+    Oid func_oid = get_ag_func_oid("build_vertex", 3, GRAPHIDOID, OIDOID, GTYPEOID);
+
+    Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
+
+    Const *graph_oid_const = makeConst(OIDOID, -1, InvalidOid, sizeof(Oid),
+                                ObjectIdGetDatum(cpstate->graph_oid), false, true);
+
+    Node * props = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
+
+    List *args = list_make3(id, graph_oid_const, props);
+    
+    FuncExpr *func_expr = makeFuncExpr(func_oid, VERTEXOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+    func_expr->location = -1;
+
+    return (Node *)func_expr;
+}
+
+
+static Node *
+make_int_placeholder(cypher_parsestate *cpstate) {
+        
+    Datum agt = integer_to_gtype(0);
+        
+    // typtypmod, typcollation, typlen, and typbyval of gtype are hard-coded.
+    Const *c = makeConst(GTYPEOID, -1, InvalidOid, -1, agt, false, false);
+    c->location = -1;
+
+    return (Node *)c;
+} 
+/*
+ * This function is similar to transformFromClause() that is called with a
+ * single RangeSubselect.
+ */
+static ParseNamespaceItem *
+transform_cypher_clause_as_subquery_2(cypher_parsestate *cpstate, cypher_clause *clause, Alias *alias, bool add_rte_to_query, Query *query) {
+    ParseState *pstate = (ParseState *)cpstate;
+    ParseExprKind old_expr_kind = pstate->p_expr_kind;
+    bool lateral = pstate->p_lateral_active;
+
+
+    if (!alias)
+        alias = makeAlias(PREV_CYPHER_CLAUSE_ALIAS, NIL);
+
+    ParseNamespaceItem *pnsi = addRangeTableEntryForSubquery(pstate, query, alias, lateral, true);
+
+    /*
+     * NOTE: skip namespace conflicts check if the rte will be the only
+     *       RangeTblEntry in pstate
+     */
+    if (list_length(pstate->p_rtable) > 1) {
+        List *namespace = NULL;
+        int rtindex = 0;
+
+        rtindex = list_length(pstate->p_rtable);
+
+        if (pnsi->p_rte != rt_fetch(rtindex, pstate->p_rtable))
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("rte must be last entry in p_rtable")));
+
+        namespace = list_make1(pnsi);
+
+        checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
+    }
+
+    //if (add_rte_to_query)
+        addNSItemToQuery(pstate, pnsi, true, false, true);
+
+    return pnsi;
+}
+#include "rewrite/rewriteHandler.h"
+static Expr *add_volatile_wrapper(Expr *node) {
+    Oid oid = get_ag_func_oid("gtype_volatile_wrapper", 1, GTYPEOID);
+
+    return (Expr *)makeFuncExpr(oid, GTYPEOID, list_make1(node), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+}
+static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause *clause) {
+    ParseState *pstate = (ParseState *)cpstate;
+    cypher_create *self = (cypher_create *)clause->self;
+    
+    Query *query = makeNode(Query);
+    query->commandType = CMD_SELECT;
+    query->targetList = NIL;
+
+    if (clause->prev != NULL)
+        ereport(ERROR, (errmsg_internal("CREATE doesn't work with previous clauses")));
+
+    if (clause->next)
+        ereport(ERROR, (errmsg_internal("CREATE doesn't work with next clauses")));
+
+    if (list_length(self->pattern) != 1)
+        ereport(ERROR, (errmsg_internal("CREATE doesn't work with patterns")));
+
+
+    cypher_create_target_nodes *target_nodes;
+    target_nodes = make_ag_node(cypher_create_target_nodes);
+    target_nodes->flags = CYPHER_CLAUSE_FLAG_NONE;
+    target_nodes->graph_oid = cpstate->graph_oid;
+
+
+
+    ListCell *lc;
+    foreach (lc, self->pattern) {
+        cypher_path *path = lfirst(lc);
+        cypher_create_path *ccp = make_ag_node(cypher_create_path);
+
+        if (list_length(path->path) != 1) 
+            ereport(ERROR, (errmsg_internal("CREATE doesn't work with paths")));
+
+        if (path->var_name)
+            ereport(ERROR, (errmsg_internal("CREATE doesn't work with traversals")));
+
+        cypher_node *node = (cypher_node *)linitial(path->path);
+
+        if (node->label)
+            ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have labels")));
+            
+        if (node->name)
+            ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have variable names")));
+
+        if (node->props)
+            ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have properties")));
+
+        cypher_target_node *target = make_ag_node(cypher_target_node);
+    
+        label_cache_data *lcd = search_label_name_graph_cache(AG_DEFAULT_LABEL_VERTEX, cpstate->graph_oid);
+
+        target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
+
+        TargetEntry *te = makeTargetEntry(make_int_placeholder(cpstate), pstate->p_next_resno++, make_id_alias(get_next_default_alias(cpstate)), false);
+
+        ccp->target_nodes = list_make1(target);
+        target_nodes->paths = list_make1(ccp);
+        query->targetList = list_make1(te);
+
+    }
+
+    // Function for the set_rel_pathlist to capture
+    FuncExpr *func_expr = make_write_clause_function_placeholder(CREATE_CLAUSE_FUNCTION_NAME, target_nodes);
+    TargetEntry *te = makeTargetEntry((Expr *)func_expr, pstate->p_next_resno++, "_create_clause", false);
+    query->targetList = lappend(query->targetList, te);
+
+    query->rtable = pstate->p_rtable;
+    query->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+
+    {
+        Query *topquery;
+        cypher_parsestate *new_cpstate = make_cypher_parsestate(cpstate);
+        topquery = makeNode(Query);
+        topquery->commandType = CMD_SELECT;
+        topquery->targetList = NIL;
+
+        ParseState *pstate = (ParseState *) cpstate;
+        int rtindex;
+
+        ParseNamespaceItem *pnsi = transform_cypher_clause_as_subquery_2(new_cpstate, clause, NULL, false, query);
+        topquery->rtable = new_cpstate->pstate.p_rtable;
+        topquery->jointree = makeFromExpr(new_cpstate->pstate.p_joinlist, NULL);
+
+        return topquery;
+    }
+}
 
 Query *transform_cypher_return(cypher_parsestate *cpstate, cypher_clause *clause) {
     ParseState *pstate = (ParseState *)cpstate;
@@ -395,11 +615,6 @@ static void get_res_cols(ParseState *pstate, ParseNamespaceItem *l_pnsi,
     *res_colvars = list_concat(*res_colvars, colvars);
 }
 
-/*
- * transform_cypher_match_clause
- *      Transform the previous clauses and OPTIONAL MATCH clauses to be LATERAL LEFT JOIN
- *   transform_cypher_match_clause   to construct a result value.
- */
 static RangeTblEntry *transform_cypher_match_clause(cypher_parsestate *cpstate, cypher_clause *clause) {
     cypher_clause *prevclause;
     RangeTblEntry *l_rte, *r_rte;
@@ -518,11 +733,121 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
 
     Expr *expr = NULL;
 
+
+    if (list_length(pattern) !=1 )
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("MATCH found more than one pattern")));
+
     foreach (lc, pattern) {
         List *qual = NULL;
         cypher_path *path = (cypher_path *) lfirst(lc);
         // TODO: implement the new match logic 
         //qual = transform_match_path(cpstate, query, path);
+
+        if (list_length(path->path) != 1)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("MATCH paths only support 1 vertex")));
+
+            cypher_node *node = linitial(path->path);
+
+        if (node->name)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("MATCH variable names are not supported")));
+        else
+            node->name = get_next_default_alias(cpstate);
+
+        bool is_default_label = true;
+        if (node->label)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("MATCH labels are not supported")));
+        else
+            node->label = AG_DEFAULT_LABEL_VERTEX;
+
+        char *schema_name;
+        char *rel_name;
+        int resno;
+        TargetEntry *te;
+        Expr *expr;
+        ParseNamespaceItem *pnsi;
+        RangeVar *label_range_var;
+        Alias *alias;
+
+        schema_name = get_graph_namespace_name(cpstate->graph_name);
+
+        // XXX: LTree Labeling Project, first code is here
+        Datum label_lquery;
+        if (is_default_label)
+            label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(node->label));
+        else
+            label_lquery = DirectFunctionCall2(ltree_addltree, 
+                                DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
+                                DirectFunctionCall1(ltree_in, CStringGetDatum(node->label)));
+        
+        int ltq_query_args[2];
+        ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+        ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+        
+        Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
+        
+        ScanKeyData scan_keys[1];
+        ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
+        
+        Relation label_catalog = table_open(ag_label_relation_id(), AccessShareLock);
+        SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
+
+        HeapTuple tuple = systable_getnext(scan_desc);
+
+        if (!HeapTupleIsValid(tuple))
+            ereport(ERROR,
+                    (errcode(ERRCODE_UNDEFINED_SCHEMA),
+                    errmsg("not found %s", node->label)));
+        
+        bool is_null;
+        rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
+
+
+        systable_endscan(scan_desc);
+        table_close(label_catalog, AccessShareLock);
+
+
+        //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
+        label_range_var = makeRangeVar(schema_name, rel_name, -1);
+        alias = makeAlias(node->name, NIL);
+
+        pnsi = addRangeTableEntry(pstate, label_range_var, alias, label_range_var->inh, true);
+        Assert(pnsi != NULL);
+
+        addNSItemToQuery(pstate, pnsi, true, true, true);
+
+        resno = pstate->p_next_resno++;
+
+        // XXX: End LTree Code here
+
+        expr = (Expr *)make_vertex_expr(cpstate, pnsi);
+
+        // make target entry and add it 
+        te = makeTargetEntry(expr, resno, node->name, false);
+        query->targetList = lappend(query->targetList, te);
+
+        // id field
+        Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
+        resno = pstate->p_next_resno++;
+
+        te = makeTargetEntry(id, resno, make_id_alias(node->name), false);
+        query->targetList = lappend(query->targetList, te);
+
+        /*
+        * properties field
+        */
+        Node *props = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
+        resno = pstate->p_next_resno++;
+
+        te = makeTargetEntry(props, resno, make_property_alias(node->name), false);
+        query->targetList = lappend(query->targetList, te);
+
 
         quals = list_concat(quals, NULL);
     }
@@ -596,8 +921,6 @@ static List *make_target_list_from_join(ParseState *pstate, RangeTblEntry *rte) 
     return targetlist;
 }
 
-
-
 /*
  * This function is similar to transformFromClause() that is called with a
  * single RangeSubselect.
@@ -632,7 +955,7 @@ transform_cypher_clause_as_subquery(cypher_parsestate *cpstate, transform_method
      * needs to see what comes before it.
      */
     Query *query = analyze_cypher_clause(transform, clause, cpstate);
-
+ 
     pstate->p_expr_kind = old_expr_kind;
 
     if (!alias)

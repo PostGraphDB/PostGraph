@@ -32,9 +32,29 @@ USE GRAPH cypher_create;
 (1 row)
 
 CREATE ();
-ERROR:  unexpected Node for cypher_clause
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+--
+(0 rows)
+
+SELECT * FROM cypher_create._ag_label_vertex;
+       id        | properties 
+-----------------+------------
+ 281474976710657 | 
+(1 row)
+
+MATCH () RETURN 1;
+ ?column? 
+----------
+ 1
+(1 row)
+
 CREATE ()-[]->();
-ERROR:  unexpected Node for cypher_clause
+ERROR:  CREATE doesn't work with paths
+CYPHER WITH 1 as a
+CREATE ();
+ERROR:  CREATE doesn't work with previous clauses
+CREATE () RETURN 1 as a;
+ERROR:  CREATE doesn't work with next clauses
 --
 -- Clean up
 --

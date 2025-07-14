@@ -66,8 +66,6 @@ typedef struct cypher_create_custom_scan_state
     Oid graph_oid;
 } cypher_create_custom_scan_state;
 
-
-
 static HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
                               TupleTableSlot *elemTupleSlot,
                               EState *estate);
@@ -132,6 +130,8 @@ static Datum create_traversal(List *entities) {
     return TRAVERSAL_GET_DATUM(p);
 }
 
+#include "commands/label_commands.h"
+
 static void begin_cypher_create(CustomScanState *node, EState *estate, int eflags) {
     cypher_create_custom_scan_state *css = (cypher_create_custom_scan_state *)node;
     ListCell *lc;
@@ -148,48 +148,38 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
                           ExecGetResultType(node->ss.ps.lefttree),
                           &TTSOpsHeapTuple);
 
+    /*
     if (!CYPHER_CLAUSE_IS_TERMINAL(css->flags)) {
         TupleDesc tupdesc = node->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
 
         ExecAssignProjectionInfo(&node->ss.ps, tupdesc);
     }
+    */
 
-    foreach (lc, css->pattern) {
-        cypher_create_path *path = lfirst(lc);
-        ListCell *lc2;
-        foreach (lc2, path->target_nodes) {
-            cypher_target_node *cypher_node = (cypher_target_node *)lfirst(lc2);
-            Relation rel;
+    if (list_length(css->pattern) != 1)
+        ereport(ERROR, (errmsg_internal("executor create found a multi pattern")));
 
-            if (!CYPHER_TARGET_NODE_INSERT_ENTITY(cypher_node->flags))
-                continue;
+    cypher_create_path *path = linitial(css->pattern);
 
-            // Open relation and aquire a row exclusive lock.
-            rel = table_open(cypher_node->relid, RowExclusiveLock);
+    if (list_length(path->target_nodes) != 1)
+        ereport(ERROR, (errmsg_internal("executor create found a traversal")));
 
-            // Initialize resultRelInfo for the vertex
-            cypher_node->resultRelInfo = makeNode(ResultRelInfo);
-            InitResultRelInfo(cypher_node->resultRelInfo, rel,
-                              list_length(estate->es_range_table), NULL,
-                              estate->es_instrument);
+    cypher_target_node *cypher_node = (cypher_target_node *)linitial(path->target_nodes);
+    label_cache_data *lcd = search_label_name_graph_cache(AG_DEFAULT_LABEL_VERTEX, css->graph_oid);
 
-            // Open all indexes for the relation
-            ExecOpenIndices(cypher_node->resultRelInfo, false);
-
-            // Setup the relation's tuple slot
-            cypher_node->elemTupleSlot = table_slot_create(rel, &estate->es_tupleTable);
-
-            if (cypher_node->id_expr != NULL)
-                cypher_node->id_expr_state = ExecInitExpr(cypher_node->id_expr, (PlanState *)node); 
-	}
-    } 
-    /* 
-     * Postgres does not assign the es_output_cid in queries that do 
-     * not write to disk, ie: SELECT commands. We need the command id 
-     * for our clauses, and we may need to initialize it. We cannot use 
-     * GetCurrentCommandId because there may be other cypher clauses
-     * that have modified the command id.
-     */
+    Relation rel = table_open(lcd->relation, RowExclusiveLock);
+    cypher_node->resultRelInfo = makeNode(ResultRelInfo);
+    InitResultRelInfo(cypher_node->resultRelInfo, rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
+    
+    // Open all indexes for the relation
+    ExecOpenIndices(cypher_node->resultRelInfo, false);
+    
+    // Setup the relation's tuple slot
+    cypher_node->elemTupleSlot = table_slot_create(rel, &estate->es_tupleTable); 
+    
+    Assert(cypher_node->id_expr);
+    cypher_node->id_expr_state = ExecInitExpr(cypher_node->id_expr, (PlanState *)node);
+    
     if (estate->es_output_cid == 0)
         estate->es_output_cid = estate->es_snapshot->curcid;
 
@@ -238,57 +228,51 @@ static void process_pattern(cypher_create_custom_scan_state *css)
     }
 }
 
-static TupleTableSlot *exec_cypher_create(CustomScanState *node)
+static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
 {
-    cypher_create_custom_scan_state *css =
-        (cypher_create_custom_scan_state *)node;
+    cypher_create_custom_scan_state *css = (cypher_create_custom_scan_state *)csnode;
+
     EState *estate = css->css.ss.ps.state;
     ExprContext *econtext = css->css.ss.ps.ps_ExprContext;
-    TupleTableSlot *slot;
-    bool terminal = CYPHER_CLAUSE_IS_TERMINAL(css->flags);
-    bool used = false;
 
-    /*
-     * If the CREATE clause was the final cypher clause written then we aren't
-     * returning anything from this result node. So the exec_cypher_create
-     * function will only be called once. Therefore we will process all tuples
-     * from the subtree at once.
-     */
-    do
-    {
-        /*Process the subtree first */
-        Decrement_Estate_CommandId(estate)
-        slot = ExecProcNode(node->ss.ps.lefttree);
-        Increment_Estate_CommandId(estate)
-        /* break when there are no tuples */
-        if (TupIsNull(slot))
-            break;
+    TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
 
-	/* setup the scantuple that the process_pattern needs */
-        econtext->ecxt_scantuple =
-            node->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
-        process_pattern(css);
-        /*
-         * This may not be necessary. If we have an empty pattern, nothing was
-         * inserted and the current command Id was not used. So, only flag it
-         * if there is a non empty pattern.
-         */
-        if (list_length(css->pattern) > 0)
-        {
-            /* the current command Id has been used */
-            used = true;
-        }
-    } while (terminal);
+    if (list_length(css->pattern) != 1)
+        ereport(ERROR, (errmsg_internal("executor create found a multi pattern")));
 
-    if (!used)
-        return NULL;
+    cypher_create_path *path = linitial(css->pattern);
 
-    /* if this was a terminal CREATE just return NULL */
-    if (terminal)
-        return NULL;
+    if (list_length(path->target_nodes) != 1)
+        ereport(ERROR, (errmsg_internal("executor create found a traversal")));
 
-    econtext->ecxt_scantuple = ExecProject(node->ss.ps.lefttree->ps_ProjInfo);
-    return ExecProject(node->ss.ps.ps_ProjInfo);
+    cypher_target_node *node = (cypher_target_node *)linitial(path->target_nodes);
+    ResultRelInfo *resultRelInfo = node->resultRelInfo;
+    TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
+
+    ResultRelInfo **old_estate_es_result_relations_info = NULL;
+
+    /* save the old result relation info */
+    old_estate_es_result_relations_info = estate->es_result_relations;
+
+    estate->es_result_relations = &resultRelInfo;
+
+    ExecClearTuple(elemTupleSlot);
+
+    // get the next graphid for this vertex.
+    bool isNull;
+    elemTupleSlot->tts_values[0] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
+    elemTupleSlot->tts_isnull[0] = isNull;
+
+    // get the properties for this vertex
+    elemTupleSlot->tts_values[1] = NULL;
+    elemTupleSlot->tts_isnull[1] = true;
+    // Insert the new vertex
+    insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
+
+    /* restore the old result relation info */
+    estate->es_result_relations = old_estate_es_result_relations_info;
+
+    return NULL;
 }
 
 static void end_cypher_create(CustomScanState *node)
@@ -306,18 +290,11 @@ static void end_cypher_create(CustomScanState *node)
         ListCell *lc2;
         foreach (lc2, path->target_nodes)
         {
-            cypher_target_node *cypher_node =
-                (cypher_target_node *)lfirst(lc2);
+            cypher_target_node *cypher_node = (cypher_target_node *)lfirst(lc2);
 
-            if (!CYPHER_TARGET_NODE_INSERT_ENTITY(cypher_node->flags))
-                continue;
-
-            // close all indices for the node
             ExecCloseIndices(cypher_node->resultRelInfo);
 
-            // close the relation itself
-            table_close(cypher_node->resultRelInfo->ri_RelationDesc,
-                        RowExclusiveLock);
+            table_close(cypher_node->resultRelInfo->ri_RelationDesc, RowExclusiveLock);
         }
     }
 }
@@ -508,13 +485,13 @@ static Datum insert_vertex(cypher_create_custom_scan_state *css,
 
         // get the next graphid for this vertex.
         id = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
-        elemTupleSlot->tts_values[vertex_tuple_id] = id;
-        elemTupleSlot->tts_isnull[vertex_tuple_id] = isNull;
+        elemTupleSlot->tts_values[0] = id;
+        elemTupleSlot->tts_isnull[0] = isNull;
 
         // get the properties for this vertex
-        elemTupleSlot->tts_values[vertex_tuple_properties] =
+        elemTupleSlot->tts_values[1] =
             scanTupleSlot->tts_values[node->prop_attr_num];
-        elemTupleSlot->tts_isnull[vertex_tuple_properties] =
+        elemTupleSlot->tts_isnull[1] =
             scanTupleSlot->tts_isnull[node->prop_attr_num];
 
         // Insert the new vertex
@@ -625,8 +602,7 @@ HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
     }
 
     // Insert the tuple normally
-    table_tuple_insert(resultRelInfo->ri_RelationDesc, elemTupleSlot,
-                GetCurrentCommandId(true), 0, NULL);
+    table_tuple_insert(resultRelInfo->ri_RelationDesc, elemTupleSlot, estate->es_output_cid, 0, NULL);
 
     // Insert index entries for the tuple
     if (resultRelInfo->ri_NumIndices > 0)

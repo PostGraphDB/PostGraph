@@ -101,7 +101,7 @@ static cypher_clause_kind get_cypher_clause_kind(RangeTblEntry *rte)
 
     fe = (FuncExpr *)te->expr;
 
-    if (is_oid_ag_func(fe->funcid, CREATE_CLAUSE_FUNCTION_NAME))
+    if (is_oid_ag_func(fe->funcid, CREATE_CLAUSE_FUNCTION_NAME)) 
         return CYPHER_CLAUSE_CREATE;
     else
         return CYPHER_CLAUSE_NONE;
