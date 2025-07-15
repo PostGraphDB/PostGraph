@@ -374,6 +374,11 @@ typedef struct cypher_target_node
     TupleTableSlot *elemTupleSlot;
     // relid that the label stores its entity
     Oid relid;
+    
+    Oid adj_relid;
+    ResultRelInfo *adj_resultRelInfo;
+    // elemTupleSlot used to insert the entity into its table
+    TupleTableSlot *adj_elemTupleSlot;
     // label this entity belongs to.
     char *label_name;
     // variable name for this entity

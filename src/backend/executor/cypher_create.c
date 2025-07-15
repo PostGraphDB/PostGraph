@@ -63,7 +63,10 @@ typedef struct cypher_create_custom_scan_state
     List *path_values;
     uint32 flags;
     TupleTableSlot *slot;
+    TupleTableSlot *slot_adj_relid;
     Oid graph_oid;
+    graphid **vertex_ids;
+    graphid **edge_ids;
 } cypher_create_custom_scan_state;
 
 static HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
@@ -79,7 +82,7 @@ static void insert_edge(cypher_create_custom_scan_state *css,
                         cypher_target_node *node, Datum prev_vertex_id,
                         ListCell *next, List *list);
 
-static Datum insert_vertex(cypher_create_custom_scan_state *css,
+static void insert_vertex(cypher_create_custom_scan_state *css,
                            cypher_target_node *node, ListCell *next, List *list);
 
 static void process_pattern(cypher_create_custom_scan_state *css);
@@ -164,21 +167,47 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
     if (list_length(path->target_nodes) != 1)
         ereport(ERROR, (errmsg_internal("executor create found a traversal")));
 
-    cypher_target_node *cypher_node = (cypher_target_node *)linitial(path->target_nodes);
+
+    css->vertex_ids = palloc(sizeof(graphid *) * list_length(css->pattern));
+    css->vertex_ids[0] = palloc(sizeof(graphid) * ((list_length(path->target_nodes)/ 2) + 1) );
+
+    if (path->target_nodes) {
+        css->edge_ids = palloc(sizeof(graphid *) * list_length(css->pattern));
+        css->edge_ids[0] = palloc(sizeof(graphid) * ((list_length(path->target_nodes)/ 2) ) );
+    }   
+
+    ListCell *lc1;
+    foreach (lc1, path->target_nodes) {
+        cypher_target_node *cypher_node = (cypher_target_node *)lfirst(lc1);
+        
+        Relation rel = table_open(cypher_node->relid, RowExclusiveLock);
+        cypher_node->resultRelInfo = makeNode(ResultRelInfo);
+        InitResultRelInfo(cypher_node->resultRelInfo, rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
+        
+        // Open all indexes for the relation
+        ExecOpenIndices(cypher_node->resultRelInfo, false);
     
-    Relation rel = table_open(cypher_node->relid, RowExclusiveLock);
-    cypher_node->resultRelInfo = makeNode(ResultRelInfo);
-    InitResultRelInfo(cypher_node->resultRelInfo, rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
+
+        // Setup the relation's tuple slot
+        cypher_node->elemTupleSlot = table_slot_create(rel, &estate->es_tupleTable); 
+ 
+        
+        Relation adj_rel = table_open(cypher_node->adj_relid, RowExclusiveLock);
+        cypher_node->adj_resultRelInfo = makeNode(ResultRelInfo);
+        InitResultRelInfo(cypher_node->resultRelInfo, adj_rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
+        
+        // Open all indexes for the relation
+         //ExecOpenIndices(cypher_node->adj_resultRelInfo, false);
     
-    // Open all indexes for the relation
-    ExecOpenIndices(cypher_node->resultRelInfo, false);
-    
-    // Setup the relation's tuple slot
-    cypher_node->elemTupleSlot = table_slot_create(rel, &estate->es_tupleTable); 
-    
-    Assert(cypher_node->id_expr);
-    cypher_node->id_expr_state = ExecInitExpr(cypher_node->id_expr, (PlanState *)node);
-    
+
+        // Setup the relation's tuple slot
+        cypher_node->adj_elemTupleSlot = table_slot_create(adj_rel, &estate->es_tupleTable); 
+
+
+        Assert(cypher_node->id_expr);
+        cypher_node->id_expr_state = ExecInitExpr(cypher_node->id_expr, (PlanState *)node);
+    }
+
     if (estate->es_output_cid == 0)
         estate->es_output_cid = estate->es_snapshot->curcid;
 
@@ -241,35 +270,96 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
 
     cypher_create_path *path = linitial(css->pattern);
 
+    ListCell *lc;
+    int i = 1;
+    foreach(lc, path->target_nodes) {
+        cypher_target_node *node = (cypher_target_node *)linitial(path->target_nodes);
+        bool isNull;
+        if(i % 2 == 1)
+            css->vertex_ids[0][i/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
+        else
+            css->edge_ids[0][i/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
+        
+    }
     if (list_length(path->target_nodes) != 1)
         ereport(ERROR, (errmsg_internal("executor create found a traversal")));
 
-    cypher_target_node *node = (cypher_target_node *)linitial(path->target_nodes);
-    ResultRelInfo *resultRelInfo = node->resultRelInfo;
-    TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
+    for (int i = 0; i < 1 + (list_length(path->target_nodes)/2); i++) {
+        cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i /2);
+        ResultRelInfo *resultRelInfo = node->resultRelInfo;
+        TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
 
-    ResultRelInfo **old_estate_es_result_relations_info = NULL;
+        ResultRelInfo **old_estate_es_result_relations_info = NULL;
 
-    /* save the old result relation info */
-    old_estate_es_result_relations_info = estate->es_result_relations;
+        /* save the old result relation info */
+        old_estate_es_result_relations_info = estate->es_result_relations;
 
-    estate->es_result_relations = &resultRelInfo;
+        estate->es_result_relations = &resultRelInfo;
 
-    ExecClearTuple(elemTupleSlot);
+        ExecClearTuple(elemTupleSlot);
 
-    // get the next graphid for this vertex.
-    bool isNull;
-    elemTupleSlot->tts_values[0] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
-    elemTupleSlot->tts_isnull[0] = isNull;
+        // get the next graphid for this vertex.
+        bool isNull;
+        elemTupleSlot->tts_values[0] = css->vertex_ids[0][i];
+        elemTupleSlot->tts_isnull[0] = isNull;
 
-    // get the properties for this vertex
-    elemTupleSlot->tts_values[1] = NULL;
-    elemTupleSlot->tts_isnull[1] = true;
-    // Insert the new vertex
-    insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
+        // get the properties for this vertex
+        elemTupleSlot->tts_values[1] = NULL;
+        elemTupleSlot->tts_isnull[1] = true;
+        // Insert the new vertex
+        insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
 
-    /* restore the old result relation info */
-    estate->es_result_relations = old_estate_es_result_relations_info;
+        /* restore the old result relation info */
+        estate->es_result_relations = old_estate_es_result_relations_info;
+    }
+    
+    //TODO: the edges aren't setup to use this. I gotta get the correct relid in cypher_target_node.
+    // Then I gotta get any existing tuple, and update it if it exists, and insert if it doesn't
+    for (int i = 0; i < (list_length(path->target_nodes)/2); i++) {
+        cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i /2);
+        ResultRelInfo *resultRelInfo = node->resultRelInfo;
+        TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
+
+        ResultRelInfo **old_estate_es_result_relations_info = NULL;
+
+        /* save the old result relation info */
+        old_estate_es_result_relations_info = estate->es_result_relations;
+
+        estate->es_result_relations = &resultRelInfo;
+
+        ExecClearTuple(elemTupleSlot);
+
+        // get the next graphid for this vertex.
+        elemTupleSlot->tts_values[0] = css->vertex_ids[0][i];
+        elemTupleSlot->tts_isnull[0] = false;
+
+        // get the properties for this vertex
+        elemTupleSlot->tts_values[1] = NULL;
+        elemTupleSlot->tts_isnull[1] = true;
+        // Insert the new vertex
+        insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
+
+        if (list_length(path->target_nodes) > 1) {
+            resultRelInfo = node->adj_resultRelInfo;
+            elemTupleSlot = node->adj_elemTupleSlot;
+
+            estate->es_result_relations = &resultRelInfo;
+
+            ExecClearTuple(elemTupleSlot);
+
+            // get the next graphid for this vertex.
+            elemTupleSlot->tts_values[0] = css->edge_ids[0][i];
+            elemTupleSlot->tts_isnull[0] = false;
+
+            // get the properties for this vertex
+            elemTupleSlot->tts_values[1] = NULL;
+            elemTupleSlot->tts_isnull[1] = true;
+            // Insert the new vertex
+            insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
+        }
+        /* restore the old result relation info */
+        estate->es_result_relations = old_estate_es_result_relations_info;
+    }
 
     return NULL;
 }
@@ -333,120 +423,12 @@ Node *create_cypher_create_plan_state(CustomScan *cscan)
     return (Node *)cypher_css;
 }
 
-/*
- * Create the edge entity.
- */
-static void insert_edge(cypher_create_custom_scan_state *css,
-                        cypher_target_node *node, Datum prev_vertex_id,
-                        ListCell *next, List *list)
-{
-    bool isNull;
-    EState *estate = css->css.ss.ps.state;
-    ExprContext *econtext = css->css.ss.ps.ps_ExprContext;
-    ResultRelInfo *resultRelInfo = node->resultRelInfo;
-    ResultRelInfo **old_estate_es_result_relations_info = NULL;
-    TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
-    TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
-    Datum id;
-    Datum start_id, end_id, next_vertex_id;
-    List *prev_path = css->path_values;
-
-    Assert(node->type == LABEL_KIND_EDGE);
-    Assert(lfirst(next) != NULL);
-
-    /*
-     * Create the next vertex before creating the edge. We need the
-     * next vertex's id.
-     */
-    css->path_values = NIL;
-    next_vertex_id = insert_vertex(css, lfirst(next), lnext(list, next), list);
-
-    /*
-     * Set the start and end vertex ids
-     */
-    if (node->dir == CYPHER_REL_DIR_RIGHT) {
-        start_id = prev_vertex_id;
-        end_id = next_vertex_id;
-    } else if (node->dir == CYPHER_REL_DIR_LEFT) {
-        start_id = next_vertex_id;
-        end_id = prev_vertex_id;
-    } else {
-        ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("edge direction must be specified in a CREATE clause")));
-    }
-
-    /*
-     * Set estate's result relation to the vertex's result
-     * relation.
-     *
-     * Note: This obliterates what was their previously
-     */
-
-    /* save the old result relation info */
-    old_estate_es_result_relations_info = estate->es_result_relations;
-
-    estate->es_result_relations = &resultRelInfo;
-
-    ExecClearTuple(elemTupleSlot);
-
-    // Graph Id for the edge
-    id = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
-    elemTupleSlot->tts_values[edge_tuple_id] = id;
-    elemTupleSlot->tts_isnull[edge_tuple_id] = isNull;
-
-    // Graph id for the starting vertex
-    elemTupleSlot->tts_values[edge_tuple_start_id] = start_id;
-    elemTupleSlot->tts_isnull[edge_tuple_start_id] = false;
-
-    // Graph id for the ending vertex
-    elemTupleSlot->tts_values[edge_tuple_end_id] = end_id;
-    elemTupleSlot->tts_isnull[edge_tuple_end_id] = false;
-
-    // Edge's properties map
-    elemTupleSlot->tts_values[edge_tuple_properties] =
-        scanTupleSlot->tts_values[node->prop_attr_num];
-    elemTupleSlot->tts_isnull[edge_tuple_properties] =
-        scanTupleSlot->tts_isnull[node->prop_attr_num];
-
-    // Insert the new edge
-    insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
-
-    /* restore the old result relation info */
-    estate->es_result_relations = old_estate_es_result_relations_info;
-
-    /*
-     * When the edge is used by clauses higher in the execution tree
-     * we need to create an edge datum. When the edge is a variable,
-     * add to the scantuple slot. When the edge is part of a path
-     * variable, add to the list.
-     */
-    if (CYPHER_TARGET_NODE_OUTPUT(node->flags))
-    {
-        PlanState *ps = css->css.ss.ps.lefttree;
-        TupleTableSlot *scantuple = ps->ps_ExprContext->ecxt_scantuple;
-            
-       edge *e = create_edge(id, start_id, end_id, css->graph_oid, DATUM_GET_GTYPE_P(scanTupleSlot->tts_values[node->prop_attr_num]));
-
-        if (CYPHER_TARGET_NODE_IN_PATH(node->flags))
-        {
-            prev_path = lappend(prev_path, e);
-            css->path_values = list_concat(prev_path, css->path_values);
-        }
-
-        if (CYPHER_TARGET_NODE_IS_VARIABLE(node->flags))
-        {
-            scantuple->tts_values[node->tuple_position - 1] = EDGE_GET_DATUM(e);
-            scantuple->tts_isnull[node->tuple_position - 1] = false;
-        }
-    }
-}
 
 /*
  * Creates the vertex entity, returns the vertex's id in case the caller is
  * the create_edge function.
  */
-static Datum insert_vertex(cypher_create_custom_scan_state *css,
+static void insert_vertex(cypher_create_custom_scan_state *css,
                            cypher_target_node *node, ListCell *next, List *list)
 {
     bool isNull;
@@ -457,124 +439,33 @@ static Datum insert_vertex(cypher_create_custom_scan_state *css,
     TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
     TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
 
-    Assert(node->type == LABEL_KIND_VERTEX);
-
     /*
-     * Vertices in a patEDGE_GET_DATUMh might already exists. If they do get the id
+     * Vertices in a path might already exists. If they do get the id
      * to pass to the edges before and after it. Otherwise, insert the
      * new vertex into it's table and then pass the id along.
      */
-    if (CYPHER_TARGET_NODE_INSERT_ENTITY(node->flags))
-    {
-        ResultRelInfo **old_estate_es_result_relations_info = NULL;
+    ResultRelInfo **old_estate_es_result_relations_info = NULL;
 
-        /*
-         * Set estate's result relation to the vertex's result
-         * relation.
-         *
-         * Note: This obliterates what was their previously
-         */
+    old_estate_es_result_relations_info = estate->es_result_relations;
 
-        /* save the old result relation info */
-        old_estate_es_result_relations_info = estate->es_result_relations;
+    estate->es_result_relations = &resultRelInfo;
 
-        estate->es_result_relations = &resultRelInfo;
+    ExecClearTuple(elemTupleSlot);
 
-        ExecClearTuple(elemTupleSlot);
+    // get the next graphid for this vertex.
+    id = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
+    elemTupleSlot->tts_values[0] = id;
+    elemTupleSlot->tts_isnull[0] = isNull;
 
-        // get the next graphid for this vertex.
-        id = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
-        elemTupleSlot->tts_values[0] = id;
-        elemTupleSlot->tts_isnull[0] = isNull;
+    // get the properties for this vertex
+    elemTupleSlot->tts_values[1] = NULL;
+    elemTupleSlot->tts_isnull[1] = true;
+        
+    // Insert the new vertex
+    insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
 
-        // get the properties for this vertex
-        elemTupleSlot->tts_values[1] =
-            scanTupleSlot->tts_values[node->prop_attr_num];
-        elemTupleSlot->tts_isnull[1] =
-            scanTupleSlot->tts_isnull[node->prop_attr_num];
-
-        // Insert the new vertex
-        insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
-
-        /* restore the old result relation info */
-        estate->es_result_relations = old_estate_es_result_relations_info;
-
-        /*
-         * When the vertex is used by clauses higher in the execution tree
-         * we need to create a vertex datum. When the vertex is a variable,
-         * add to the scantuple slot. When the vertex is part of a path
-         * variable, add to the list.
-         */
-        if (CYPHER_TARGET_NODE_OUTPUT(node->flags))
-        {
-            TupleTableSlot *scantuple;
-            PlanState *ps;
-            Datum result;
-
-            ps = css->css.ss.ps.lefttree;
-            scantuple = ps->ps_ExprContext->ecxt_scantuple;
-
-            // make the vertex gtype
-            vertex *v = create_vertex(id, css->graph_oid,
-			    DATUM_GET_GTYPE_P(scanTupleSlot->tts_values[node->prop_attr_num]));
-            // append to the path list
-            if (CYPHER_TARGET_NODE_IN_PATH(node->flags))
-                css->path_values = lappend(css->path_values, v);
-
-            /*
-             * Put the vertex in the correct spot in the scantuple, so parent
-             * execution nodes can reference the newly created variable.
-             */
-            if (CYPHER_TARGET_NODE_IS_VARIABLE(node->flags))
-            {
-                scantuple->tts_values[node->tuple_position - 1] = VERTEX_GET_DATUM(v);
-                scantuple->tts_isnull[node->tuple_position - 1] = false;
-            }
-        }
-    }
-    else
-    {
-        TupleTableSlot *scantuple;
-        PlanState *ps;
-
-        ps = css->css.ss.ps.lefttree;
-        scantuple = ps->ps_ExprContext->ecxt_scantuple;
-
-	vertex *v = DATUM_GET_VERTEX(scantuple->tts_values[node->tuple_position - 1]);
-        id = GRAPHID_GET_DATUM(*((int64 *)(&v->children[0])));
-
-        /*
-         * Its possible the variable has already been deleted. There are two
-         * ways this can happen. One is the query explicitly deleted the
-         * variable, the is_deleted flag will catch that. However, it is
-         * possible the user deleted the vertex using another variable name. We
-         * need to scan the table to find the vertex's current status relative
-         * to this CREATE clause. If the variable was initially created in this
-         * clause, we can skip this check, because the transaction system
-         * guarantees that nothing can happen to that tuple, as far as we are
-         * concerned with at this time.
-         */
-        if (!SAFE_TO_SKIP_EXISTENCE_CHECK(node->flags))
-        {
-            if (!entity_exists(estate, css->graph_oid, DATUM_GET_GRAPHID(id)))
-                ereport(ERROR,
-                    (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                     errmsg("vertex assigned to variable %s was deleted",
-                            node->variable_name)));
-        }
-
-        if (CYPHER_TARGET_NODE_IN_PATH(node->flags))
-        {
-            Datum vertex = scanTupleSlot->tts_values[node->tuple_position - 1];
-            css->path_values = lappend(css->path_values, vertex);
-        }
-    }
-
-    // If the path continues, create the next edge, passing the vertex's id.
-    if (next != NULL)
-        insert_edge(css, lfirst(next), id, lnext(list, next), list);
-
-    return id;
+    /* restore the old result relation info */
+    estate->es_result_relations = old_estate_es_result_relations_info;
 }
 
 

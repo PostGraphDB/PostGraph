@@ -373,6 +373,9 @@ void out_cypher_target_node(StringInfo str, const ExtensibleNode *node)
     WRITE_NODE_FIELD(resultRelInfo);
     WRITE_NODE_FIELD(elemTupleSlot);
     WRITE_OID_FIELD(relid);
+    WRITE_OID_FIELD(adj_relid);
+    WRITE_NODE_FIELD(adj_resultRelInfo);
+    WRITE_NODE_FIELD(adj_elemTupleSlot);
     WRITE_STRING_FIELD(label_name);
     WRITE_STRING_FIELD(variable_name);
     WRITE_INT32_FIELD(tuple_position);

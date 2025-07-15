@@ -304,38 +304,69 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
         cypher_path *path = lfirst(lc);
         cypher_create_path *ccp = make_ag_node(cypher_create_path);
 
-        if (list_length(path->path) != 1) 
-            ereport(ERROR, (errmsg_internal("CREATE doesn't work with paths")));
-
         if (path->var_name)
             ereport(ERROR, (errmsg_internal("CREATE doesn't work with traversals")));
 
-        cypher_node *node = (cypher_node *)linitial(path->path);
+        int i = 1;
+        ListCell *lc2;
+        foreach (lc2, path->path) {
+            if (i % 2 == 1) {
+                cypher_node *node = (cypher_node *)lfirst(lc2);
 
-        if (node->label) 
-            validate_or_create_vlabel(cpstate, node);
-        else
-            node->label = AG_DEFAULT_LABEL_VERTEX;
-            
-        if (node->name)
-            ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have variable names")));
+                if (node->label) 
+                    validate_or_create_vlabel(cpstate, node);
+                else
+                    node->label = AG_DEFAULT_LABEL_VERTEX;
+                    
+                if (node->name)
+                    ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have variable names")));
 
-        if (node->props)
-            ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have properties")));
+                if (node->props)
+                    ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have properties")));
 
-        cypher_target_node *target = make_ag_node(cypher_target_node);
-    
-        label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
+                cypher_target_node *target = make_ag_node(cypher_target_node);
 
-        target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
-        target->relid = lcd->relation;
-        
-        TargetEntry *te = makeTargetEntry(make_int_placeholder(cpstate), pstate->p_next_resno++, make_id_alias(get_next_default_alias(cpstate)), false);
+                label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
 
-        ccp->target_nodes = list_make1(target);
-        target_nodes->paths = list_make1(ccp);
-        query->targetList = list_make1(te);
+                target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
+                target->relid = lcd->relation;
+                target->adj_relid = lcd->vertex_adjlist;
+                TargetEntry *te = makeTargetEntry(make_int_placeholder(cpstate), pstate->p_next_resno++, make_id_alias(get_next_default_alias(cpstate)), false);
 
+                ccp->target_nodes = lappend(ccp->target_nodes, target);
+                
+                query->targetList = lappend(query->targetList, te);
+            } else {
+                cypher_relationship *edge = lfirst(lc2);
+
+                if (edge->label) 
+                    ereport(ERROR, (errmsg_internal("edges in CREATE cannot have labels")));
+                else
+                    edge->label = AG_DEFAULT_LABEL_EDGE;
+
+                if (edge->name)
+                    ereport(ERROR, (errmsg_internal("edges in CREATE cannot have variable names")));
+
+                if (edge->props)
+                    ereport(ERROR, (errmsg_internal("edges in CREATE cannot have properties")));
+
+                if (edge->dir != CYPHER_REL_DIR_RIGHT)
+                    ereport(ERROR, (errmsg_internal("edges CREATE are right only right now")));
+
+                cypher_target_node *target = make_ag_node(cypher_target_node);
+                label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
+                target->relid = lcd->relation;
+
+                target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
+
+                ccp->target_nodes = lappend(ccp->target_nodes, target);
+                
+            }
+
+            i++;
+        }
+
+        target_nodes->paths = lappend(target_nodes->paths, ccp);
     }
 
     // Function for the set_rel_pathlist to capture
