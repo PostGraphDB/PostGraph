@@ -113,6 +113,7 @@ Query *transform_cypher_clause(cypher_parsestate *cpstate, cypher_clause *clause
     } else {
         ereport(ERROR, (errmsg_internal("unexpected Node for cypher_clause")));
     }
+    
 
     result->querySource = QSRC_ORIGINAL;
     result->canSetTag = true;
@@ -191,8 +192,10 @@ static Node *make_vertex_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pn
     FuncExpr *func_expr = makeFuncExpr(func_oid, VERTEXOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
     func_expr->location = -1;
 
+
     return (Node *)func_expr;
 }
+
 
 
 static Node *
