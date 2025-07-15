@@ -46,6 +46,8 @@ MATCH () RETURN 1;
 
 CREATE ()-[]->();
 
+MATCH () RETURN 1;
+
 CYPHER WITH 1 as a
 CREATE ();
 

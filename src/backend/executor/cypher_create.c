@@ -164,8 +164,6 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
 
     cypher_create_path *path = linitial(css->pattern);
 
-    if (list_length(path->target_nodes) != 1)
-        ereport(ERROR, (errmsg_internal("executor create found a traversal")));
 
 
     css->vertex_ids = palloc(sizeof(graphid *) * list_length(css->pattern));
@@ -177,8 +175,17 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
     }   
 
     ListCell *lc1;
+    int i = 0;
     foreach (lc1, path->target_nodes) {
         cypher_target_node *cypher_node = (cypher_target_node *)lfirst(lc1);
+
+        Assert(cypher_node->id_expr);
+        cypher_node->id_expr_state = ExecInitExpr(cypher_node->id_expr, (PlanState *)node);
+
+        if (i % 2 == 1) {
+            i++;
+            continue;
+        }
         
         Relation rel = table_open(cypher_node->relid, RowExclusiveLock);
         cypher_node->resultRelInfo = makeNode(ResultRelInfo);
@@ -190,22 +197,20 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
 
         // Setup the relation's tuple slot
         cypher_node->elemTupleSlot = table_slot_create(rel, &estate->es_tupleTable); 
- 
-        
+
         Relation adj_rel = table_open(cypher_node->adj_relid, RowExclusiveLock);
         cypher_node->adj_resultRelInfo = makeNode(ResultRelInfo);
-        InitResultRelInfo(cypher_node->resultRelInfo, adj_rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
+        InitResultRelInfo(cypher_node->adj_resultRelInfo, adj_rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
         
         // Open all indexes for the relation
-         //ExecOpenIndices(cypher_node->adj_resultRelInfo, false);
+        ExecOpenIndices(cypher_node->adj_resultRelInfo, false);
     
 
         // Setup the relation's tuple slot
         cypher_node->adj_elemTupleSlot = table_slot_create(adj_rel, &estate->es_tupleTable); 
 
+        i++;
 
-        Assert(cypher_node->id_expr);
-        cypher_node->id_expr_state = ExecInitExpr(cypher_node->id_expr, (PlanState *)node);
     }
 
     if (estate->es_output_cid == 0)
@@ -273,50 +278,24 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
     ListCell *lc;
     int i = 1;
     foreach(lc, path->target_nodes) {
-        cypher_target_node *node = (cypher_target_node *)linitial(path->target_nodes);
+        cypher_target_node *node = (cypher_target_node *)lfirst(lc);
         bool isNull;
         if(i % 2 == 1)
             css->vertex_ids[0][i/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
-        else
+        else {
             css->edge_ids[0][i/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
+            i++;
+        }  
+        
         
     }
-    if (list_length(path->target_nodes) != 1)
-        ereport(ERROR, (errmsg_internal("executor create found a traversal")));
 
-    for (int i = 0; i < 1 + (list_length(path->target_nodes)/2); i++) {
-        cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i /2);
-        ResultRelInfo *resultRelInfo = node->resultRelInfo;
-        TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
-
-        ResultRelInfo **old_estate_es_result_relations_info = NULL;
-
-        /* save the old result relation info */
-        old_estate_es_result_relations_info = estate->es_result_relations;
-
-        estate->es_result_relations = &resultRelInfo;
-
-        ExecClearTuple(elemTupleSlot);
-
-        // get the next graphid for this vertex.
-        bool isNull;
-        elemTupleSlot->tts_values[0] = css->vertex_ids[0][i];
-        elemTupleSlot->tts_isnull[0] = isNull;
-
-        // get the properties for this vertex
-        elemTupleSlot->tts_values[1] = NULL;
-        elemTupleSlot->tts_isnull[1] = true;
-        // Insert the new vertex
-        insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
-
-        /* restore the old result relation info */
-        estate->es_result_relations = old_estate_es_result_relations_info;
-    }
     
     //TODO: the edges aren't setup to use this. I gotta get the correct relid in cypher_target_node.
     // Then I gotta get any existing tuple, and update it if it exists, and insert if it doesn't
-    for (int i = 0; i < (list_length(path->target_nodes)/2); i++) {
-        cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i /2);
+    for (int i = 0; i < list_length(path->target_nodes)/2 + 1; i++) {
+        cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i * 2);
+                
         ResultRelInfo *resultRelInfo = node->resultRelInfo;
         TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
 
@@ -339,7 +318,7 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
         // Insert the new vertex
         insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
 
-        if (list_length(path->target_nodes) > 1) {
+        if (list_length(path->target_nodes) > 1 && i < (list_length(path->target_nodes)/2)) {
             resultRelInfo = node->adj_resultRelInfo;
             elemTupleSlot = node->adj_elemTupleSlot;
 
@@ -368,22 +347,25 @@ static void end_cypher_create(CustomScanState *node)
 {
     cypher_create_custom_scan_state *css =
         (cypher_create_custom_scan_state *)node;
-    ListCell *lc;
+
     CommandCounterIncrement();
 
     ExecEndNode(node->ss.ps.lefttree);
 
-    foreach (lc, css->pattern)
-    {
+    ListCell *lc;
+    foreach (lc, css->pattern) {
         cypher_create_path *path = lfirst(lc);
         ListCell *lc2;
-        foreach (lc2, path->target_nodes)
-        {
+
+        foreach (lc2, path->target_nodes) {
             cypher_target_node *cypher_node = (cypher_target_node *)lfirst(lc2);
 
-            ExecCloseIndices(cypher_node->resultRelInfo);
+            if (!cypher_node->resultRelInfo)
+                continue;
 
-            table_close(cypher_node->resultRelInfo->ri_RelationDesc, RowExclusiveLock);
+            ExecCloseIndices(cypher_node->resultRelInfo);
+            ExecCloseIndices(cypher_node->adj_resultRelInfo);
+            table_close(cypher_node->adj_resultRelInfo->ri_RelationDesc, RowExclusiveLock);
         }
     }
 }

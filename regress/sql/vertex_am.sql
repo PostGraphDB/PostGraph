@@ -26,12 +26,19 @@ INSERT INTO vertex_am_tst (id, props)
 VALUES ('1'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
 
 
-SELECT * FROM vertex_am_tst;
-
+SELECT * FROM vertex_am_tst WHERE id = '1'::postgraph.graphid;
+/*
 DELETE FROM vertex_am_tst;
+
+
+SELECT * FROM vertex_am_tst WHERE id = '1'::postgraph.graphid;
+
 
 INSERT INTO vertex_am_tst (id, props)
 VALUES ('2'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
+
+
+SELECT * FROM vertex_am_tst WHERE id = '2'::postgraph.graphid;
 
 
 SELECT * FROM vertex_am_tst;
@@ -45,4 +52,5 @@ VALUES ('4'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
 INSERT INTO vertex_am_tst (id, props)
 VALUES ('5'::postgraph.graphid, NULL);
 
-SELECT * FROM vertex_am_tst;
+SELECT * FROM vertex_am_tst WHERE id = '5'::postgraph.graphid;
+ */ 

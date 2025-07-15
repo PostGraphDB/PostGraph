@@ -534,7 +534,7 @@ AS 'MODULE_PATHNAME';
 --
 -- graphid - comparison operators (=, <>, <, >, <=, >=)
 --
-CREATE FUNCTION graphid_eq(postgraph.graphid, postgraph.graphid) 
+CREATE FUNCTION graphid_eq(graphid, graphid) 
 RETURNS boolean 
 LANGUAGE c 
 IMMUTABLE 
@@ -549,9 +549,9 @@ CREATE OPERATOR = (
     COMMUTATOR = =, 
     NEGATOR = <>, 
     RESTRICT = eqsel, 
-    JOIN = eqjoinsel, 
-    HASHES, 
-    MERGES
+    JOIN = eqjoinsel--, 
+    --HASHES, 
+    --MERGES
 );
 
 CREATE FUNCTION graphid_ne(graphid, graphid) 

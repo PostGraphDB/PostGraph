@@ -334,6 +334,7 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
                 target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
                 target->relid = lcd->relation;
                 target->adj_relid = lcd->vertex_adjlist;
+
                 TargetEntry *te = makeTargetEntry(make_int_placeholder(cpstate), pstate->p_next_resno++, make_id_alias(get_next_default_alias(cpstate)), false);
 
                 ccp->target_nodes = lappend(ccp->target_nodes, target);
