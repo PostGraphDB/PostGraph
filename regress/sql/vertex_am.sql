@@ -17,7 +17,7 @@
 -- Regression tests don't preload extensions, gotta load it first
 
 LOAD 'postgraph';
-
+set search_path 'postgraph';
 
 CREATE TABLE vertex_am_tst (id postgraph.graphid not null, props postgraph.gtype not null) USING vertex_adjlist;
 
@@ -26,7 +26,9 @@ INSERT INTO vertex_am_tst (id, props)
 VALUES ('1'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
 
 
-SELECT * FROM vertex_am_tst WHERE id = '1'::postgraph.graphid;
+SELECT '1'::postgraph.graphid OPERATOR(postgraph.=) '1'::postgraph.graphid;
+EXPLAIN SELECT * FROM vertex_am_tst WHERE id OPERATOR(postgraph.=) '1'::postgraph.graphid;
+SELECT * FROM vertex_am_tst WHERE id OPERATOR(postgraph.=) '1'::postgraph.graphid;
 /*
 DELETE FROM vertex_am_tst;
 

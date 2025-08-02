@@ -11,7 +11,8 @@
 #include "storage/lockdefs.h"
 #include "utils/hsearch.h"
 #include "utils/relcache.h"
-
+#include "access/relscan.h"
+#include "access/hash.h"
 /*
  * Descriptor for heap table scans.
  */
@@ -60,5 +61,7 @@ vertex_hash_next(TableScanDesc scan, ScanDirection dir);
 bool
 vertex_hash_first(TableScanDesc scan, ScanDirection dir);
 
+void unregister_seq_scan_hook(void);
+void register_seq_scan_hook(void);
 
 #endif							/* ACCESS_VERTEX_H */

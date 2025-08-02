@@ -50,6 +50,12 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 
+#include "optimizer/plancat.h"
+#include "utils/inval.h"
+#include "access/visibilitymap.h"
+
+
+
 #include "access/vertex.h"
 #include "utils/graphid.h"
 #include "utils/gtype.h"
@@ -71,7 +77,7 @@ static bool heap_acquire_tuplock(Relation relation, ItemPointer tid,
 uint32
 vertex_hash_init(Relation rel, double num_tuples, ForkNumber forkNum);
 void
-vertex_hash_doinsert(Relation rel, IndexTuple itup, Relation heapRel);
+vertex_hash_doinsert(Relation rel, HeapTuple itup, Relation heapRel);
 
 typedef struct vertex_hash_struct
 {
@@ -1232,6 +1238,7 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
 	so->rs_base.rs_rd = relation;
 	so->rs_base.rs_snapshot = snapshot;
 	so->rs_base.rs_nkeys = nkeys;
+	so->rs_base.rs_key = key;
 	so->rs_base.rs_flags = flags;
 	so->rs_base.rs_parallel = parallel_scan;
 
@@ -1247,7 +1254,7 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
 
 	//scan->opaque = so;
 
-	return so;
+	return (TableScanDesc)so;
 }
 
 void vertex_scan_end(TableScanDesc sscan) {
@@ -1312,16 +1319,9 @@ bool vertex_scan_getnextslot(TableScanDesc sscan, ScanDirection direction,
 	 * get the first item in the scan.
 	 */
 	if (!HashScanPosIsValid(so->currPos))
-		res = _hash_first(sscan, direction);
-	else
-	{
-		/*
-		 * Now continue the scan.
-		 */
-		res = _hash_next(sscan, direction);
-	}
+		return vertex_hash_first(sscan, direction);
 
-	return res;
+	return vertex_hash_next(sscan, direction);
 }
 
 /* ------------------------------------------------------------------------
@@ -1337,7 +1337,7 @@ Size vertex_parallelscan_estimate(Relation rel) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_estimate not implemented")));
     
-    return NULL;
+    return -1;
 }
 
 /*
@@ -1349,7 +1349,7 @@ Size vertex_parallelscan_initialize(Relation rel, ParallelTableScanDesc pscan) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_initialize not implemented")));
     
-    return NULL;
+    return -1;
 }
 
 /*
@@ -1506,7 +1506,7 @@ TransactionId vertex_index_delete_tuples(Relation rel, TM_IndexDeleteOp *delstat
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
     
 
-    return NULL;
+    return InvalidTransactionId;
 }
 
 Page
@@ -1514,44 +1514,6 @@ vertex_RelationPutHeapTuple(Relation relation,
 					 Buffer buffer,
 					 HeapTuple tuple,
 					 bool token);
-
-/*
- *	heap_insert		- insert tuple into a heap
- *
- * The new tuple is stamped with current transaction ID and the specified
- * command ID.
- *
- * See table_tuple_insert for comments about most of the input flags, except
- * that this routine directly takes a tuple rather than a slot.
- *
- * There's corresponding HEAP_INSERT_ options to all the TABLE_INSERT_
- * options, and there additionally is HEAP_INSERT_SPECULATIVE which is used to
- * implement table_tuple_insert_speculative().
- *
- * On return the header fields of *tup are updated to match the stored tuple;
- * in particular tup->t_self receives the actual TID where the tuple was
- * stored.  But note that any toasting of fields within the tuple data is NOT
- * reflected into *tup.
- */
-Page
-vertex_heap_insert(Relation relation, HeapTuple tup, CommandId cid,
-			int options, BulkInsertState bistate)
-{
-    if (relation->rd_indexcxt == NULL) { 
-        relation->rd_indexcxt= AllocSetContextCreate(CacheMemoryContext,
-									 "index info",
-									 ALLOCSET_SMALL_SIZES);
-        MemoryContextCopyAndSetIdentifier(relation->rd_indexcxt,
-									      RelationGetRelationName(relation));
-
-	
-    }
-         
-    vertex_hash_doinsert(relation, tup, relation);
-
-	return false;
-
-}
 
 
 
@@ -2659,13 +2621,13 @@ static const TableAmRoutine vertex_heapam_methods = {
     .index_delete_tuples = vertex_index_delete_tuples,
 
     .relation_set_new_filenode = vertex_relation_set_new_filenode,
-    .relation_nontransactional_truncate = vertex_relation_nontransactional_truncate,
+    .relation_nontransactional_truncate = NULL,
     .relation_copy_data = vertex_relation_copy_data,
-    .relation_copy_for_cluster = vertex_relation_nontransactional_truncate,
+    .relation_copy_for_cluster = NULL,
     .relation_vacuum = vertex_relation_vacuum,
     .scan_analyze_next_block = vertex_scan_analyze_next_block,
     .scan_analyze_next_tuple = vertex_scan_analyze_next_tuple,
-    .index_build_range_scan = vertex_index_validate_scan,
+    .index_build_range_scan = NULL,
     .index_validate_scan = vertex_index_validate_scan,
 
     .relation_size = vertex_relation_size,
@@ -3038,7 +3000,7 @@ vertex_hash_init(Relation rel, double num_tuples, ForkNumber forkNum)
  *		and hashinsert.  By here, itup is completely filled in.
  */
 void
-vertex_hash_doinsert(Relation rel, IndexTuple itup, Relation heapRel)
+vertex_hash_doinsert(Relation rel, HeapTuple itup, Relation heapRel)
 {
     HeapTuple tuple = itup;
 	Buffer		buf = InvalidBuffer;
@@ -3058,10 +3020,12 @@ vertex_hash_doinsert(Relation rel, IndexTuple itup, Relation heapRel)
 	/*
 	 * Get the hash key for the item (it's stored in the index tuple itself).
 	 */
-	hashkey = _hash_get_indextuple_hashkey(itup);
+	bool isnull;
+	hashkey = heap_getattr(itup, 1, RelationGetDescr(rel), &isnull);
+	//hashkey = vertex_hash_get_indextuple_hashkey(itup); //TODO
 
 	/* compute item size too */
-	itemsz = ((HeapTuple)itup)->t_len;
+	itemsz = (itup)->t_len;
 	itemsz = MAXALIGN(itemsz);	/* be safe, PageAddItem will do this but we
 								 * need to be consistent */
 
@@ -3203,7 +3167,7 @@ restart_insert:
 	START_CRIT_SECTION();
 
 	/* found page with enough space, so add the item here */
-	itup_off = _hash_pgaddtup(rel, buf, itemsz, itup);
+	itup_off = _hash_pgaddtup(rel, buf, itemsz, (IndexTuple)itup);
 	MarkBufferDirty(buf);
 
 	/* metapage operations */
@@ -3230,7 +3194,7 @@ restart_insert:
 		XLogRegisterBuffer(1, metabuf, REGBUF_STANDARD);
 
 		XLogRegisterBuffer(0, buf, REGBUF_STANDARD);
-		XLogRegisterBufData(0, (char *) itup, IndexTupleSize(itup));
+		XLogRegisterBufData(0, (char *) itup, itemsz);
 
 		recptr = XLogInsert(RM_HASH_ID, XLOG_HASH_INSERT);
 
@@ -3257,4 +3221,22 @@ restart_insert:
 
 	/* Finally drop our pin on the metapage */
 	_hash_dropbuf(rel, metabuf);
+}
+
+#include "executor/nodeSeqscan.h"
+
+static exec_seq_scan_scan_key_hook_type prev_exec_seq_scan_scan_key_hook = NULL;
+
+void postgraph_seq_scan_key_hook (SeqScanState *node,
+					   					int *numScanKeys, ScanKey scanKeys) {
+	return;
+}
+
+void register_seq_scan_hook(void){
+	prev_exec_seq_scan_scan_key_hook = exec_seq_scan_scan_key_hook;
+	exec_seq_scan_scan_key_hook = postgraph_seq_scan_key_hook;
+}
+
+void unregister_seq_scan_hook(void){
+	exec_seq_scan_scan_key_hook = prev_exec_seq_scan_scan_key_hook;
 }

@@ -20,6 +20,7 @@
 #include "pgstat.h"
 #include "storage/predicate.h"
 #include "utils/rel.h"
+#include "storage/procarray.h"
 
 #include "access/vertex.h"
 
@@ -31,6 +32,7 @@ static inline void vertex_hash_saveitem(VertexHeapScanDesc so, int itemIndex,
 								  OffsetNumber offnum, IndexTuple itup);
 static void vertex_hash_readnext(TableScanDesc scan, Buffer *bufp,
 						   Page *pagep, HashPageOpaque *opaquep);
+static void vertex_hash_kill_items(TableScanDesc scan);
 
 /*
  *	vertex_hash_next() -- Get the next item in a scan.
@@ -67,13 +69,13 @@ vertex_hash_next(TableScanDesc scan, ScanDirection dir)
 		if (++so->currPos.itemIndex > so->currPos.lastItem)
 		{
 			if (so->numKilled > 0)
-				_hash_kill_items(scan);
+				vertex_hash_kill_items(scan);
 
 			blkno = so->currPos.nextPage;
 			if (BlockNumberIsValid(blkno))
 			{
 				buf = _hash_getbuf(rel, blkno, HASH_READ, LH_OVERFLOW_PAGE);
-				TestForOldSnapshot(GetSnapshotData(), rel, BufferGetPage(buf));
+				TestForOldSnapshot(scan->rs_snapshot, rel, BufferGetPage(buf));
 				if (!vertex_hash_readpage(scan, &buf, dir))
 					end_of_scan = true;
 			}
@@ -86,14 +88,14 @@ vertex_hash_next(TableScanDesc scan, ScanDirection dir)
 		if (--so->currPos.itemIndex < so->currPos.firstItem)
 		{
 			if (so->numKilled > 0)
-				_hash_kill_items(scan);
+				vertex_hash_kill_items(scan);
 
 			blkno = so->currPos.prevPage;
 			if (BlockNumberIsValid(blkno))
 			{
 				buf = _hash_getbuf(rel, blkno, HASH_READ,
 								   LH_BUCKET_PAGE | LH_OVERFLOW_PAGE);
-				TestForOldSnapshot(GetSnapshotData(), rel, BufferGetPage(buf));
+				TestForOldSnapshot(scan->rs_snapshot, rel, BufferGetPage(buf));
 
 				/*
 				 * We always maintain the pin on bucket page for whole scan
@@ -114,7 +116,7 @@ vertex_hash_next(TableScanDesc scan, ScanDirection dir)
 
 	if (end_of_scan)
 	{
-		_hash_dropscanbuf(rel, so);
+		//_hash_dropscanbuf(rel,( TableScanDesc)so); TODO
 		HashScanPosInvalidate(so->currPos);
 		return false;
 	}
@@ -174,7 +176,7 @@ vertex_hash_readnext(TableScanDesc scan,
 		Assert(BufferIsValid(*bufp));
 
 		LockBuffer(*bufp, BUFFER_LOCK_SHARE);
-		PredicateLockPage(rel, BufferGetBlockNumber(*bufp), GetSnapshotData());
+		PredicateLockPage(rel, BufferGetBlockNumber(*bufp), scan->rs_snapshot);
 
 		/*
 		 * setting hashso_buc_split to true indicates that we are scanning
@@ -188,7 +190,7 @@ vertex_hash_readnext(TableScanDesc scan,
 	if (block_found)
 	{
 		*pagep = BufferGetPage(*bufp);
-		TestForOldSnapshot(GetSnapshotData(), rel, *pagep);
+		TestForOldSnapshot(scan->rs_snapshot, rel, *pagep);
 		*opaquep = (HashPageOpaque) PageGetSpecialPointer(*pagep);
 	}
 }
@@ -234,7 +236,7 @@ vertex__hash_readprev(TableScanDesc scan,
 		*bufp = _hash_getbuf(rel, blkno, HASH_READ,
 							 LH_BUCKET_PAGE | LH_OVERFLOW_PAGE);
 		*pagep = BufferGetPage(*bufp);
-		TestForOldSnapshot(GetSnapshotData(), rel, *pagep);
+		TestForOldSnapshot(scan->rs_snapshot, rel, *pagep);
 		*opaquep = (HashPageOpaque) PageGetSpecialPointer(*pagep);
 
 		/*
@@ -312,13 +314,13 @@ vertex_hash_first(TableScanDesc scan, ScanDirection dir)
 	 * to lock all the buckets against splits or compactions.
 	 */
 	 // XXX: This is a major problem and must be solved
-	// if (scan->numberOfKeys < 1)
-	//	ereport(ERROR,
-//(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	//			 errmsg("hash indexes do not support whole-index scans")));
+	 if (scan->rs_nkeys < 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("hash indexes do not support whole-index scans")));
 
 	/* There may be more than one index qual, but we hash only the first */
-	//cur = &scan->keyData[0];
+	cur = &scan->rs_key[0];
 
 	/* We support only single-column hash indexes */
 	//Assert(cur->sk_attno == 1);
@@ -346,15 +348,14 @@ vertex_hash_first(TableScanDesc scan, ScanDirection dir)
 		cur->sk_subtype == InvalidOid)
 		hashkey = _hash_datum2hashkey(rel, cur->sk_argument);
 	else
-		hashkey = _hash_datum2hashkey_type(rel, cur->sk_argument,
-										   cur->sk_subtype);
+		hashkey = _hash_datum2hashkey_type(rel, cur->sk_argument, cur->sk_subtype);
 
 	so->hashso_sk_hash = hashkey;
 
 	buf = _hash_getbucketbuf_from_hashkey(rel, hashkey, HASH_READ, NULL);
-	PredicateLockPage(rel, BufferGetBlockNumber(buf), GetSnapshotData());
+	PredicateLockPage(rel, BufferGetBlockNumber(buf), scan->rs_snapshot);
 	page = BufferGetPage(buf);
-	TestForOldSnapshot(GetSnapshotData(), rel, page);
+	//TestForOldSnapshot(scan->rs_snapshot, rel, page);
 	opaque = (HashPageOpaque) PageGetSpecialPointer(page);
 	bucket = opaque->hasho_bucket;
 
@@ -390,7 +391,7 @@ vertex_hash_first(TableScanDesc scan, ScanDirection dir)
 		LockBuffer(buf, BUFFER_LOCK_UNLOCK);
 
 		old_buf = _hash_getbuf(rel, old_blkno, HASH_READ, LH_BUCKET_PAGE);
-		TestForOldSnapshot(GetSnapshotData(), rel, BufferGetPage(old_buf));
+		TestForOldSnapshot(scan->rs_snapshot, rel, BufferGetPage(old_buf));
 
 		/*
 		 * remember the split bucket buffer so as to use it later for
@@ -440,6 +441,95 @@ vertex_hash_first(TableScanDesc scan, ScanDirection dir)
 	/* if we're here, vertex_hash_readpage found a valid tuples */
 	return true;
 }
+
+void
+vertex_hash_kill_items(TableScanDesc scan)
+{
+	HashScanOpaque so = (HashScanOpaque) scan;
+	Relation	rel = scan->rs_rd;
+	BlockNumber blkno;
+	Buffer		buf;
+	Page		page;
+	HashPageOpaque opaque;
+	OffsetNumber offnum,
+				maxoff;
+	int			numKilled = so->numKilled;
+	int			i;
+	bool		killedsomething = false;
+	bool		havePin = false;
+
+	Assert(so->numKilled > 0);
+	Assert(so->killedItems != NULL);
+	Assert(HashScanPosIsValid(so->currPos));
+
+	/*
+	 * Always reset the scan state, so we don't look for same items on other
+	 * pages.
+	 */
+	so->numKilled = 0;
+
+	blkno = so->currPos.currPage;
+	if (HashScanPosIsPinned(so->currPos))
+	{
+		/*
+		 * We already have pin on this buffer, so, all we need to do is
+		 * acquire lock on it.
+		 */
+		havePin = true;
+		buf = so->currPos.buf;
+		LockBuffer(buf, BUFFER_LOCK_SHARE);
+	}
+	else
+		buf = _hash_getbuf(rel, blkno, HASH_READ, LH_OVERFLOW_PAGE);
+
+	page = BufferGetPage(buf);
+	opaque = (HashPageOpaque) PageGetSpecialPointer(page);
+	maxoff = PageGetMaxOffsetNumber(page);
+
+	for (i = 0; i < numKilled; i++)
+	{
+		int			itemIndex = so->killedItems[i];
+		HashScanPosItem *currItem = &so->currPos.items[itemIndex];
+
+		offnum = currItem->indexOffset;
+
+		Assert(itemIndex >= so->currPos.firstItem &&
+			   itemIndex <= so->currPos.lastItem);
+
+		while (offnum <= maxoff)
+		{
+			ItemId		iid = PageGetItemId(page, offnum);
+			IndexTuple	ituple = (IndexTuple) PageGetItem(page, iid);
+
+			if (ItemPointerEquals(&ituple->t_tid, &currItem->heapTid))
+			{
+				/* found the item */
+				ItemIdMarkDead(iid);
+				killedsomething = true;
+				break;			/* out of inner search loop */
+			}
+			offnum = OffsetNumberNext(offnum);
+		}
+	}
+
+	/*
+	 * Since this can be redone later if needed, mark as dirty hint. Whenever
+	 * we mark anything LP_DEAD, we also set the page's
+	 * LH_PAGE_HAS_DEAD_TUPLES flag, which is likewise just a hint.
+	 */
+	if (killedsomething)
+	{
+		opaque->hasho_flag |= LH_PAGE_HAS_DEAD_TUPLES;
+		MarkBufferDirtyHint(buf, true);
+	}
+
+	if (so->hashso_bucket_buf == so->currPos.buf ||
+		havePin)
+		LockBuffer(so->currPos.buf, BUFFER_LOCK_UNLOCK);
+	else
+		_hash_relbuf(rel, buf);
+}
+
 
 /*
  *	vertex_hash_readpage() -- Load data from current index page into so->currPos
@@ -491,7 +581,7 @@ vertex_hash_readpage(TableScanDesc scan, Buffer *bufP, ScanDirection dir)
 			 * killed items.
 			 */
 			if (so->numKilled > 0)
-				_hash_kill_items(scan);
+				vertex_hash_kill_items(scan);
 
 			/*
 			 * If this is a primary bucket page, hasho_prevblkno is not a real
@@ -516,7 +606,7 @@ vertex_hash_readpage(TableScanDesc scan, Buffer *bufP, ScanDirection dir)
 				 * cursors to know the start position and return false
 				 * indicating that no more matching tuples were found. Also,
 				 * don't reset currPage or lsn, because we expect
-				 * _hash_kill_items to be called for the old page after this
+				 * vertex_hash_kill_items to be called for the old page after this
 				 * function returns.
 				 */
 				so->currPos.prevPage = prev_blkno;
@@ -550,7 +640,7 @@ vertex_hash_readpage(TableScanDesc scan, Buffer *bufP, ScanDirection dir)
 			 * any killed items.
 			 */
 			if (so->numKilled > 0)
-				_hash_kill_items(scan);
+				vertex_hash_kill_items(scan);
 
 			if (so->currPos.buf == so->hashso_bucket_buf ||
 				so->currPos.buf == so->hashso_split_bucket_buf)
@@ -569,7 +659,7 @@ vertex_hash_readpage(TableScanDesc scan, Buffer *bufP, ScanDirection dir)
 				 * cursors to know the start position and return false
 				 * indicating that no more matching tuples were found. Also,
 				 * don't reset currPage or lsn, because we expect
-				 * _hash_kill_items to be called for the old page after this
+				 * vertex_hash_kill_items to be called for the old page after this
 				 * function returns.
 				 */
 				so->currPos.prevPage = InvalidBlockNumber;
@@ -604,6 +694,54 @@ vertex_hash_readpage(TableScanDesc scan, Buffer *bufP, ScanDirection dir)
 }
 
 /*
+ * vertex_hash_checkqual -- does the index tuple satisfy the scan conditions?
+ */
+bool
+vertex_hash_checkqual(TableScanDesc scan, IndexTuple itup)
+{
+	/*
+	 * Currently, we can't check any of the scan conditions since we do not
+	 * have the original index entry value to supply to the sk_func. Always
+	 * return true; we expect that hashgettuple already set the recheck flag
+	 * to make the main indexscan code do it.
+	 */
+#ifdef NOT_USED
+	TupleDesc	tupdesc = RelationGetDescr(scan->indexRelation);
+	ScanKey		key = scan->keyData;
+	int			scanKeySize = scan->numberOfKeys;
+
+	while (scanKeySize > 0)
+	{
+		Datum		datum;
+		bool		isNull;
+		Datum		test;
+
+		datum = index_getattr(itup,
+							  key->sk_attno,
+							  tupdesc,
+							  &isNull);
+
+		/* assume sk_func is strict */
+		if (isNull)
+			return false;
+		if (key->sk_flags & SK_ISNULL)
+			return false;
+
+		test = FunctionCall2Coll(&key->sk_func, key->sk_collation,
+								 datum, key->sk_argument);
+
+		if (!DatumGetBool(test))
+			return false;
+
+		key++;
+		scanKeySize--;
+	}
+#endif
+
+	return true;
+}
+
+/*
  * Load all the qualified items from a current index page
  * into so->currPos. Helper function for vertex_hash_readpage.
  */
@@ -611,7 +749,7 @@ static int
 vertex_hash_load_qualified_items(TableScanDesc scan, Page page,
 						   OffsetNumber offnum, ScanDirection dir)
 {
-	VertexHeapScanDesc so = scan;
+	VertexHeapScanDesc so = (VertexHeapScanDesc)scan;
 	IndexTuple	itup;
 	int			itemIndex;
 	OffsetNumber maxoff;
@@ -642,7 +780,7 @@ vertex_hash_load_qualified_items(TableScanDesc scan, Page page,
 			}
 
 			if (so->hashso_sk_hash == _hash_get_indextuple_hashkey(itup) &&
-				_hash_checkqual(scan, itup))
+				vertex_hash_checkqual(scan, itup))
 			{
 				/* tuple is qualified, so remember it */
 				vertex_hash_saveitem(so, itemIndex, offnum, itup);
@@ -688,7 +826,7 @@ vertex_hash_load_qualified_items(TableScanDesc scan, Page page,
 			}
 
 			if (so->hashso_sk_hash == _hash_get_indextuple_hashkey(itup) &&
-				_hash_checkqual(scan, itup))
+				vertex_hash_checkqual(scan, itup))
 			{
 				itemIndex--;
 				/* tuple is qualified, so remember it */

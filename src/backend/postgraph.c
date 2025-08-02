@@ -26,6 +26,7 @@
 #include "nodes/ag_nodes.h"
 #include "optimizer/cypher_paths.h"
 #include "parser/cypher_analyze.h"
+#include "access/vertex.h"
 
 PG_MODULE_MAGIC;
 
@@ -37,6 +38,7 @@ void _PG_init(void)
     set_rel_pathlist_init();
     parse_analyze_init();
     parse_init();
+    register_seq_scan_hook();
 }
 
 void _PG_fini(void);
@@ -46,4 +48,5 @@ void _PG_fini(void)
     set_rel_pathlist_fini();
     parse_analyze_fini();
     parse_fini();
+    unregister_seq_scan_hook();
 }

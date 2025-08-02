@@ -91,7 +91,7 @@ void insert_label(const char *label_name, Oid graph_oid, int32 label_id,
         values[5] = ObjectIdGetDatum(vertex_adjlist);
         nulls[5] = false;
     } else { 
-        values[5] = NULL;
+        values[5] = 0;
         nulls[5] = true; 
     }
 

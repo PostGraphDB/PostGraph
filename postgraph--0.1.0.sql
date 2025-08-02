@@ -535,8 +535,8 @@ AS 'MODULE_PATHNAME';
 -- graphid - comparison operators (=, <>, <, >, <=, >=)
 --
 CREATE FUNCTION graphid_eq(graphid, graphid) 
-RETURNS boolean 
-LANGUAGE c 
+RETURNS BOOLEAN 
+LANGUAGE C
 IMMUTABLE 
 RETURNS NULL ON NULL INPUT 
 PARALLEL SAFE 
