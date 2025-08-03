@@ -63,6 +63,11 @@
 #define ag_label_label_index_id() \
     ag_relation_id("ag_label_ltree_index", "index")
 
+#define edge_metatable_id() \
+    ag_relation_id("edge_metatable_id", "index")
+#define edge_metatable_id_level() \
+    ag_relation_id("edge_metatable_id_level", "index")
+    
 #define LABEL_ID_SEQ_NAME "_label_id_seq"
 
 #define LABEL_KIND_VERTEX 'v'

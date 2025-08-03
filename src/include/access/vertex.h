@@ -21,6 +21,10 @@ typedef struct VertexScanDescData
 
 	TableScanDescData rs_base;	/* AM independent part of the descriptor */
 
+	int ndesc;
+	TableScanDesc **desc;
+	
+
 	/* Hash value of the scan key, ie, the hash key we seek */
 	uint32		hashso_sk_hash;
 

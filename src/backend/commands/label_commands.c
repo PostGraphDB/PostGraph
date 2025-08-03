@@ -94,7 +94,7 @@ static void range_var_callback_for_remove_relation(const RangeVar *rel,
                                                    Oid odl_rel_oid,
                                                    void *arg);
 static char *make_vertex_adjlist_alias(char *var_name);
-
+static List *create_edge_table_elements_topmost(void);
 
 PG_FUNCTION_INFO_V1(create_vlabel);
 Datum create_vlabel(PG_FUNCTION_ARGS)
@@ -523,7 +523,7 @@ void create_vertex_adjlist(char *graph_name, char *label_name) {
     create_stmt->relation = makeRangeVar(graph_name, rel_name, -1);
 
 
-    create_stmt->tableElts = create_vertex_adjlist_table_elements();
+    create_stmt->tableElts = create_edge_table_elements_topmost();
 
 
     create_stmt->inhRelations = NIL;
@@ -625,6 +625,12 @@ void create_label(char *graph_name, char *label_name, char label_type,
     if (label_type == 'v') {
         create_vertex_adjlist(graph_name, label_name);
         Oid adj_oid = get_relname_relid(make_vertex_adjlist_alias(label_name), nsp_id);
+
+        // 08/2/25: TODO - this is incorrect, but it will allow me to get the first two edge table I need created.
+        //                 So do it for now, change in the very near future
+        create_label(graph_name, make_vertex_adjlist_alias(make_vertex_adjlist_alias(label_name)), 'e', NIL , NULL);  
+
+
         insert_label(label_name, graph_oid, label_id, label_type, relation_id, NULL, adj_oid);
 
     }else {
@@ -692,6 +698,43 @@ static void create_table_for_label(char *graph_name, char *label_name,
                    NULL);
     // CommandCounterIncrement() is called in ProcessUtility()
 }
+
+
+// CREATE TABLE `schema_name`.`rel_name` (
+//   "id" graphid PRIMARY KEY DEFAULT CATALOG_SCHEMA."_graphid"(...),
+//   "start_id" graphid NOT NULL
+//   "end_id" graphid NOT NULL
+//   "properties" gtype NOT NULL DEFAULT CATALOG_SCHEMA."gtype_build_map"()
+// )
+static List *create_edge_table_elements_topmost(void)
+{
+    ColumnDef *id;
+    ColumnDef *start_id;
+    ColumnDef *end_id;
+    ColumnDef *props;
+
+    // "id" graphid PRIMARY KEY DEFAULT CATALOG_SCHEMA."_graphid"(...)
+    id = makeColumnDef(AG_EDGE_COLNAME_ID, GRAPHIDOID, -1, InvalidOid);
+    id->constraints = NIL;
+
+    // "start_id" graphid NOT NULL
+    start_id = makeColumnDef(AG_EDGE_COLNAME_START_ID, GRAPHIDOID, -1,
+                             InvalidOid);
+    start_id->constraints = list_make1(build_not_null_constraint());
+
+    // "end_id" graphid NOT NULL
+    end_id = makeColumnDef(AG_EDGE_COLNAME_END_ID, GRAPHIDOID, -1, InvalidOid);
+    end_id->constraints = list_make1(build_not_null_constraint());
+
+    // "properties" gtype NOT NULL DEFAULT CATALOG_SCHEMA."gtype_build_map"()
+    props = makeColumnDef(AG_EDGE_COLNAME_PROPERTIES, GTYPEOID, -1,
+                          InvalidOid);
+    props->constraints = list_make2(build_null_constraint(),
+                                    build_properties_default());
+
+    return list_make4(id, start_id, end_id, props);
+}
+
 
 // CREATE TABLE `schema_name`.`rel_name` (
 //   "id" graphid PRIMARY KEY DEFAULT CATALOG_SCHEMA."_graphid"(...),

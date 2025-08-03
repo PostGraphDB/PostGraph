@@ -46,6 +46,10 @@ MATCH () RETURN 1;
 
 CREATE ()-[]->();
 
+SELECT * FROM cypher_create._ag_label_vertex;
+
+SELECT * FROM cypher_create._adj__adj__ag_label_vertex;
+SELECT * FROM cypher_create._adj__ag_label_vertex;
 MATCH () RETURN 1;
 
 CYPHER WITH 1 as a

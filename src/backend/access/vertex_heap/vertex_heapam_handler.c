@@ -53,7 +53,8 @@
 #include "optimizer/plancat.h"
 #include "utils/inval.h"
 #include "access/visibilitymap.h"
-
+#include "utils/lsyscache.h"
+#include "access/table.h"
 
 
 #include "access/vertex.h"
@@ -1219,77 +1220,61 @@ vertex_heapam_slot_callbacks(Relation relation)
  * Functions related to scaning
  * ------------------------------------------------------------------------
  */
+
+static char *make_vertex_adjlist_alias(char *var_name) {
+    char *str = palloc0(strlen(var_name) + 8);
+
+    str[0] = '_';
+    str[1] = 'a';
+    str[2] = 'd';
+    str[3] = 'j';
+    str[4] = '_';
+
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 5] = var_name[i];
+    str[i + 5] = '\0';
+
+    return str;
+}
+
 TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
                 struct ScanKeyData *key, 
                 ParallelTableScanDesc parallel_scan, uint32 flags) {
+	VertexScanDescData *vertex_desc = palloc(sizeof(VertexScanDescData));
+	vertex_desc->rs_base.rs_rd = relation;
+	vertex_desc->rs_base.rs_snapshot = snapshot;
+	vertex_desc->rs_base.rs_nkeys = nkeys;
+	vertex_desc->rs_base.rs_key = key;
+	//vertex_desc->rs_base.rs_mintid = NULL;
+	//vertex_desc->rs_base.rs_maxtid = NULL;
+	vertex_desc->rs_base.rs_flags = flags;
+	vertex_desc->rs_base.rs_parallel = NULL;
 
-	VertexHeapScanDesc scan;
-	VertexHeapScanDesc so;
+	vertex_desc->ndesc = 1;
+	//Relation rel = table_open(RelnameGetRelid(make_vertex_adjlist_alias(RelationGetRelationName(relation))), AccessShareLock);
+	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
+	Oid oid = get_relname_relid(make_vertex_adjlist_alias(get_rel_name(RelationGetRelid(relation))), get_rel_namespace(RelationGetRelid(relation)));
+	Relation rel = RelationIdGetRelation(oid);
 
-
-	//scan->rs_strategy = NULL;	/* set in initscan */
-
-
-	//scan = RelationGetIndexScan(relation, nkeys, norderbys);
-
-	so = (VertexHeapScanDesc) palloc(sizeof(VertexScanDescData));
-
-
-	so->rs_base.rs_rd = relation;
-	so->rs_base.rs_snapshot = snapshot;
-	so->rs_base.rs_nkeys = nkeys;
-	so->rs_base.rs_key = key;
-	so->rs_base.rs_flags = flags;
-	so->rs_base.rs_parallel = parallel_scan;
-
-	HashScanPosInvalidate(so->currPos);
-	so->hashso_bucket_buf = InvalidBuffer;
-	so->hashso_split_bucket_buf = InvalidBuffer;
-
-	so->hashso_buc_populated = false;
-	so->hashso_buc_split = false;
-
-	so->killedItems = NULL;
-	so->numKilled = 0;
-
-	//scan->opaque = so;
-
-	return (TableScanDesc)so;
+	TableScanDesc *desc = tableam->scan_begin(rel,
+		  									 snapshot, 0, NULL, parallel_scan, flags);
+	vertex_desc->desc = palloc(sizeof (TableScanDesc *) * vertex_desc->ndesc);
+	vertex_desc->desc[0] = desc;
+	return vertex_desc;
 }
 
 void vertex_scan_end(TableScanDesc sscan) {
+	VertexScanDescData *vertex_desc = sscan;
+	
+	//Relation rel = table_open(RelnameGetRelid(make_vertex_adjlist_alias(RelationGetRelationName(relation))), AccessShareLock);
+	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
+	//Oid oid = get_relname_relid(make_vertex_adjlist_alias(get_rel_name(vertex_desc->rs_base.rs_rd->rd_id)), get_rel_namespace(vertex_desc->rs_base.rs_rd->rd_id));
+	//table_close((*vertex_desc->desc[0]->rs_rd, AccessShareLock);
 
+	tableam->scan_end(vertex_desc->desc[0]);
 
-    return;
-    HeapScanDesc scan = (HeapScanDesc) sscan;
-        
-    hash_seq_term(&scanStatus);
-
-    /* Note: no locking manipulations needed */
-    /*
-     * unpin scan buffers
-     */
-    if (BufferIsValid(scan->rs_cbuf))
-            ReleaseBuffer(scan->rs_cbuf);
-
-    /*
-     * decrement relation reference count and free scan descriptor storage
-     */
-    RelationDecrementReferenceCount(scan->rs_base.rs_rd);
-
-    if (scan->rs_base.rs_key)
-            pfree(scan->rs_base.rs_key);
-
-    if (scan->rs_strategy != NULL)
-            FreeAccessStrategy(scan->rs_strategy);
-
-    if (scan->rs_parallelworkerdata != NULL)
-            pfree(scan->rs_parallelworkerdata);
-
-    if (scan->rs_base.rs_flags & SO_TEMP_SNAPSHOT)
-            UnregisterSnapshot(scan->rs_base.rs_snapshot);
-
-    pfree(scan);
+	return ;
 }
 
 /*
@@ -1309,6 +1294,11 @@ void vertex_scan_rescan(TableScanDesc scan, struct ScanKeyData *key,
  */
 bool vertex_scan_getnextslot(TableScanDesc sscan, ScanDirection direction,
                 TupleTableSlot *slot) {
+	VertexScanDescData *vertex_desc = sscan;
+	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
+
+	ereport(WARNING,errmsg_internal("here"));
+	return tableam->scan_getnextslot(vertex_desc->desc[0], direction, slot);
 
     VertexHeapScanDesc so = (VertexHeapScanDesc) sscan;
 	bool		res;
@@ -1515,16 +1505,6 @@ vertex_RelationPutHeapTuple(Relation relation,
 					 HeapTuple tuple,
 					 bool token);
 
-
-
-
-/*
- * RelationPutHeapTuple - place tuple at specified page
- *
- * !!! EREPORT(ERROR) IS DISALLOWED HERE !!!  Must PANIC on failure!!!
- *
- * Note - caller must hold BUFFER_LOCK_EXCLUSIVE on the buffer.
- */
 Page
 vertex_RelationPutHeapTuple(Relation relation,
 					 Buffer buffer,
@@ -1587,30 +1567,11 @@ vertex_RelationPutHeapTuple(Relation relation,
 void vertex_tuple_insert(Relation relation, TupleTableSlot *slot,
                          CommandId cid, int options,
                          struct BulkInsertStateData *bistate) {
-    if (relation->rd_indexcxt == NULL) { 
-        relation->rd_indexcxt= AllocSetContextCreate(CacheMemoryContext,
-									 "index info",
-									 ALLOCSET_SMALL_SIZES);
-        MemoryContextCopyAndSetIdentifier(relation->rd_indexcxt,
-									      RelationGetRelationName(relation));	
-    }
-
-	Datum		index_values[1];
-	bool		index_isnull[1];
-	IndexTuple	itup;
-    bool shouldFree;
-    HeapTuple tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
-    tuple->t_tableOid = slot->tts_tableOid;
-
-	/* form an index tuple and point it at the heap tuple */
-	//itup = index_form_tuple(RelationGetDescr(relation), index_values, index_isnull);
-	//itup->t_tid = *ht_ctid;
-
-	vertex_hash_doinsert(relation, tuple, relation);
-
-    if(shouldFree)
-    	pfree(tuple);
-
+	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
+	Oid oid = get_relname_relid(make_vertex_adjlist_alias(get_rel_name(RelationGetRelid(relation))), get_rel_namespace(RelationGetRelid(relation)));
+	Relation rel = table_open(oid, RowExclusiveLock);
+	tableam->tuple_insert(rel, slot, cid, options, bistate);
+	table_close(rel, RowExclusiveLock);
 }
 
 /* see table_tuple_insert_speculative() for reference about parameters */
@@ -1640,413 +1601,8 @@ void vertex_multi_insert(Relation rel, TupleTableSlot **slots, int nslots,
 TM_Result vertex_tuple_delete(Relation relation, ItemPointer tid, CommandId cid,
                   Snapshot snapshot, Snapshot crosscheck, bool wait,
                   TM_FailureData *tmfd, bool changingPart) {
-    TM_Result    result;
-    TransactionId xid = GetCurrentTransactionId();
-    ItemId        lp;
-    HeapTupleData tp;
-    Page        page;
-    BlockNumber block;
-    Buffer        buffer;
-    Buffer        vmbuffer = InvalidBuffer;
-    TransactionId new_xmax;
-    uint16        new_infomask,
-                        new_infomask2;
-    bool        have_tuple_lock = false;
-    bool        iscombo;
-    bool        all_visible_cleared = false;
-    HeapTuple    old_key_tuple = NULL;    /* replica identity of the tuple */
-    bool        old_key_copied = false;
-
-    Assert(ItemPointerIsValid(tid));
-
-    /*
-     *      * Forbid this during a parallel operation, lest it allocate a combo CID.
-     *           * Other workers might need that combo CID for visibility checks, and we
-     *                * have no provision for broadcasting it to them.
-     *                     */
-    if (IsInParallelMode())
-            ereport(ERROR,
-                                (errcode(ERRCODE_INVALID_TRANSACTION_STATE),
-                                              errmsg("cannot delete tuples during a parallel operation")));
-
-    block = ItemPointerGetBlockNumber(tid);
-    buffer = ReadBuffer(relation, block);
-    page = BufferGetPage(buffer);
-
-    /*
-     *      * Before locking the buffer, pin the visibility map page if it appears to
-     *           * be necessary.  Since we haven't got the lock yet, someone else might be
-     *                * in the middle of changing this, so we'll need to recheck after we have
-     *                     * the lock.
-     *                          */
-    if (PageIsAllVisible(page))
-            visibilitymap_pin(relation, block, &vmbuffer);
-
-    LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-
-    lp = PageGetItemId(page, ItemPointerGetOffsetNumber(tid));
-    Assert(ItemIdIsNormal(lp));
-
-    tp.t_tableOid = RelationGetRelid(relation);
-    tp.t_data = (HeapTupleHeader) PageGetItem(page, lp);
-    tp.t_len = ItemIdGetLength(lp);
-    tp.t_self = *tid;
-
-l1:
-    /*
-     *      * If we didn't pin the visibility map page and the page has become all
-     *           * visible while we were busy locking the buffer, we'll have to unlock and
-     *                * re-lock, to avoid holding the buffer lock across an I/O.  That's a bit
-     *                     * unfortunate, but hopefully shouldn't happen often.
-     *                          */
-    if (vmbuffer == InvalidBuffer && PageIsAllVisible(page))
-        {
-                LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
-                    visibilitymap_pin(relation, block, &vmbuffer);
-                        LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-                        }
-
-    result = HeapTupleSatisfiesUpdate(&tp, cid, buffer);
-
-    if (result == TM_Invisible)
-        {
-                UnlockReleaseBuffer(buffer);
-                    ereport(ERROR,
-                                        (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                                                      errmsg("attempted to delete invisible tuple")));
-                       }
-    else if (result == TM_BeingModified && wait)
-        {
-                TransactionId xwait;
-                    uint16        infomask;
-
-                        /* must copy state data before unlocking buffer */
-                        xwait = HeapTupleHeaderGetRawXmax(tp.t_data);
-                            infomask = tp.t_data->t_infomask;
-
-                                /*
-                                 *          * Sleep until concurrent transaction ends -- except when there's a
-                                 *                   * single locker and it's our own transaction.  Note we don't care
-                                 *                            * which lock mode the locker has, because we need the strongest one.
-                                 *                                     *
-                                 *                                              * Before sleeping, we need to acquire tuple lock to establish our
-                                 *                                                       * priority for the tuple (see heap_lock_tuple).  LockTuple will
-                                 *                                                                * release us when we are next-in-line for the tuple.
-                                 *                                                                         *
-                                 *                                                                                  * If we are forced to "start over" below, we keep the tuple lock;
-                                 *                                                                                           * this arranges that we stay at the head of the line while rechecking
-                                 *                                                                                                    * tuple state.
-                                 *                                                                                                             */
-                                if (infomask & HEAP_XMAX_IS_MULTI)
-                                        {
-                                                    bool        current_is_member = false;
-
-                                                            if (DoesMultiXactIdConflict((MultiXactId) xwait, infomask,
-                                                                                                            LockTupleExclusive, &current_is_member))
-                                                                        {
-                                                                                        LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
-
-                                                                                                    /*
-                                                                                                     *                  * Acquire the lock, if necessary (but skip it when we're
-                                                                                                     *                                   * requesting a lock and already have one; avoids deadlock).
-                                                                                                     *                                                    */
-                                                                                                    if (!current_is_member)
-                                                                                                                        heap_acquire_tuplock(relation, &(tp.t_self), LockTupleExclusive,
-                                                                                                                                                                     LockWaitBlock, &have_tuple_lock);
-
-                                                                                                                /* wait for multixact */
-                                                                                                                MultiXactIdWait((MultiXactId) xwait, MultiXactStatusUpdate, infomask,
-                                                                                                                                                    relation, &(tp.t_self), XLTW_Delete,
-                                                                                                                                                                                NULL);
-                                                                                                                            LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-
-                                                                                                                                        /*
-                                                                                                                                         *                  * If xwait had just locked the tuple then some other xact
-                                                                                                                                         *                                   * could update this tuple before we get to this point.  Check
-                                                                                                                                         *                                                    * for xmax change, and start over if so.
-                                                                                                                                         *                                                                     *
-                                                                                                                                         *                                                                                      * We also must start over if we didn't pin the VM page, and
-                                                                                                                                         *                                                                                                       * the page has become all visible.
-                                                                                                                                         *                                                                                                                        */
-                                                                                                                                        if ((vmbuffer == InvalidBuffer && PageIsAllVisible(page)) ||
-                                                                                                                                                                xmax_infomask_changed(tp.t_data->t_infomask, infomask) ||
-                                                                                                                                                                                !TransactionIdEquals(HeapTupleHeaderGetRawXmax(tp.t_data),
-                                                                                                                                                                                                                         xwait))
-                                                                                                                                                            goto l1;
-                                                                                                                                                }
-
-                                                                    /*
-                                                                     *              * You might think the multixact is necessarily done here, but not
-                                                                     *                           * so: it could have surviving members, namely our own xact or
-                                                                     *                                        * other subxacts of this backend.  It is legal for us to delete
-                                                                     *                                                     * the tuple in either case, however (the latter case is
-                                                                     *                                                                  * essentially a situation of upgrading our former shared lock to
-                                                                     *                                                                               * exclusive).  We don't bother changing the on-disk hint bits
-                                                                     *                                                                                            * since we are about to overwrite the xmax altogether.
-                                                                     *                                                                                                         */
-                                                                }
-                                    else if (!TransactionIdIsCurrentTransactionId(xwait))
-                                            {
-                                                        /*
-                                                         *              * Wait for regular transaction to end; but first, acquire tuple
-                                                         *                           * lock.
-                                                         *                                        */
-                                                        LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
-                                                                heap_acquire_tuplock(relation, &(tp.t_self), LockTupleExclusive,
-                                                                                                     LockWaitBlock, &have_tuple_lock);
-                                                                        XactLockTableWait(xwait, relation, &(tp.t_self), XLTW_Delete);
-                                                                                LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-
-                                                                                        /*
-                                                                                         *              * xwait is done, but if xwait had just locked the tuple then some
-                                                                                         *                           * other xact could update this tuple before we get to this point.
-                                                                                         *                                        * Check for xmax change, and start over if so.
-                                                                                         *                                                     *
-                                                                                         *                                                                  * We also must start over if we didn't pin the VM page, and the
-                                                                                         *                                                                               * page has become all visible.
-                                                                                         *                                                                                            */
-                                                                                        if ((vmbuffer == InvalidBuffer && PageIsAllVisible(page)) ||
-                                                                                                            xmax_infomask_changed(tp.t_data->t_infomask, infomask) ||
-                                                                                                                        !TransactionIdEquals(HeapTupleHeaderGetRawXmax(tp.t_data),
-                                                                                                                                                             xwait))
-                                                                                                        goto l1;
-
-                                                                                                /* Otherwise check if it committed or aborted */
-                                                                                                UpdateXmaxHintBits(tp.t_data, buffer, xwait);
-                                                                                                    }
-
-                                        /*
-                                         *          * We may overwrite if previous xmax aborted, or if it committed but
-                                         *                   * only locked the tuple without updating it.
-                                         *                            */
-                                        if ((tp.t_data->t_infomask & HEAP_XMAX_INVALID) ||
-                                                        HEAP_XMAX_IS_LOCKED_ONLY(tp.t_data->t_infomask) ||
-                                                                HeapTupleHeaderIsOnlyLocked(tp.t_data))
-                                                    result = TM_Ok;
-                                            else if (!ItemPointerEquals(&tp.t_self, &tp.t_data->t_ctid))
-                                                        result = TM_Updated;
-                                                else
-                                                            result = TM_Deleted;
-                                                }
-
-    /* sanity check the result HeapTupleSatisfiesUpdate() and the logic above */
-    if (result != TM_Ok)
-        {
-                Assert(result == TM_SelfModified ||
-                                   result == TM_Updated ||
-                                              result == TM_Deleted ||
-                                                   result == TM_BeingModified);
-                     Assert(!(tp.t_data->t_infomask & HEAP_XMAX_INVALID));
-                Assert(result != TM_Updated ||
-                               !ItemPointerEquals(&tp.t_self, &tp.t_data->t_ctid));
-            }
-
-    if (crosscheck != InvalidSnapshot && result == TM_Ok)
-        {
-                /* Perform additional check for transaction-snapshot mode RI updates */
-                if (!HeapTupleSatisfiesVisibility(&tp, crosscheck, buffer))
-                            result = TM_Updated;
-                }
-
-    if (result != TM_Ok)
-        {
-                tmfd->ctid = tp.t_data->t_ctid;
-                    tmfd->xmax = HeapTupleHeaderGetUpdateXid(tp.t_data);
-                        if (result == TM_SelfModified)
-                                    tmfd->cmax = HeapTupleHeaderGetCmax(tp.t_data);
-                            else
-                                        tmfd->cmax = InvalidCommandId;
-                                UnlockReleaseBuffer(buffer);
-                                    if (have_tuple_lock)
-                                                UnlockTupleTuplock(relation, &(tp.t_self), LockTupleExclusive);
-                                        if (vmbuffer != InvalidBuffer)
-                                                    ReleaseBuffer(vmbuffer);
-                                            return result;
-                                            }
-
-    /*
-     *      * We're about to do the actual delete -- check for conflict first, to
-     *           * avoid possibly having to roll back work we've just done.
-     *                *
-     *                     * This is safe without a recheck as long as there is no possibility of
-     *                          * another process scanning the page between this check and the delete
-     *                               * being visible to the scan (i.e., an exclusive buffer content lock is
-     *                                    * continuously held from this point until the tuple delete is visible).
-     *                                         */
-    CheckForSerializableConflictIn(relation, tid, BufferGetBlockNumber(buffer));
-
-    /* replace cid with a combo CID if necessary */
-    HeapTupleHeaderAdjustCmax(tp.t_data, &cid, &iscombo);
-
-    /*
-     *      * Compute replica identity tuple before entering the critical section so
-     *           * we don't PANIC upon a memory allocation failure.
-     *                */
-    old_key_tuple = ExtractReplicaIdentity(relation, &tp, true, &old_key_copied);
-
-    /*
-     *      * If this is the first possibly-multixact-able operation in the current
-     *           * transaction, set my per-backend OldestMemberMXactId setting. We can be
-     *                * certain that the transaction will never become a member of any older
-     *                     * MultiXactIds than that.  (We have to do this even if we end up just
-     *                          * using our own TransactionId below, since some other backend could
-     *                               * incorporate our XID into a MultiXact immediately afterwards.)
-     *                                    */
-    MultiXactIdSetOldestMember();
-
-    compute_new_xmax_infomask(HeapTupleHeaderGetRawXmax(tp.t_data),
-                                      tp.t_data->t_infomask, tp.t_data->t_infomask2,
-                                                                xid, LockTupleExclusive, true,
-                                                                                      &new_xmax, &new_infomask, &new_infomask2);
-
-    START_CRIT_SECTION();
-
-    /*
-     *      * If this transaction commits, the tuple will become DEAD sooner or
-     *           * later.  Set flag that this page is a candidate for pruning once our xid
-     *                * falls below the OldestXmin horizon.  If the transaction finally aborts,
-     *                     * the subsequent page pruning will be a no-op and the hint will be
-     *                          * cleared.
-     *                               */
-    PageSetPrunable(page, xid);
-
-    if (PageIsAllVisible(page))
-        {
-                all_visible_cleared = true;
-                    PageClearAllVisible(page);
-                        visibilitymap_clear(relation, BufferGetBlockNumber(buffer),
-                                                        vmbuffer, VISIBILITYMAP_VALID_BITS);
-                        }
-
-    /* store transaction information of xact deleting the tuple */
-    tp.t_data->t_infomask &= ~(HEAP_XMAX_BITS | HEAP_MOVED);
-    tp.t_data->t_infomask2 &= ~HEAP_KEYS_UPDATED;
-    tp.t_data->t_infomask |= new_infomask;
-    tp.t_data->t_infomask2 |= new_infomask2;
-    HeapTupleHeaderClearHotUpdated(tp.t_data);
-    HeapTupleHeaderSetXmax(tp.t_data, new_xmax);
-    HeapTupleHeaderSetCmax(tp.t_data, cid, iscombo);
-    /* Make sure there is no forward chain link in t_ctid */
-    tp.t_data->t_ctid = tp.t_self;
-
-    /* Signal that this is actually a move into another partition */
-    if (changingPart)
-            HeapTupleHeaderSetMovedPartitions(tp.t_data);
-
-    MarkBufferDirty(buffer);
-
-    /*
-     *      * XLOG stuff
-     *           *
-     *                * NB: heap_abort_speculative() uses the same xlog record and replay
-     *                     * routines.
-     *                          */
-    if (RelationNeedsWAL(relation))
-        {
-                xl_heap_delete xlrec;
-                    xl_heap_header xlhdr;
-                        XLogRecPtr    recptr;
-
-                            /*
-                             *          * For logical decode we need combo CIDs to properly decode the
-                             *                   * catalog
-                             *                            */
-                            if (RelationIsAccessibleInLogicalDecoding(relation))
-                                        log_heap_new_cid(relation, &tp);
-
-                                xlrec.flags = 0;
-                                    if (all_visible_cleared)
-                                                xlrec.flags |= XLH_DELETE_ALL_VISIBLE_CLEARED;
-                                        if (changingPart)
-                                                    xlrec.flags |= XLH_DELETE_IS_PARTITION_MOVE;
-                                            xlrec.infobits_set = compute_infobits(tp.t_data->t_infomask,
-                                                                                              tp.t_data->t_infomask2);
-                                                xlrec.offnum = ItemPointerGetOffsetNumber(&tp.t_self);
-                                                    xlrec.xmax = new_xmax;
-
-                                                        if (old_key_tuple != NULL)
-                                                                {
-                                                                            if (relation->rd_rel->relreplident == REPLICA_IDENTITY_FULL)
-                                                                                            xlrec.flags |= XLH_DELETE_CONTAINS_OLD_TUPLE;
-                                                                                    else
-                                                                                                    xlrec.flags |= XLH_DELETE_CONTAINS_OLD_KEY;
-                                                                                        }
-
-                                                            XLogBeginInsert();
-                                                                XLogRegisterData((char *) &xlrec, SizeOfHeapDelete);
-
-                                                                    XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
-
-                                                                        /*
-                                                                         *          * Log replica identity of the deleted tuple if there is one
-                                                                         *                   */
-                                                                        if (old_key_tuple != NULL)
-                                                                                {
-                                                                                            xlhdr.t_infomask2 = old_key_tuple->t_data->t_infomask2;
-                                                                                                    xlhdr.t_infomask = old_key_tuple->t_data->t_infomask;
-                                                                                                            xlhdr.t_hoff = old_key_tuple->t_data->t_hoff;
-
-                                                                                                                    XLogRegisterData((char *) &xlhdr, SizeOfHeapHeader);
-                                                                                                                            XLogRegisterData((char *) old_key_tuple->t_data
-                                                                                                                                                             + SizeofHeapTupleHeader,
-                                                                                                                                                                                      old_key_tuple->t_len
-                                                                                                                                                                                                             - SizeofHeapTupleHeader);
-                                                                                                                                   }
-
-                                                                        /* filtering by origin on a row level is much more efficient */
-                                                                        XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
-
-                                                                        recptr = XLogInsert(RM_HEAP_ID, XLOG_HEAP_DELETE);
-
-                                                                        PageSetLSN(page, recptr);
-                                                                    }
-
-    END_CRIT_SECTION();
-
-    LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
-
-    if (vmbuffer != InvalidBuffer)
-            ReleaseBuffer(vmbuffer);
-
-    /*
-     *      * If the tuple has toasted out-of-line attributes, we need to delete
-     *           * those items too.  We have to do this before releasing the buffer
-     *                * because we need to look at the contents of the tuple, but it's OK to
-     *                     * release the content lock on the buffer first.
-     *                          */
-    if (relation->rd_rel->relkind != RELKIND_RELATION &&
-                relation->rd_rel->relkind != RELKIND_MATVIEW)
-        {
-                /* toast table entries should never be recursively toasted */
-                Assert(!HeapTupleHasExternal(&tp));
-                }
-    else if (HeapTupleHasExternal(&tp))
-            heap_toast_delete(relation, &tp, false);
-
-    /*
-     *      * Mark tuple for invalidation from system caches at next command
-     *           * boundary. We have to do this before releasing the buffer because we
-     *                * need to look at the contents of the tuple.
-     *                     */
-    CacheInvalidateHeapTuple(relation, &tp, NULL);
-
-    /* Now we can release the buffer */
-    ReleaseBuffer(buffer);
-
-    /*
-     *      * Release the lmgr tuple lock, if we had it.
-     *           */
-    if (have_tuple_lock)
-            UnlockTupleTuplock(relation, &(tp.t_self), LockTupleExclusive);
-
-    pgstat_count_heap_delete(relation);
-
-    if (old_key_tuple != NULL && old_key_copied)
-            heap_freetuple(old_key_tuple);
-
-    return TM_Ok;    
-
-
+    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg_internal("vertex_tuple_delete not implemented")));
 }
 
 /* see table_tuple_update() for reference about parameters */
@@ -2157,9 +1713,6 @@ void vertex_relation_set_new_filenode(Relation rel, const RelFileNode *newrnode,
  * See also table_relation_nontransactional_truncate().
  */
 void vertex_relation_nontransactional_truncate(Relation rel) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
 
 
 }
@@ -2579,6 +2132,7 @@ bool vertex_scan_sample_next_tuple(TableScanDesc scan, struct SampleScanState *s
 return false;    
 }
 
+
 /* ------------------------------------------------------------------------
  * Definition of the heap table access method.
  * ------------------------------------------------------------------------
@@ -2621,13 +2175,13 @@ static const TableAmRoutine vertex_heapam_methods = {
     .index_delete_tuples = vertex_index_delete_tuples,
 
     .relation_set_new_filenode = vertex_relation_set_new_filenode,
-    .relation_nontransactional_truncate = NULL,
+    .relation_nontransactional_truncate = vertex_relation_nontransactional_truncate,
     .relation_copy_data = vertex_relation_copy_data,
-    .relation_copy_for_cluster = NULL,
+    .relation_copy_for_cluster = vertex_relation_copy_for_cluster,
     .relation_vacuum = vertex_relation_vacuum,
     .scan_analyze_next_block = vertex_scan_analyze_next_block,
     .scan_analyze_next_tuple = vertex_scan_analyze_next_tuple,
-    .index_build_range_scan = NULL,
+    .index_build_range_scan = vertex_index_build_range_scan,
     .index_validate_scan = vertex_index_validate_scan,
 
     .relation_size = vertex_relation_size,
@@ -3228,7 +2782,9 @@ restart_insert:
 static exec_seq_scan_scan_key_hook_type prev_exec_seq_scan_scan_key_hook = NULL;
 
 void postgraph_seq_scan_key_hook (SeqScanState *node,
-					   					int *numScanKeys, ScanKey scanKeys) {
+					   				int *numScanKeys, ScanKey scanKeys) {
+
+										ereport(WARNING, errmsg("In hook"));
 	return;
 }
 
@@ -3240,3 +2796,4 @@ void register_seq_scan_hook(void){
 void unregister_seq_scan_hook(void){
 	exec_seq_scan_scan_key_hook = prev_exec_seq_scan_scan_key_hook;
 }
+	

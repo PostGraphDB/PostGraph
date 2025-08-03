@@ -83,6 +83,22 @@ CREATE INDEX ag_label_ltree_index
 ON ag_label 
 USING gist (label_path public.gist_ltree_ops);
 
+CREATE TABLE edge_metatable (
+    id label_id NOT NULL,
+    level int NOT NULL,
+    base_rel regclass NOT NULL,
+    sub_rel regclass NOT NULL--,
+    --CONSTRAINT fk_label_id FOREIGN KEY(id) REFERENCES ag_label(id)
+);
+
+CREATE INDEX edge_metatable_id 
+ON edge_metatable
+USING btree (id);
+
+CREATE INDEX edge_metatable_id_level 
+ON edge_metatable
+USING btree (id, level);
+
 CREATE TABLE session_graph_use (
    pid oid not null,
    graph_oid oid not null

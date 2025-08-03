@@ -27,6 +27,7 @@
 #include "optimizer/cypher_paths.h"
 #include "parser/cypher_analyze.h"
 #include "access/vertex.h"
+#include "executor/nodeSeqscan.h"
 
 PG_MODULE_MAGIC;
 

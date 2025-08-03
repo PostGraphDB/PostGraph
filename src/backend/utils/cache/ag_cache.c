@@ -88,6 +88,7 @@ typedef struct label_relation_cache_entry
     label_cache_data data;
 } label_relation_cache_entry;
 
+
 // ag_graph.name
 static HTAB *graph_name_cache_hash = NULL;
 static ScanKeyData graph_name_scan_keys[1];

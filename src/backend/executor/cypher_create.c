@@ -194,7 +194,6 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
         // Open all indexes for the relation
         ExecOpenIndices(cypher_node->resultRelInfo, false);
     
-
         // Setup the relation's tuple slot
         cypher_node->elemTupleSlot = table_slot_create(rel, &estate->es_tupleTable); 
 
@@ -290,9 +289,6 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
         
     }
 
-    
-    //TODO: the edges aren't setup to use this. I gotta get the correct relid in cypher_target_node.
-    // Then I gotta get any existing tuple, and update it if it exists, and insert if it doesn't
     for (int i = 0; i < list_length(path->target_nodes)/2 + 1; i++) {
         cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i * 2);
                 
@@ -330,9 +326,15 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
             elemTupleSlot->tts_values[0] = css->edge_ids[0][i];
             elemTupleSlot->tts_isnull[0] = false;
 
+            elemTupleSlot->tts_values[1] = css->vertex_ids[0][i];
+            elemTupleSlot->tts_isnull[1] = false;
+            
+            elemTupleSlot->tts_values[2] = css->vertex_ids[0][i+1];
+            elemTupleSlot->tts_isnull[2] = false;
             // get the properties for this vertex
-            elemTupleSlot->tts_values[1] = NULL;
-            elemTupleSlot->tts_isnull[1] = true;
+            elemTupleSlot->tts_values[3] = NULL;
+            elemTupleSlot->tts_isnull[3] = true;
+
             // Insert the new vertex
             insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
         }
@@ -364,8 +366,12 @@ static void end_cypher_create(CustomScanState *node)
                 continue;
 
             ExecCloseIndices(cypher_node->resultRelInfo);
+            table_close(cypher_node->resultRelInfo->ri_RelationDesc, RowExclusiveLock);
             ExecCloseIndices(cypher_node->adj_resultRelInfo);
             table_close(cypher_node->adj_resultRelInfo->ri_RelationDesc, RowExclusiveLock);
+
+
+
         }
     }
 }
@@ -454,8 +460,6 @@ static void insert_vertex(cypher_create_custom_scan_state *css,
 /*
  * Insert the edge/vertex tuple into the table and indices. Check that the
  * table's constraints have not been violated.
- *
- * This function uses the passed cid for updates.
  */
 HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
                                   TupleTableSlot *elemTupleSlot,
@@ -464,14 +468,14 @@ HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
     HeapTuple tuple = NULL;
 
     ExecStoreVirtualTuple(elemTupleSlot);
-    tuple = ExecFetchSlotHeapTuple(elemTupleSlot, true, NULL);
+   // tuple = ExecFetchSlotHeapTuple(elemTupleSlot, true, NULL);
 
     /* Check the constraints of the tuple */
-    tuple->t_tableOid = RelationGetRelid(resultRelInfo->ri_RelationDesc);
-    if (resultRelInfo->ri_RelationDesc->rd_att->constr != NULL)
+    //tuple->t_tableOid = resultRelInfo->ri_RelationDesc->rd_id;
+   /* if (resultRelInfo->ri_RelationDesc->rd_att->constr != NULL)
     {
         ExecConstraints(resultRelInfo, elemTupleSlot, estate);
-    }
+    }*/
 
     // Insert the tuple normally
     table_tuple_insert(resultRelInfo->ri_RelationDesc, elemTupleSlot, estate->es_output_cid, 0, NULL);
@@ -482,7 +486,7 @@ HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
         ExecInsertIndexTuples(resultRelInfo, elemTupleSlot, estate, false, false, NULL, NIL);
     }
 
-    return tuple;
+    return NULL;
 }
 
 

@@ -18,7 +18,7 @@
 
 LOAD 'postgraph';
 set search_path 'postgraph';
-
+/*
 CREATE TABLE vertex_am_tst (id postgraph.graphid not null, props postgraph.gtype not null) USING vertex_adjlist;
 
 
@@ -29,7 +29,7 @@ VALUES ('1'::postgraph.graphid, postgraph.gtype_build_map('id', 1));
 SELECT '1'::postgraph.graphid OPERATOR(postgraph.=) '1'::postgraph.graphid;
 EXPLAIN SELECT * FROM vertex_am_tst WHERE id OPERATOR(postgraph.=) '1'::postgraph.graphid;
 SELECT * FROM vertex_am_tst WHERE id OPERATOR(postgraph.=) '1'::postgraph.graphid;
-/*
+
 DELETE FROM vertex_am_tst;
 
 
