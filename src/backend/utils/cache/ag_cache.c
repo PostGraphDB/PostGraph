@@ -156,6 +156,7 @@ static void flush_label_graph_oid_cache(void);
 static void invalidate_label_relation_cache(Oid relid);
 static void flush_label_relation_cache(void);
 static void invalidate_vertex_adjlist_cache(Oid relid);
+static void invalidate_label_vertex_adjlist_cache(Oid relid);
 static void flush_label_vertex_adjlist_cache(void);
 
 static label_cache_data *search_label_name_graph_cache_miss(Name name,
@@ -502,6 +503,10 @@ static void initialize_label_caches(void)
     ag_cache_scan_key_init(&label_relation_scan_keys[0],
                            Anum_ag_label_relation, F_OIDEQ);
 
+
+    // ag_label.vertex_adjlist
+    ag_cache_scan_key_init(&label_vertex_adjlist_scan_keys[0],
+                           6, F_OIDEQ);                   
     create_label_caches();
 
     /*
@@ -761,6 +766,21 @@ static void flush_label_relation_cache(void)
     }
 }
 
+
+static void invalidate_label_vertex_adjlist_cache(Oid relid)
+{
+    label_vertex_adjlist_cache_entry *entry;
+    void *removed;
+
+    entry = hash_search(label_vertex_adjlist_cache_hash, &relid, HASH_FIND, NULL);
+    if (!entry)
+        return;
+
+    removed = hash_search(label_vertex_adjlist_cache_hash, &relid, HASH_REMOVE,
+                          NULL);
+    if (!removed)
+        ereport(ERROR, (errmsg_internal("label (vertex_adjlist) cache corrupted")));
+}
 
 static void flush_label_vertex_adjlist_cache(void)
 {
@@ -1028,8 +1048,8 @@ static label_cache_data *search_label_vertex_adjlist_cache_miss(Oid relation)
     bool found;
     label_cache_data *entry;
 
-    memcpy(scan_keys, label_relation_scan_keys,
-           sizeof(label_relation_scan_keys));
+    memcpy(scan_keys, label_vertex_adjlist_scan_keys,
+           sizeof(label_vertex_adjlist_scan_keys));
     scan_keys[0].sk_argument = ObjectIdGetDatum(relation);
 
     /*
@@ -1037,7 +1057,7 @@ static label_cache_data *search_label_vertex_adjlist_cache_miss(Oid relation)
      * might invalidate the label caches. This is OK because this function is
      * called when the desired entry is not in the cache.
      */
-    ag_label = table_open(ag_label_vertex_adjlist_id(), AccessShareLock);
+    ag_label = table_open(ag_label_relation_id(), AccessShareLock);
     scan_desc = systable_beginscan(ag_label, ag_label_vertex_adjlist_index_id(), true,
                                    NULL, 1, scan_keys);
 
@@ -1053,7 +1073,7 @@ static label_cache_data *search_label_vertex_adjlist_cache_miss(Oid relation)
     }
 
     // get a new entry
-    entry = hash_search(label_relation_cache_hash, &relation, HASH_ENTER,
+    entry = hash_search(label_vertex_adjlist_cache_hash, &relation, HASH_ENTER,
                         &found);
     Assert(!found); // no concurrent update on label_relation_cache_hash
 

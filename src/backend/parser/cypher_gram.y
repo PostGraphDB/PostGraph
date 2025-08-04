@@ -12813,7 +12813,9 @@ ExplainableStmt:
 			| CreateAsStmt
 			| CreateMatViewStmt 
 			| RefreshMatViewStmt
-			| ExecuteStmt					
+			| ExecuteStmt	
+			| cypher_stmt
+					
 		;
 
 

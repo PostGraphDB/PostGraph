@@ -60,6 +60,10 @@
     ag_relation_id("ag_label_graph_oid_index", "index")
 #define ag_label_relation_index_id() \
     ag_relation_id("ag_label_relation_index", "index")
+
+#define ag_label_vertex_adjlist_index_id() \
+    ag_relation_id("ag_label_vertex_adjlist_index", "index")
+
 #define ag_label_label_index_id() \
     ag_relation_id("ag_label_ltree_index", "index")
 

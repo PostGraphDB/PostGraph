@@ -1301,9 +1301,16 @@ void vertex_scan_rescan(TableScanDesc scan, struct ScanKeyData *key,
 bool vertex_scan_getnextslot(TableScanDesc sscan, ScanDirection direction,
                 TupleTableSlot *slot) {
 	VertexScanDescData *vertex_desc = sscan;
+
+
+	if(vertex_desc->rs_base.rs_nkeys != 1)
+	ereport(WARNING,errmsg_internal("here"));
+	else
+ereport(WARNING,errmsg_internal("there"));
+	
+
 	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
 
-	ereport(WARNING,errmsg_internal("here"));
 	return tableam->scan_getnextslot(vertex_desc->desc[0], direction, slot);
 
     VertexHeapScanDesc so = (VertexHeapScanDesc) sscan;
@@ -2784,18 +2791,18 @@ restart_insert:
 }
 
 #include "executor/nodeSeqscan.h"
-
+#include "utils/ag_cache.h"
 static exec_seq_scan_scan_key_hook_type prev_exec_seq_scan_scan_key_hook = NULL;
 
 void postgraph_seq_scan_key_hook (SeqScanState *node,
 					   				int *numScanKeys, ScanKey scanKeys) {
 
-	ereport(WARNING, errmsg("In hook"));
 
-vertex_exec_index_build_ScanKeys(node, node->ss.ss_currentRelation,
-					   node->ss.ps.plan->qual,
-					   scanKeys, numScanKeys);
-
+	label_cache_data *lcd = search_label_vertex_adjlist_cache(RelationGetRelid(node->ss.ss_currentRelation));
+	if (lcd) {
+		ereport(WARNING, errmsg("Found an edge scan"));
+		vertex_exec_index_build_ScanKeys(node, node->ss.ss_currentRelation, node->ss.ps.plan->qual, scanKeys, numScanKeys);
+	}
 	return;
 }
 
