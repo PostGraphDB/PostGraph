@@ -75,6 +75,11 @@ CREATE UNIQUE INDEX ag_label_relation_index
 ON ag_label 
 USING btree (relation);
 
+CREATE UNIQUE INDEX ag_label_vertex_adjlist_index 
+ON ag_label 
+USING btree (vertex_adjlist);
+
+
 CREATE UNIQUE INDEX ag_label_path_graph_index
 ON ag_label
 USING btree (label_path, graph);

@@ -50,6 +50,9 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 
+#include "access/nbtree.h"
+#include "nodes/nodeFuncs.h"
+
 #include "optimizer/plancat.h"
 #include "utils/inval.h"
 #include "access/visibilitymap.h"
@@ -79,7 +82,10 @@ uint32
 vertex_hash_init(Relation rel, double num_tuples, ForkNumber forkNum);
 void
 vertex_hash_doinsert(Relation rel, HeapTuple itup, Relation heapRel);
-
+void
+vertex_exec_index_build_ScanKeys(PlanState *planstate, Relation index,
+					   List *quals,
+					   ScanKey scanKeys, int *numScanKeys);
 typedef struct vertex_hash_struct
 {
     graphid id; // hash key
@@ -2784,7 +2790,12 @@ static exec_seq_scan_scan_key_hook_type prev_exec_seq_scan_scan_key_hook = NULL;
 void postgraph_seq_scan_key_hook (SeqScanState *node,
 					   				int *numScanKeys, ScanKey scanKeys) {
 
-										ereport(WARNING, errmsg("In hook"));
+	ereport(WARNING, errmsg("In hook"));
+
+vertex_exec_index_build_ScanKeys(node, node->ss.ss_currentRelation,
+					   node->ss.ps.plan->qual,
+					   scanKeys, numScanKeys);
+
 	return;
 }
 
@@ -2797,3 +2808,200 @@ void unregister_seq_scan_hook(void){
 	exec_seq_scan_scan_key_hook = prev_exec_seq_scan_scan_key_hook;
 }
 	
+
+
+
+/*
+ * ExecIndexBuildScanKeys
+ *		Build the index scan keys from the index qualification expressions
+ *
+ * The index quals are passed to the index AM in the form of a ScanKey array.
+ * This routine sets up the ScanKeys, fills in all constant fields of the
+ * ScanKeys, and prepares information about the keys that have non-constant
+ * comparison values.  We divide index qual expressions into five types:
+ *
+ * 1. Simple operator with constant comparison value ("indexkey op constant").
+ * For these, we just fill in a ScanKey containing the constant value.
+ *
+ * 2. Simple operator with non-constant value ("indexkey op expression").
+ * For these, we create a ScanKey with everything filled in except the
+ * expression value, and set up an IndexRuntimeKeyInfo struct to drive
+ * evaluation of the expression at the right times.
+ *
+ * 3. RowCompareExpr ("(indexkey, indexkey, ...) op (expr, expr, ...)").
+ * For these, we create a header ScanKey plus a subsidiary ScanKey array,
+ * as specified in access/skey.h.  The elements of the row comparison
+ * can have either constant or non-constant comparison values.
+ *
+ * 4. ScalarArrayOpExpr ("indexkey op ANY (array-expression)").  If the index
+ * supports amsearcharray, we handle these the same as simple operators,
+ * setting the SK_SEARCHARRAY flag to tell the AM to handle them.  Otherwise,
+ * we create a ScanKey with everything filled in except the comparison value,
+ * and set up an IndexArrayKeyInfo struct to drive processing of the qual.
+ * (Note that if we use an IndexArrayKeyInfo struct, the array expression is
+ * always treated as requiring runtime evaluation, even if it's a constant.)
+ *
+ * 5. NullTest ("indexkey IS NULL/IS NOT NULL").  We just fill in the
+ * ScanKey properly.
+ *
+ * This code is also used to prepare ORDER BY expressions for amcanorderbyop
+ * indexes.  The behavior is exactly the same, except that we have to look up
+ * the operator differently.  Note that only cases 1 and 2 are currently
+ * possible for ORDER BY.
+ *
+ * Input params are:
+ *
+ * planstate: executor state node we are working for
+ * index: the index we are building scan keys for
+ * quals: indexquals (or indexorderbys) expressions
+ * isorderby: true if processing ORDER BY exprs, false if processing quals
+ * *runtimeKeys: ptr to pre-existing IndexRuntimeKeyInfos, or NULL if none
+ * *numRuntimeKeys: number of pre-existing runtime keys
+ *
+ * Output params are:
+ *
+ * *scanKeys: receives ptr to array of ScanKeys
+ * *numScanKeys: receives number of scankeys
+ * *runtimeKeys: receives ptr to array of IndexRuntimeKeyInfos, or NULL if none
+ * *numRuntimeKeys: receives number of runtime keys
+ * *arrayKeys: receives ptr to array of IndexArrayKeyInfos, or NULL if none
+ * *numArrayKeys: receives number of array keys
+ *
+ * Caller may pass NULL for arrayKeys and numArrayKeys to indicate that
+ * IndexArrayKeyInfos are not supported.
+ */
+void
+vertex_exec_index_build_ScanKeys(PlanState *planstate, Relation index,
+					   List *quals,
+					   ScanKey scanKeys, int *numScanKeys)
+{
+	ListCell   *qual_cell;
+
+	IndexRuntimeKeyInfo *runtime_keys;
+	int			n_runtime_keys;
+	int			max_runtime_keys;
+	int			j;
+
+	/* Allocate array for ScanKey */
+	scanKeys = palloc(sizeof(IndexRuntimeKeyInfo));
+
+	/*
+	 * runtime_keys array is dynamically resized as needed.  We handle it this
+	 * way so that the same runtime keys array can be shared between
+	 * indexquals and indexorderbys, which will be processed in separate calls
+	 * of this function.  Caller must be sure to pass in NULL/0 for first
+	 * call.
+	 */
+	numScanKeys = 0;
+
+
+
+	/*
+	 * for each opclause in the given qual, convert the opclause into a single
+	 * scan key
+	 */
+
+	j = 0;
+	foreach(qual_cell, quals)
+	{
+		Expr	   *clause = (Expr *) lfirst(qual_cell);
+
+		Oid			opno;		/* operator's OID */
+		RegProcedure opfuncid;	/* operator proc id used in scan */
+		Oid			opfamily;	/* opfamily of index column */
+		int			op_strategy;	/* operator's strategy number */
+		Oid			op_lefttype;	/* operator's declared input types */
+		Oid			op_righttype;
+		Expr	   *leftop;		/* expr on lhs of operator */
+		Expr	   *rightop;	/* expr on rhs ... */
+		AttrNumber	varattno;	/* att number used in scan */
+		int			indnkeyatts;
+
+		indnkeyatts = 4;// id, startid, endid, properties
+		if (IsA(clause, OpExpr))
+		{		
+			ScanKey		this_scan_key = palloc(sizeof(ScanKey));
+
+
+			IndexRuntimeKeyInfo * runtimeKey = (IndexRuntimeKeyInfo *)scanKeys;
+			/* indexkey op const or indexkey op expression */
+			int			flags = 0;
+			Datum		scanvalue;
+
+			opno = ((OpExpr *) clause)->opno;
+			opfuncid = ((OpExpr *) clause)->opfuncid;
+
+			/*
+			 * leftop should be the index key Var, possibly relabeled
+			 */
+			leftop = (Expr *) get_leftop(clause);
+
+			if (leftop && IsA(leftop, RelabelType))
+				leftop = ((RelabelType *) leftop)->arg;
+
+			Assert(leftop != NULL);
+
+			if (!(IsA(leftop, Var) &&
+				  ((Var *) leftop)->varno == INDEX_VAR))
+				elog(ERROR, "indexqual doesn't have key on left side");
+
+			varattno = ((Var *) leftop)->varattno;
+			if (varattno < 1 || varattno > indnkeyatts)
+				elog(ERROR, "bogus index qualification");
+
+			if (varattno != 1)
+				continue;
+			/*
+			 * We have to look up the operator's strategy number.  This
+			 * provides a cross-check that the operator does match the index.
+			 */
+			opfamily = index->rd_opfamily[varattno - 1];
+
+			bool *isorderby;
+			get_op_opfamily_properties(opno, opfamily, isorderby,
+									   &op_strategy,
+									   &op_lefttype,
+									   &op_righttype);
+
+			if (isorderby)
+				flags |= SK_ORDER_BY;
+
+			/*
+			 * rightop is the constant or variable comparison value
+			 */
+			rightop = (Expr *) get_rightop(clause);
+
+			if (rightop && IsA(rightop, RelabelType))
+				rightop = ((RelabelType *) rightop)->arg;
+
+			Assert(rightop != NULL);
+
+			
+
+
+	
+			/*
+			 * initialize the scan key's fields appropriately
+			 */
+			ScanKeyEntryInitialize(this_scan_key,
+								   flags,
+								   varattno,	/* attribute number to scan */
+								   op_strategy, /* op's strategy */
+								   op_righttype,	/* strategy subtype */
+								   ((OpExpr *) clause)->inputcollid,	/* collation */
+								   opfuncid,	/* reg proc to use */
+								   scanvalue);	/* constant */	
+
+
+			runtimeKey->scan_key = this_scan_key;
+			runtimeKey->key_expr = ExecInitExpr(rightop, planstate);
+			runtimeKey->key_toastable = TypeIsToastable(op_righttype);
+
+			scanvalue = (Datum) 0;
+			numScanKeys++;
+
+			break;
+		}
+	}
+
+}
