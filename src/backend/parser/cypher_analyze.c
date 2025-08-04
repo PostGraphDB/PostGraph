@@ -1205,7 +1205,32 @@ cypher_parse_analyze(RawStmt *parseTree, const char *sourceText,
 
     Node *n = parseTree->stmt;
     // TODO: Cypher should be an ExtensibleNode, not a List
-    if  (IsA(n, List)) {
+
+    if (IsA(n, ExplainStmt)) {
+        ExplainStmt *explainStmt = n;
+        if (IsA(explainStmt->query, List)) {
+            cypher_parsestate *cpstate = pstate;
+            Oid graph_oid = get_session_graph_oid();
+            graph_cache_data *gcd = search_graph_namespace_cache(graph_oid);
+
+            cpstate->graph_name = gcd->name.data;
+            cpstate->graph_oid = graph_oid;
+
+            explainStmt->query = analyze_cypher(explainStmt->query, pstate, sourceText, 0, gcd->name.data, graph_oid, NULL);
+            Query	   *result;
+
+	        /* transform contained query, allowing SELECT INTO */
+	        //stmt->query = (Node *) transformOptionalSelectInto(pstate, stmt->query);
+
+	        /* represent the command as a utility Query */
+	        result = makeNode(Query);
+	        result->commandType = CMD_UTILITY;
+	        result->utilityStmt = (Node *) explainStmt;
+            result->querySource = QSRC_ORIGINAL;
+            result->canSetTag = true;
+	        return result;
+        }
+    } else if  (IsA(n, List)) {
         cypher_parsestate *cpstate = pstate;
         Oid graph_oid = get_session_graph_oid();
         graph_cache_data *gcd = search_graph_namespace_cache(graph_oid);
