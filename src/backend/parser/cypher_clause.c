@@ -1231,7 +1231,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                     ScanKeyData scan_keys[1];
                     ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
                     
-                    Relation label_catalog = table_open(ag_label_relation_id(), AccessShareLock);
+                    Relation label_catalog = table_open(ag_label_relation_id(), ShareLock);
                     SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
 
                     HeapTuple tuple = systable_getnext(scan_desc);
@@ -1245,7 +1245,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                     rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
 
                     systable_endscan(scan_desc);
-                    table_close(label_catalog, AccessShareLock);
+                    table_close(label_catalog, ShareLock);
 
                     //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
                     label_range_var = makeRangeVar(schema_name, rel_name, -1);

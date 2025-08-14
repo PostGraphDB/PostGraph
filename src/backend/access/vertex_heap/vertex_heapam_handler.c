@@ -73,761 +73,6 @@ static void GetMultiXactIdHintBits(MultiXactId multi, uint16 *new_infomask,
 										   uint16 *new_infomask2);
 
 
-void
-vertex_exec_index_build_ScanKeys(PlanState *planstate, Relation index,
-					   List *quals,
-					   ScanKey *scanKeys, int *numScanKeys);
-typedef struct vertex_hash_struct
-{
-    graphid id; // hash key
-    ItemPointerData itemPointer;
-    gtype *properties;
-    Page page;
-    ItemId itemId;
-    Buffer buffer;
-} vertex_hash_struct;
-
-
-static vertex_hash_struct *iterator = NULL;
-static HTAB *vertex_hash = NULL; 
-static HASH_SEQ_STATUS scanStatus;
-
-#include "access/parallel.h"
-/*
- * Subroutine for heap_insert(). Prepares a tuple for insertion. This sets the
- * tuple header fields and toasts the tuple if necessary.  Returns a toasted
- * version of the tuple if it was toasted, or the original tuple if not. Note
- * that in any case, the header fields are also set in the original tuple.
- */
-static HeapTuple
-heap_prepare_insert(Relation relation, HeapTuple tup, TransactionId xid,
-					CommandId cid, int options)
-{
-	/*
-	 * To allow parallel inserts, we need to ensure that they are safe to be
-	 * performed in workers. We have the infrastructure to allow parallel
-	 * inserts in general except for the cases where inserts generate a new
-	 * CommandId (eg. inserts into a table having a foreign key column).
-	 */
-	if (IsParallelWorker())
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
-				 errmsg("cannot insert tuples in a parallel worker")));
-
-	tup->t_data->t_infomask &= ~(HEAP_XACT_MASK);
-	tup->t_data->t_infomask2 &= ~(HEAP2_XACT_MASK);
-	tup->t_data->t_infomask |= HEAP_XMAX_INVALID;
-	HeapTupleHeaderSetXmin(tup->t_data, xid);
-	if (options & HEAP_INSERT_FROZEN)
-		HeapTupleHeaderSetXminFrozen(tup->t_data);
-
-	HeapTupleHeaderSetCmin(tup->t_data, cid);
-	HeapTupleHeaderSetXmax(tup->t_data, 0); /* for cleanliness */
-	tup->t_tableOid = RelationGetRelid(relation);
-
-	/*
-	 * If the new tuple is too big for storage or contains already toasted
-	 * out-of-line attributes from some other relation, invoke the toaster.
-	 */
-	if (relation->rd_rel->relkind != RELKIND_RELATION &&
-		relation->rd_rel->relkind != RELKIND_MATVIEW)
-	{
-		/* toast table entries should never be recursively toasted */
-		Assert(!HeapTupleHasExternal(tup));
-		return tup;
-	}
-	else if (HeapTupleHasExternal(tup) || tup->t_len > TOAST_TUPLE_THRESHOLD)
-		return heap_toast_insert_or_update(relation, tup, NULL, options);
-	else
-		return tup;
-}
-
-
-
-
-
-
-/*
- *  * Given infomask/infomask2, compute the bits that must be saved in the
- *   * "infobits" field of xl_heap_delete, xl_heap_update, xl_heap_lock,
- *    * xl_heap_lock_updated WAL records.
- *     *
- *      * See fix_infomask_from_infobits.
- *       */
-static uint8
-compute_infobits(uint16 infomask, uint16 infomask2)
-{
-		return
-			((infomask & HEAP_XMAX_IS_MULTI) != 0 ? XLHL_XMAX_IS_MULTI : 0) |
-				((infomask & HEAP_XMAX_LOCK_ONLY) != 0 ? XLHL_XMAX_LOCK_ONLY : 0) |
-					((infomask & HEAP_XMAX_EXCL_LOCK) != 0 ? XLHL_XMAX_EXCL_LOCK : 0) |
-					/* note we ignore HEAP_XMAX_SHR_LOCK here */
-					((infomask & HEAP_XMAX_KEYSHR_LOCK) != 0 ? XLHL_XMAX_KEYSHR_LOCK : 0) |
-				((infomask2 & HEAP_KEYS_UPDATED) != 0 ?
-			XLHL_KEYS_UPDATED : 0);
-}
-
-/*
- * MultiXactIdGetUpdateXid
- *
- * Given a multixact Xmax and corresponding infomask, which does not have the
- * HEAP_XMAX_LOCK_ONLY bit set, obtain and return the Xid of the updating
- * transaction.
- *
- * Caller is expected to check the status of the updating transaction, if
- * necessary.
- */
-static TransactionId
-MultiXactIdGetUpdateXid(TransactionId xmax, uint16 t_infomask)
-{
-	TransactionId update_xact = InvalidTransactionId;
-	MultiXactMember *members;
-	int			nmembers;
-
-	Assert(!(t_infomask & HEAP_XMAX_LOCK_ONLY));
-	Assert(t_infomask & HEAP_XMAX_IS_MULTI);
-
-	/*
-	 * Since we know the LOCK_ONLY bit is not set, this cannot be a multi from
-	 * pre-pg_upgrade.
-	 */
-	nmembers = GetMultiXactIdMembers(xmax, &members, false, false);
-
-	if (nmembers > 0)
-	{
-		int			i;
-
-		for (i = 0; i < nmembers; i++)
-		{
-			/* Ignore lockers */
-			if (!ISUPDATE_from_mxstatus(members[i].status))
-		    	continue;
-
-			/* there can be at most one updater */
-			Assert(update_xact == InvalidTransactionId);
-            update_xact = members[i].xid;
-#ifndef USE_ASSERT_CHECKING
-			/*
-			 * in an assert-enabled build, walk the whole array to ensure
-			 * there's no other updater.
-			 */
-			break;
-#endif
-		}
-
-	    pfree(members);
-	}
-
-	return update_xact;
-}
-
-
-
-/*
- *  * Given two versions of the same t_infomask for a tuple, compare them and
- *   * return whether the relevant status for a tuple Xmax has changed.  This is
- *    * used after a buffer lock has been released and reacquired: we want to ensure
- *     * that the tuple state continues to be the same it was when we previously
- *      * examined it.
- *       *
- *        * Note the Xmax field itself must be compared separately.
- *         */
-static inline bool
-xmax_infomask_changed(uint16 new_infomask, uint16 old_infomask)
-{
-		const uint16 interesting =
-				HEAP_XMAX_IS_MULTI | HEAP_XMAX_LOCK_ONLY | HEAP_LOCK_MASK;
-
-			if ((new_infomask & interesting) != (old_infomask & interesting))
-						return true;
-
-				return false;
-}
-
-/*
- *  * This table maps tuple lock strength values for each particular
- *   * MultiXactStatus value.
- *    */
-static const int MultiXactStatusLock[MaxMultiXactStatus + 1] =
-{
-		LockTupleKeyShare,			/* ForKeyShare */
-			LockTupleShare,				/* ForShare */
-				LockTupleNoKeyExclusive,	/* ForNoKeyUpdate */
-					LockTupleExclusive,			/* ForUpdate */
-						LockTupleNoKeyExclusive,	/* NoKeyUpdate */
-							LockTupleExclusive			/* Update */
-};
-
-
-/* Get the LockTupleMode for a given MultiXactStatus */
-#define TUPLOCK_from_mxstatus(status) \
-				(MultiXactStatusLock[(status)])
-/* ----------------------------------------------------------------
- *                         heap support routines
- * ----------------------------------------------------------------
- */
-
-
-/*
- *  * Build a heap tuple representing the configured REPLICA IDENTITY to represent
- *   * the old tuple in a UPDATE or DELETE.
- *    *
- *     * Returns NULL if there's no need to log an identity or if there's no suitable
- *      * key defined.
- *       *
- *        * Pass key_required true if any replica identity columns changed value, or if
- *         * any of them have any external data.  Delete must always pass true.
- *          *
- *           * *copy is set to true if the returned tuple is a modified copy rather than
- *            * the same tuple that was passed in.
- *             */
-static HeapTuple
-ExtractReplicaIdentity(Relation relation, HeapTuple tp, bool key_required,
-							   bool *copy)
-{
-		TupleDesc	desc = RelationGetDescr(relation);
-			char		replident = relation->rd_rel->relreplident;
-				Bitmapset  *idattrs;
-					HeapTuple	key_tuple;
-						bool		nulls[MaxHeapAttributeNumber];
-							Datum		values[MaxHeapAttributeNumber];
-
-								*copy = false;
-
-									if (!RelationIsLogicallyLogged(relation))
-												return NULL;
-
-										if (replident == REPLICA_IDENTITY_NOTHING)
-													return NULL;
-
-											if (replident == REPLICA_IDENTITY_FULL)
-													{
-																/*
-																 * 		 * When logging the entire old tuple, it very well could contain
-																 * 		 		 * toasted columns. If so, force them to be inlined.
-																 * 		 		 		 */
-																if (HeapTupleHasExternal(tp))
-																			{
-																							*copy = true;
-																										tp = toast_flatten_tuple(tp, desc);
-																												}
-																		return tp;
-																			}
-
-												/* if the key isn't required and we're only logging the key, we're done */
-												if (!key_required)
-															return NULL;
-
-													/* find out the replica identity columns */
-													idattrs = RelationGetIndexAttrBitmap(relation,
-																									 INDEX_ATTR_BITMAP_IDENTITY_KEY);
-
-														/*
-														 * 	 * If there's no defined replica identity columns, treat as !key_required.
-														 * 	 	 * (This case should not be reachable from heap_update, since that should
-														 * 	 	 	 * calculate key_required accurately.  But heap_delete just passes
-														 * 	 	 	 	 * constant true for key_required, so we can hit this case in deletes.)
-														 * 	 	 	 	 	 */
-														if (bms_is_empty(idattrs))
-																	return NULL;
-
-															/*
-															 * 	 * Construct a new tuple containing only the replica identity columns,
-															 * 	 	 * with nulls elsewhere.  While we're at it, assert that the replica
-															 * 	 	 	 * identity columns aren't null.
-															 * 	 	 	 	 */
-															heap_deform_tuple(tp, desc, values, nulls);
-
-																for (int i = 0; i < desc->natts; i++)
-																		{
-																					if (bms_is_member(i + 1 - FirstLowInvalidHeapAttributeNumber,
-																														  idattrs))
-																									Assert(!nulls[i]);
-																							else
-																											nulls[i] = true;
-																								}
-
-																	key_tuple = heap_form_tuple(desc, values, nulls);
-																		*copy = true;
-
-																			bms_free(idattrs);
-
-																				/*
-																				 * 	 * If the tuple, which by here only contains indexed columns, still has
-																				 * 	 	 * toasted columns, force them to be inlined. This is somewhat unlikely
-																				 * 	 	 	 * since there's limits on the size of indexed columns, so we don't
-																				 * 	 	 	 	 * duplicate toast_flatten_tuple()s functionality in the above loop over
-																				 * 	 	 	 	 	 * the indexed columns, even if it would be more efficient.
-																				 * 	 	 	 	 	 	 */
-																				if (HeapTupleHasExternal(key_tuple))
-																						{
-																									HeapTuple	oldtup = key_tuple;
-
-																											key_tuple = toast_flatten_tuple(oldtup, desc);
-																													heap_freetuple(oldtup);
-																														}
-
-																					return key_tuple;
-}
-
-/*
- *  * Each tuple lock mode has a corresponding heavyweight lock, and one or two
- *   * corresponding MultiXactStatuses (one to merely lock tuples, another one to
- *    * update them).  This table (and the macros below) helps us determine the
- *     * heavyweight lock mode and MultiXactStatus values to use for any particular
- *      * tuple lock strength.
- *       *
- *        * Don't look at lockstatus/updstatus directly!  Use get_mxact_status_for_lock
- *         * instead.
- *          */
-static const struct
-{
-		LOCKMODE	hwlock;
-			int			lockstatus;
-				int			updstatus;
-}
-
-			tupleLockExtraInfo[MaxLockTupleMode + 1] =
-{
-		{							/* LockTupleKeyShare */
-					AccessShareLock,
-							MultiXactStatusForKeyShare,
-									-1						/* KeyShare does not allow updating tuples */
-											},
-			{							/* LockTupleShare */
-						RowShareLock,
-								MultiXactStatusForShare,
-										-1						/* Share does not allow updating tuples */
-												},
-				{							/* LockTupleNoKeyExclusive */
-							ExclusiveLock,
-									MultiXactStatusForNoKeyUpdate,
-											MultiXactStatusNoKeyUpdate
-													},
-					{							/* LockTupleExclusive */
-								AccessExclusiveLock,
-										MultiXactStatusForUpdate,
-												MultiXactStatusUpdate
-														}
-};
-
-
-
-/* Get the LOCKMODE for a given MultiXactStatus */
-#define LOCKMODE_from_mxstatus(status) \
-				(tupleLockExtraInfo[TUPLOCK_from_mxstatus((status))].hwlock)
-
-/*
- *  * Acquire heavyweight locks on tuples, using a LockTupleMode strength value.
- *   * This is more readable than having every caller translate it to lock.h's
- *    * LOCKMODE.
- *     */
-#define LockTupleTuplock(rel, tup, mode) \
-		LockTuple((rel), (tup), tupleLockExtraInfo[mode].hwlock)
-#define UnlockTupleTuplock(rel, tup, mode) \
-		UnlockTuple((rel), (tup), tupleLockExtraInfo[mode].hwlock)
-#define ConditionalLockTupleTuplock(rel, tup, mode) \
-		ConditionalLockTuple((rel), (tup), tupleLockExtraInfo[mode].hwlock)
-
-#ifdef USE_PREFETCH
-/*
- *  * heap_index_delete_tuples and index_delete_prefetch_buffer use this
- *   * structure to coordinate prefetching activity
- *    */
-typedef struct
-{
-		BlockNumber cur_hblkno;
-			int			next_item;
-				int			ndeltids;
-					TM_IndexDelete *deltids;
-} IndexDeletePrefetchState;
-#endif
-
-/* heap_index_delete_tuples bottom-up index deletion costing constants */
-#define BOTTOMUP_MAX_NBLOCKS			6
-#define BOTTOMUP_TOLERANCE_NBLOCKS		3
-
-/*
- *  * heap_index_delete_tuples uses this when determining which heap blocks it
- *   * must visit to help its bottom-up index deletion caller
- *    */
-typedef struct IndexDeleteCounts
-{
-		int16		npromisingtids; /* Number of "promising" TIDs in group */
-			int16		ntids;			/* Number of TIDs in group */
-				int16		ifirsttid;		/* Offset to group's first deltid */
-} IndexDeleteCounts;
-
-/*
- *  * UpdateXmaxHintBits - update tuple hint bits after xmax transaction ends
- *   *
- *    * This is called after we have waited for the XMAX transaction to terminate.
- *     * If the transaction aborted, we guarantee the XMAX_INVALID hint bit will
- *      * be set on exit.  If the transaction committed, we set the XMAX_COMMITTED
- *       * hint bit if possible --- but beware that that may not yet be possible,
- *        * if the transaction committed asynchronously.
- *         *
- *          * Note that if the transaction was a locker only, we set HEAP_XMAX_INVALID
- *           * even if it commits.
- *            *
- *             * Hence callers should look only at XMAX_INVALID.
- *              *
- *               * Note this is not allowed for tuples whose xmax is a multixact.
- *                */
-static void
-UpdateXmaxHintBits(HeapTupleHeader tuple, Buffer buffer, TransactionId xid)
-{
-		Assert(TransactionIdEquals(HeapTupleHeaderGetRawXmax(tuple), xid));
-			Assert(!(tuple->t_infomask & HEAP_XMAX_IS_MULTI));
-
-				if (!(tuple->t_infomask & (HEAP_XMAX_COMMITTED | HEAP_XMAX_INVALID)))
-						{
-									if (!HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask) &&
-														TransactionIdDidCommit(xid))
-													HeapTupleSetHintBits(tuple, buffer, HEAP_XMAX_COMMITTED,
-																							 xid);
-											else
-															HeapTupleSetHintBits(tuple, buffer, HEAP_XMAX_INVALID,
-																									 InvalidTransactionId);
-												}
-}
-
-/*
- *  * Does the given multixact conflict with the current transaction grabbing a
- *   * tuple lock of the given strength?
- *    *
- *     * The passed infomask pairs up with the given multixact in the tuple header.
- *      *
- *       * If current_is_member is not NULL, it is set to 'true' if the current
- *        * transaction is a member of the given multixact.
- *         */
-static bool
-DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
-								LockTupleMode lockmode, bool *current_is_member)
-{
-		int			nmembers;
-			MultiXactMember *members;
-				bool		result = false;
-					LOCKMODE	wanted = tupleLockExtraInfo[lockmode].hwlock;
-
-						if (HEAP_LOCKED_UPGRADED(infomask))
-									return false;
-
-							nmembers = GetMultiXactIdMembers(multi, &members, false,
-																		 HEAP_XMAX_IS_LOCKED_ONLY(infomask));
-								if (nmembers >= 0)
-										{
-													int			i;
-
-															for (i = 0; i < nmembers; i++)
-																		{
-																						TransactionId memxid;
-																									LOCKMODE	memlockmode;
-
-																												if (result && (current_is_member == NULL || *current_is_member))
-																																	break;
-
-																															memlockmode = LOCKMODE_from_mxstatus(members[i].status);
-
-																																		/* ignore members from current xact (but track their presence) */
-																																		memxid = members[i].xid;
-																																					if (TransactionIdIsCurrentTransactionId(memxid))
-																																									{
-																																														if (current_is_member != NULL)
-																																																				*current_is_member = true;
-																																																		continue;
-																																																					}
-																																								else if (result)
-																																													continue;
-
-																																											/* ignore members that don't conflict with the lock we want */
-																																											if (!DoLockModesConflict(memlockmode, wanted))
-																																																continue;
-
-																																														if (ISUPDATE_from_mxstatus(members[i].status))
-																																																		{
-																																																							/* ignore aborted updaters */
-																																																							if (TransactionIdDidAbort(memxid))
-																																																													continue;
-																																																										}
-																																																	else
-																																																					{
-																																																										/* ignore lockers-only that are no longer in progress */
-																																																										if (!TransactionIdIsInProgress(memxid))
-																																																																continue;
-																																																													}
-
-																																																				/*
-																																																				 * 			 * Whatever remains are either live lockers that conflict with our
-																																																				 * 			 			 * wanted lock, and updaters that are not aborted.  Those conflict
-																																																				 * 			 			 			 * with what we want.  Set up to return true, but keep going to
-																																																				 * 			 			 			 			 * look for the current transaction among the multixact members,
-																																																				 * 			 			 			 			 			 * if needed.
-																																																				 * 			 			 			 			 			 			 */
-																																																				result = true;
-																																																						}
-																	pfree(members);
-																		}
-
-									return result;
-}
-
-/*
- *  * Do_MultiXactIdWait
- *   *		Actual implementation for the two functions below.
- *    *
- *     * 'multi', 'status' and 'infomask' indicate what to sleep on (the status is
- *      * needed to ensure we only sleep on conflicting members, and the infomask is
- *       * used to optimize multixact access in case it's a lock-only multi); 'nowait'
- *        * indicates whether to use conditional lock acquisition, to allow callers to
- *         * fail if lock is unavailable.  'rel', 'ctid' and 'oper' are used to set up
- *          * context information for error messages.  'remaining', if not NULL, receives
- *           * the number of members that are still running, including any (non-aborted)
- *            * subtransactions of our own transaction.
- *             *
- *              * We do this by sleeping on each member using XactLockTableWait.  Any
- *               * members that belong to the current backend are *not* waited for, however;
- *                * this would not merely be useless but would lead to Assert failure inside
- *                 * XactLockTableWait.  By the time this returns, it is certain that all
- *                  * transactions *of other backends* that were members of the MultiXactId
- *                   * that conflict with the requested status are dead (and no new ones can have
- *                    * been added, since it is not legal to add members to an existing
- *                     * MultiXactId).
- *                      *
- *                       * But by the time we finish sleeping, someone else may have changed the Xmax
- *                        * of the containing tuple, so the caller needs to iterate on us somehow.
- *                         *
- *                          * Note that in case we return false, the number of remaining members is
- *                           * not to be trusted.
- *                            */
-static bool
-Do_MultiXactIdWait(MultiXactId multi, MultiXactStatus status,
-						   uint16 infomask, bool nowait,
-						   				   Relation rel, ItemPointer ctid, XLTW_Oper oper,
-										   				   int *remaining)
-{
-		bool		result = true;
-			MultiXactMember *members;
-				int			nmembers;
-					int			remain = 0;
-
-						/* for pre-pg_upgrade tuples, no need to sleep at all */
-						nmembers = HEAP_LOCKED_UPGRADED(infomask) ? -1 :
-									GetMultiXactIdMembers(multi, &members, false,
-																		  HEAP_XMAX_IS_LOCKED_ONLY(infomask));
-
-							if (nmembers >= 0)
-									{
-												int			i;
-
-														for (i = 0; i < nmembers; i++)
-																	{
-																					TransactionId memxid = members[i].xid;
-																								MultiXactStatus memstatus = members[i].status;
-
-																											if (TransactionIdIsCurrentTransactionId(memxid))
-																															{
-																																				remain++;
-																																								continue;
-																																											}
-
-																														if (!DoLockModesConflict(LOCKMODE_from_mxstatus(memstatus),
-																																										 LOCKMODE_from_mxstatus(status)))
-																																		{
-																																							if (remaining && TransactionIdIsInProgress(memxid))
-																																													remain++;
-																																											continue;
-																																														}
-
-																																	/*
-																																	 * 			 * This member conflicts with our multi, so we have to sleep (or
-																																	 * 			 			 * return failure, if asked to avoid waiting.)
-																																	 * 			 			 			 *
-																																	 * 			 			 			 			 * Note that we don't set up an error context callback ourselves,
-																																	 * 			 			 			 			 			 * but instead we pass the info down to XactLockTableWait.  This
-																																	 * 			 			 			 			 			 			 * might seem a bit wasteful because the context is set up and
-																																	 * 			 			 			 			 			 			 			 * tore down for each member of the multixact, but in reality it
-																																	 * 			 			 			 			 			 			 			 			 * should be barely noticeable, and it avoids duplicate code.
-																																	 * 			 			 			 			 			 			 			 			 			 */
-																																	if (nowait)
-																																					{
-																																										result = ConditionalXactLockTableWait(memxid);
-																																														if (!result)
-																																																				break;
-																																																	}
-																																				else
-																																									XactLockTableWait(memxid, rel, ctid, oper);
-																																						}
-
-																pfree(members);
-																	}
-
-								if (remaining)
-											*remaining = remain;
-
-									return result;
-}
-
-/*
- *  * MultiXactIdWait
- *   *		Sleep on a MultiXactId.
- *    *
- *     * By the time we finish sleeping, someone else may have changed the Xmax
- *      * of the containing tuple, so the caller needs to iterate on us somehow.
- *       *
- *        * We return (in *remaining, if not NULL) the number of members that are still
- *         * running, including any (non-aborted) subtransactions of our own transaction.
- *          */
-static void
-MultiXactIdWait(MultiXactId multi, MultiXactStatus status, uint16 infomask,
-						Relation rel, ItemPointer ctid, XLTW_Oper oper,
-										int *remaining)
-{
-		(void) Do_MultiXactIdWait(multi, status, infomask, false,
-											  rel, ctid, oper, remaining);
-}
-
-/*
- *  * ConditionalMultiXactIdWait
- *   *		As above, but only lock if we can get the lock without blocking.
- *    *
- *     * By the time we finish sleeping, someone else may have changed the Xmax
- *      * of the containing tuple, so the caller needs to iterate on us somehow.
- *       *
- *        * If the multixact is now all gone, return true.  Returns false if some
- *         * transactions might still be running.
- *          *
- *           * We return (in *remaining, if not NULL) the number of members that are still
- *            * running, including any (non-aborted) subtransactions of our own transaction.
- *             */
-static bool
-ConditionalMultiXactIdWait(MultiXactId multi, MultiXactStatus status,
-								   uint16 infomask, Relation rel, int *remaining)
-{
-		return Do_MultiXactIdWait(multi, status, infomask, true,
-											  rel, NULL, XLTW_None, remaining);
-}
-
-
-
-/* ----------------
- *        initscan - scan code common to heap_beginscan and heap_rescan
- * ----------------
- */
-static void
-initscan(HeapScanDesc scan, ScanKey key, bool keep_startblock)
-{
-    ParallelBlockTableScanDesc bpscan = NULL;
-    bool        allow_strat;
-    bool        allow_sync;
-
-    /*
-     * Determine the number of blocks we have to scan.
-     *
-     * It is sufficient to do this once at scan start, since any tuples added
-     * while the scan is in progress will be invisible to my snapshot anyway.
-     * (That is not true when using a non-MVCC snapshot.  However, we couldn't
-     * guarantee to return tuples added after scan start anyway, since they
-     * might go into pages we already scanned.  To guarantee consistent
-     * results for a non-MVCC snapshot, the caller must hold some higher-level
-     * lock that ensures the interesting tuple(s) won't change.)
-     */
-    if (scan->rs_base.rs_parallel != NULL)
-    {
-         bpscan = (ParallelBlockTableScanDesc) scan->rs_base.rs_parallel;
-         scan->rs_nblocks = bpscan->phs_nblocks;
-    }
-    else
-         scan->rs_nblocks = RelationGetNumberOfBlocks(scan->rs_base.rs_rd);
-
-    /*
-     * If the table is large relative to NBuffers, use a bulk-read access
-     * strategy and enable synchronized scanning (see syncscan.c).  Although
-     * the thresholds for these features could be different, we make them the
-     * same so that there are only two behaviors to tune rather than four.
-     * (However, some callers need to be able to disable one or both of these
-     * behaviors, independently of the size of the table; also there is a GUC
-     * variable that can disable synchronized scanning.)
-     *
-     * Note that table_block_parallelscan_initialize has a very similar test;
-     * if you change this, consider changing that one, too.
-     */
-    if (!RelationUsesLocalBuffers(scan->rs_base.rs_rd) && scan->rs_nblocks > NBuffers / 4) {
-        allow_strat = (scan->rs_base.rs_flags & SO_ALLOW_STRAT) != 0;
-        allow_sync = (scan->rs_base.rs_flags & SO_ALLOW_SYNC) != 0;
-    }
-    else
-        allow_strat = allow_sync = false;
-
-    if (allow_strat)
-    {
-        /* During a rescan, keep the previous strategy object. */
-        if (scan->rs_strategy == NULL)
-            scan->rs_strategy = GetAccessStrategy(BAS_BULKREAD);
-        }
-        else
-        {
-            if (scan->rs_strategy != NULL)
-                FreeAccessStrategy(scan->rs_strategy);
-            scan->rs_strategy = NULL;
-        }
-
-        if (scan->rs_base.rs_parallel != NULL)
-        {
-        /* For parallel scan, believe whatever ParallelTableScanDesc says. */
-            if (scan->rs_base.rs_parallel->phs_syncscan)
-                scan->rs_base.rs_flags |= SO_ALLOW_SYNC;
-            else
-                scan->rs_base.rs_flags &= ~SO_ALLOW_SYNC;
-         }
-         else if (keep_startblock)
-         {
-             /*
-              * When rescanning, we want to keep the previous startblock setting,
-              * so that rewinding a cursor doesn't generate surprising results.
-              * Reset the active syncscan setting, though.
-              */
-              if (allow_sync && synchronize_seqscans)
-                   scan->rs_base.rs_flags |= SO_ALLOW_SYNC;
-              else
-                   scan->rs_base.rs_flags &= ~SO_ALLOW_SYNC;
-        }
-        else if (allow_sync && synchronize_seqscans)
-        {
-             scan->rs_base.rs_flags |= SO_ALLOW_SYNC;
-             scan->rs_startblock = ss_get_location(scan->rs_base.rs_rd, scan->rs_nblocks);
-        }
-        else
-        {
-             scan->rs_base.rs_flags &= ~SO_ALLOW_SYNC;
-             scan->rs_startblock = 0;
-         }
-
-         scan->rs_numblocks = InvalidBlockNumber;
-         scan->rs_inited = false;
-         scan->rs_ctup.t_data = NULL;
-         ItemPointerSetInvalid(&scan->rs_ctup.t_self);
-         scan->rs_cbuf = InvalidBuffer;
-         scan->rs_cblock = InvalidBlockNumber;
-
-         /* page-at-a-time fields are always invalid when not rs_inited */
-
-         /*
-          * copy the scan key, if appropriate
-          */
-         if (key != NULL && scan->rs_base.rs_nkeys > 0)
-              memcpy(scan->rs_base.rs_key, key, scan->rs_base.rs_nkeys * sizeof(ScanKeyData));
-
-         /*
-          * Currently, we only have a stats counter for sequential heap scans (but
-          * e.g for bitmap scans the underlying bitmap index scans will be counted,
-          * and for sample scans we update stats for tuple fetches).
-          */
-         if (scan->rs_base.rs_flags & SO_TYPE_SEQSCAN)
-             pgstat_count_heap_scan(scan->rs_base.rs_rd);
-}
-
-
 /* ------------------------------------------------------------------------
  * Slot related callbacks for vertex heap AM
  * ------------------------------------------------------------------------
@@ -876,7 +121,6 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
 	vertex_desc->ndesc = 1;
 	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
 	Oid oid = get_relname_relid(make_vertex_adjlist_alias(get_rel_name(RelationGetRelid(relation))), get_rel_namespace(RelationGetRelid(relation)));
-				ereport(WARNING, errmsg("begin_scan runtimeKey %p",&key));
 	Relation rel = RelationIdGetRelation(oid);
 
 	TableScanDesc *desc = tableam->scan_begin(rel, snapshot, nkeys, key, parallel_scan, flags);
@@ -887,15 +131,9 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
 
 void vertex_scan_end(TableScanDesc sscan) {
 	VertexScanDescData *vertex_desc = sscan;
-	
-	//Relation rel = table_open(RelnameGetRelid(make_vertex_adjlist_alias(RelationGetRelationName(relation))), AccessShareLock);
-	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
-	//Oid oid = get_relname_relid(make_vertex_adjlist_alias(get_rel_name(vertex_desc->rs_base.rs_rd->rd_id)), get_rel_namespace(vertex_desc->rs_base.rs_rd->rd_id));
-	//table_close((*vertex_desc->desc[0]->rs_rd, AccessShareLock);
+	RelationDecrementReferenceCount( ((HeapScanDesc)vertex_desc->desc[0])->rs_base.rs_rd);
 
-	tableam->scan_end(vertex_desc->desc[0]);
-
-	return ;
+	GetHeapamTableAmRoutine()->scan_end(vertex_desc->desc[0]);
 }
 
 /*
@@ -917,43 +155,9 @@ bool vertex_scan_getnextslot(TableScanDesc sscan, ScanDirection direction,
                 TupleTableSlot *slot) {
 	VertexScanDescData *vertex_desc = sscan;
 
-	/*if(vertex_desc->rs_base.rs_nkeys != 1)
-		ereport(ERROR,errmsg_internal("edges are a key value store, provide the key"));
-	
-	ereport(WARNING, errmsg("scankey in get slot %p %p", vertex_desc->rs_base.rs_key, &vertex_desc->rs_base.rs_key));
-	if(vertex_desc->rs_base.rs_key == 0)
-		ereport(ERROR,errmsg_internal("edges are a key value store, provide the key"));
-			ereport(WARNING, errmsg("runtimeKey %p", vertex_desc->rs_base.rs_key));
-	TableAmRoutine *tableam = GetHeapamTableAmRoutine(); 
- 	IndexRuntimeKeyInfo *indexRuntimeKeyInfo = (IndexRuntimeKeyInfo *)vertex_desc->rs_base.rs_key;
-	*/
 	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
-	//ereport(WARNING, errmsg("Datum %d graphid %ld", ((Datum)((IndexRuntimeKeyInfo *)vertex_desc->rs_base.rs_key)->scan_key->sk_argument)), DATUM_GET_GRAPHID((Datum)((IndexRuntimeKeyInfo *)vertex_desc->rs_base.rs_key)->scan_key->sk_argument));
 	
-	bool result =true;
 	return tableam->scan_getnextslot(vertex_desc->desc[0], direction, slot);
-/*	while (result) {
-	result =  tableam->scan_getnextslot(vertex_desc->desc[0], direction, slot);
-
-	if (!result) {
-		ereport(WARNING, errmsg("result"));
-		return result;
-	}
-	SeqScanState *node= ((IndexRuntimeKeyInfo *)vertex_desc->rs_base.rs_key)->key_expr->parent;
-	ExprState *qual = node->ss.ps.qual;
-	ExprContext *econtext = node->ss.ps.ps_ExprContext;
-
-	ResetExprContext(econtext);
-
-		econtext->ecxt_scantuple = slot;
-
-		if (qual == NULL || ExecQual(qual, econtext)) {
-			ereport(WARNING, errmsg("qual passed"));
-			return true;
-		} else
-			ereport(WARNING, errmsg("qual failed"));
-	}
-	return result;*/
 }
 
 /* ------------------------------------------------------------------------
@@ -1022,8 +226,6 @@ struct IndexFetchTableData *vertex_index_fetch_begin(Relation rel) {
 void vertex_index_fetch_reset(struct IndexFetchTableData *data) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
 }
 
 /*
@@ -1032,8 +234,6 @@ void vertex_index_fetch_reset(struct IndexFetchTableData *data) {
 void vertex_index_fetch_end(struct IndexFetchTableData *data) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
 }
 
 /*
@@ -1062,8 +262,6 @@ bool vertex_index_fetch_tuple(struct IndexFetchTableData *scan,
                               bool *call_again, bool *all_dead) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
     return false;
 }
 
@@ -1195,33 +393,7 @@ TM_Result vertex_tuple_update(Relation relation, ItemPointer otid, TupleTableSlo
                   CommandId cid, Snapshot snapshot, Snapshot crosscheck,
                   bool wait, TM_FailureData *tmfd, LockTupleMode *lockmode,
                   bool *update_indexes) {
-
-	bool		shouldFree = true;
-	HeapTuple	tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
-	TM_Result	result;
-
-	/* Update the tuple with table oid */
-	slot->tts_tableOid = RelationGetRelid(relation);
-	tuple->t_tableOid = slot->tts_tableOid;
-
-	result = heap_update(relation, otid, tuple, cid, crosscheck, wait,
-						 tmfd, lockmode);
-	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
-
-	/*
-	 * Decide whether new index entries are needed for the tuple
-	 *
-	 * Note: heap_update returns the tid (location) of the new tuple in the
-	 * t_self field.
-	 *
-	 * If it's a HOT update, we mustn't insert new index entries.
-	 */
-	*update_indexes = result == TM_Ok && !HeapTupleIsHeapOnly(tuple);
-
-	if (shouldFree)
-		pfree(tuple);
-
-	return result;
+	return TM_Invisible;
 }
 
 /* see table_tuple_lock() for reference about parameters */
@@ -1230,13 +402,8 @@ TM_Result vertex_tuple_lock(Relation rel, ItemPointer tid, Snapshot snapshot,
                 LockWaitPolicy wait_policy, uint8 flags, TM_FailureData *tmfd) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
-
     return 0;
 }
-
-
 
 /* ------------------------------------------------------------------------
  * DDL related functionality.
@@ -1303,9 +470,6 @@ void vertex_relation_copy_for_cluster(Relation OldTable, Relation NewTable,
                       double *tups_vacuumed, double *tups_recently_dead) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
-
 }
 
 /*
@@ -1328,9 +492,6 @@ void vertex_relation_vacuum(Relation rel, struct VacuumParams *params,
 
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
-
 }
 
 /*
@@ -1382,12 +543,8 @@ double vertex_index_build_range_scan(Relation table_rel, Relation index_rel,
                                      bool anyvisible, bool progress, BlockNumber start_blockno,
                                      BlockNumber numblocks, IndexBuildCallback callback,
                                      void *callback_state, TableScanDesc scan) {
-
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
-
     return 0;
 }
 
@@ -1397,9 +554,6 @@ void vertex_index_validate_scan(Relation table_rel, Relation index_rel,
                                 struct ValidateIndexState *state) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    
-
-
 }
 
 
@@ -1486,96 +640,7 @@ void vertex_relation_fetch_toast_slice(Relation toastrel, Oid valueid,
 void vertex_relation_estimate_size(Relation rel, int32 *attr_widths,
                                    BlockNumber *pages, double *tuples,
                                    double *allvisfrac) {
-    BlockNumber curpages;
-    BlockNumber relpages;
-    double reltuples;
-    BlockNumber relallvisible;
-    double density;
-    double overhead_bytes_per_tuple = HEAP_OVERHEAD_BYTES_PER_TUPLE;
-    double usable_bytes_per_page = HEAP_USABLE_BYTES_PER_PAGE;
     
-    /* it should have storage, so we can call the smgr */
-    curpages = RelationGetNumberOfBlocks(rel);
-
-    /* coerce values in pg_class to more desirable types */
-    relpages = (BlockNumber) rel->rd_rel->relpages;
-    reltuples = (double) rel->rd_rel->reltuples;
-    relallvisible = (BlockNumber) rel->rd_rel->relallvisible;
-
-    /*
-     * HACK: if the relation has never yet been vacuumed, use a minimum size
-     * estimate of 10 pages.  The idea here is to avoid assuming a
-     * newly-created table is really small, even if it currently is, because
-     * that may not be true once some data gets loaded into it.  Once a vacuum
-     * or analyze cycle has been done on it, it's more reasonable to believe
-     * the size is somewhat stable.
-     *
-     * (Note that this is only an issue if the plan gets cached and used again
-     * after the table has been filled.  What we're trying to avoid is using a
-     * nestloop-type plan on a table that has grown substantially since the
-     * plan was made.  Normally, autovacuum/autoanalyze will occur once enough
-     * inserts have happened and cause cached-plan invalidation; but that
-     * doesn't happen instantaneously, and it won't happen at all for cases
-     * such as temporary tables.)
-     *
-     * We test "never vacuumed" by seeing whether reltuples < 0.
-     *
-     * If the table has inheritance children, we don't apply this heuristic.
-     * Totally empty parent tables are quite common, so we should be willing
-     * to believe that they are empty.
-     */
-    if (curpages < 10 && reltuples < 0 && !rel->rd_rel->relhassubclass)
-        curpages = 10;
-
-    /* report estimated # pages */
-    *pages = curpages;
-    /* quick exit if rel is clearly empty */
-    if (curpages == 0)
-    {
-        *tuples = 0;
-        *allvisfrac = 0;
-        return;
-    }
-
-    /* estimate number of tuples from previous tuple density */
-    if (reltuples >= 0 && relpages > 0)
-        density = reltuples / (double) relpages;
-    else {
-        /*
-         * When we have no data because the relation was never yet vacuumed,
-         * estimate tuple width from attribute datatypes.  We assume here that
-         * the pages are completely full, which is OK for tables but is
-         * probably an overestimate for indexes.  Fortunately
-         * get_relation_info() can clamp the overestimate to the parent
-         * table's size.
-         *
-         * Note: this code intentionally disregards alignment considerations,
-         * because (a) that would be gilding the lily considering how crude
-         * the estimate is, (b) it creates platform dependencies in the
-         * default plans which are kind of a headache for regression testing,
-         * and (c) different table AMs might use different padding schemes.
-         */
-        int32 tuple_width;
-
-        tuple_width = get_rel_data_width(rel, attr_widths);
-        tuple_width += overhead_bytes_per_tuple;
-        /* note: integer division is intentional here */
-        density = usable_bytes_per_page / tuple_width;
-    }
-    *tuples = rint(density * (double) curpages);
-
-    /*
-     * We use relallvisible as-is, rather than scaling it up like we do for
-     * the pages and tuples counts, on the theory that any pages added since
-     * the last VACUUM are most likely not marked all-visible.  But costsize.c
-     * wants it converted to a fraction.
-     */
-    if (relallvisible == 0 || curpages <= 0)
-        *allvisfrac = 0;
-    else if ((double) relallvisible >= curpages)
-        *allvisfrac = 1;
-    else
-        *allvisfrac = (double) relallvisible / curpages;
 }
 
 

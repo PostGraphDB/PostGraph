@@ -81,7 +81,7 @@ static Datum get_vertex(Oid graph_oid, int64 graphid)
     table_endscan(scan_desc);
     table_close(graph_vertex_label, ShareLock);
 
-	ereport(WARNING, (errmsg("Vertex %lu found", graphid)));
+
     return properties;
 }
 
@@ -125,8 +125,6 @@ Datum edge_search(PG_FUNCTION_ARGS)
     //lquery *label = PG_GETARG_LQUERY_P(1);
     //bool include_props = PG_GETARG_BOOL(2);
 	FuncCallContext *funcctx;
-	FmgrInfo   *arrayinp;
-	ereport(WARNING, (errmsg("Vertex %lu", id)));
 	if (SRF_IS_FIRSTCALL())
 	{
 		MemoryContext oldcontext;
@@ -170,9 +168,17 @@ Datum edge_search(PG_FUNCTION_ARGS)
 	TableAmRoutine *vertex_am = GetVertexHeapamTableAmRoutine();
 	
     if (!table_scan_getnextslot(cxt->scan_desc, ForwardScanDirection, cxt->slot)) {
-		
+		//DecrTupleDescRefCount(funcctx->tuple_desc);
+		//if (funcctx->tuple_desc->tdrefcount > 1) {
+		//	ereport(WARNING, errmsg("tdrefcount is %d", funcctx->tuple_desc->tdrefcount));
+		//}
+		ReleaseTupleDesc(RelationGetDescr(cxt->rel));
 		table_endscan(cxt->scan_desc);
     	table_close(cxt->rel, ShareLock);
+
+		//DecrTupleDescRefCount(funcctx->tuple_desc);
+		pfree(cxt->scan_desc);
+		pfree(cxt);
 		SRF_RETURN_DONE(funcctx);
 	}
 
