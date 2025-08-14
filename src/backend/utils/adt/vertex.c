@@ -101,10 +101,13 @@ Datum
 build_vertex(PG_FUNCTION_ARGS) {
     graphid id = AG_GETARG_GRAPHID(0);
     Oid graph_oid = PG_GETARG_OID(1);
-    gtype *properties = AG_GET_ARG_GTYPE_P(2);
+    gtype *properties = NULL;
+    if (!PG_ARGISNULL(2)) {
+        properties = AG_GET_ARG_GTYPE_P(2);
 
-    if (!AGT_ROOT_IS_OBJECT(properties))
-        PG_RETURN_NULL();
+        if (!AGT_ROOT_IS_OBJECT(properties))
+            PG_RETURN_NULL();
+    }
 
     AG_RETURN_VERTEX(create_vertex(id, graph_oid, properties));
 }
@@ -124,6 +127,17 @@ create_vertex(graphid id, Oid graph_oid, gtype *properties) {
     append_to_buffer(&buffer, (char *)&graph_oid, sizeof(Oid));
 
     // properties
+    if (properties == NULL) {   
+        gtype_in_state result;
+        
+        memset(&result, 0, sizeof(gtype_in_state));
+                                            
+        push_gtype_value(&result.parse_state, WGT_BEGIN_OBJECT, NULL);
+        result.res = push_gtype_value(&result.parse_state, WGT_END_OBJECT, NULL); 
+                    
+        properties = gtype_value_to_gtype(result.res);
+    }    
+    
     append_to_buffer(&buffer, properties, VARSIZE(properties));
 
     vertex *v = (vertex *)buffer.data;

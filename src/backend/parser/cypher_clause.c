@@ -1182,10 +1182,10 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
             if (i % 2 == 1) {
                 cypher_node *node = lfirst(path_cell);
                 prev_node = node;
+                bool has_variable = false;
+
                 if (node->name)
-                    ereport(ERROR,
-                            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("MATCH variable names are not supported")));
+                    has_variable = true;
                 else
                     node->name = get_next_default_alias(cpstate);
 
@@ -1260,11 +1260,17 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
 
                     //resno = pstate->p_next_resno++;
                     // XXX: End LTree Code here
+                    expr = (Expr *)make_vertex_expr(cpstate, pnsi);
+                    // make target entry and add it 
+                    resno = pstate->p_next_resno++;
+                    te = makeTargetEntry(expr, resno, node->name, false);
+
+                    query->targetList = lappend(query->targetList, te);
 
                   // 
                 } else {
 
-                    if (node->props) {
+                    if (node->props || has_variable) {
                     int sublevels_up =1;
                     Node * id_field = scanNSItemForColumn(cpstate, edge_pnsi, 0, "endid", -1);
 
@@ -1277,12 +1283,6 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                     }
                     //edge_pnsi = pnsi;
                 } 
-                //expr = (Expr *)make_vertex_expr(cpstate, pnsi);
-                // make target entry and add it 
-                    //    pstate->p_next_resno++;
-                //te = makeTargetEntry(expr, resno, node->name, false);
-
-                //query->targetList = lappend(query->targetList, te);
 
                 // id field
                 Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1);

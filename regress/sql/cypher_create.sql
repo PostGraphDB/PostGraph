@@ -44,6 +44,8 @@ SELECT * FROM cypher_create.test2;
 
 MATCH () RETURN 1;
 
+MATCH (a) RETURN a;
+
 CREATE ()-[]->();
 
 EXPLAIN MATCH ()-[]->() RETURN 1;
