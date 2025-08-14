@@ -1264,6 +1264,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                   // 
                 } else {
 
+                    if (node->props) {
                     int sublevels_up =1;
                     Node * id_field = scanNSItemForColumn(cpstate, edge_pnsi, 0, "endid", -1);
 
@@ -1271,6 +1272,9 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                                                 list_make2(make_int_const(cpstate->graph_oid, -1),id_field),
                                                 COERCE_EXPLICIT_CALL, -1);
                     pnsi = add_srf_to_query1(cpstate, fc, node->name);
+                    } else {
+                        continue;
+                    }
                     //edge_pnsi = pnsi;
                 } 
                 //expr = (Expr *)make_vertex_expr(cpstate, pnsi);

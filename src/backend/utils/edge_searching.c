@@ -81,7 +81,6 @@ static Datum get_vertex(Oid graph_oid, int64 graphid)
     table_endscan(scan_desc);
     table_close(graph_vertex_label, ShareLock);
 
-
     return properties;
 }
 
@@ -168,17 +167,9 @@ Datum edge_search(PG_FUNCTION_ARGS)
 	TableAmRoutine *vertex_am = GetVertexHeapamTableAmRoutine();
 	
     if (!table_scan_getnextslot(cxt->scan_desc, ForwardScanDirection, cxt->slot)) {
-		//DecrTupleDescRefCount(funcctx->tuple_desc);
-		//if (funcctx->tuple_desc->tdrefcount > 1) {
-		//	ereport(WARNING, errmsg("tdrefcount is %d", funcctx->tuple_desc->tdrefcount));
-		//}
 		ReleaseTupleDesc(RelationGetDescr(cxt->rel));
 		table_endscan(cxt->scan_desc);
     	table_close(cxt->rel, ShareLock);
-
-		//DecrTupleDescRefCount(funcctx->tuple_desc);
-		pfree(cxt->scan_desc);
-		pfree(cxt);
 		SRF_RETURN_DONE(funcctx);
 	}
 

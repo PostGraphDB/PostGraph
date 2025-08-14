@@ -72,16 +72,18 @@ USE GRAPH new_cypher;
 SELECT * FROM postgraph.ag_label WHERE name = '_ag_label_vertex';
        name       | graph | id | kind |           relation            |           vertex_adjlist           |    label_path    
 ------------------+-------+----+------+-------------------------------+------------------------------------+------------------
- _ag_label_vertex | 18780 |  1 | v    | new_cypher._ag_label_vertex   | new_cypher._adj__ag_label_vertex   | _ag_label_vertex
- _ag_label_vertex | 18805 |  1 | v    | new_cypher_2._ag_label_vertex | new_cypher_2._adj__ag_label_vertex | _ag_label_vertex
+ _ag_label_vertex | 18790 |  1 | v    | new_cypher._ag_label_vertex   | new_cypher._adj__ag_label_vertex   | _ag_label_vertex
+ _ag_label_vertex | 18826 |  1 | v    | new_cypher_2._ag_label_vertex | new_cypher_2._adj__ag_label_vertex | _ag_label_vertex
 (2 rows)
 
 \d+ new_cypher._adj__ag_label_vertex
-                          Table "new_cypher._adj__ag_label_vertex"
- Column  |  Type   | Collation | Nullable | Default | Storage  | Stats target | Description 
----------+---------+-----------+----------+---------+----------+--------------+-------------
- id      | graphid |           |          |         | plain    |              | 
- adjlist | gtype   |           |          |         | extended |              | 
+                                Table "new_cypher._adj__ag_label_vertex"
+   Column   |  Type   | Collation | Nullable |      Default      | Storage  | Stats target | Description 
+------------+---------+-----------+----------+-------------------+----------+--------------+-------------
+ id         | graphid |           |          |                   | plain    |              | 
+ start_id   | graphid |           | not null |                   | plain    |              | 
+ end_id     | graphid |           | not null |                   | plain    |              | 
+ properties | gtype   |           |          | gtype_build_map() | extended |              | 
 
 SELECT c.relname AS table_name,am.amname AS access_method
 FROM pg_class c
@@ -94,9 +96,10 @@ WHERE c.relkind = 'r' AND c.relname = '_adj__ag_label_vertex';
 (2 rows)
 
 DROP GRAPH new_cypher CASCADE;
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 4 other objects
 DETAIL:  drop cascades to table new_cypher._ag_label_vertex
 drop cascades to table new_cypher._adj__ag_label_vertex
+drop cascades to table new_cypher._adj__adj__ag_label_vertex
 drop cascades to table new_cypher._ag_label_edge
 NOTICE:  graph "new_cypher" has been dropped
  drop_graph 
@@ -105,9 +108,10 @@ NOTICE:  graph "new_cypher" has been dropped
 (1 row)
 
 DROP GRAPH new_cypher_2 CASCADE;
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 4 other objects
 DETAIL:  drop cascades to table new_cypher_2._ag_label_vertex
 drop cascades to table new_cypher_2._adj__ag_label_vertex
+drop cascades to table new_cypher_2._adj__adj__ag_label_vertex
 drop cascades to table new_cypher_2._ag_label_edge
 NOTICE:  graph "new_cypher_2" has been dropped
  drop_graph 

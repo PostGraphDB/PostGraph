@@ -33,14 +33,13 @@ USE GRAPH cypher_create;
 
 CREATE ();
 WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
-WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
 --
 (0 rows)
 
 SELECT * FROM cypher_create._ag_label_vertex;
-       id        | properties 
------------------+------------
- 281474976710657 | 
+   id   | properties 
+--------+------------
+ (1, 1) | 
 (1 row)
 
 MATCH () RETURN 1;
@@ -57,64 +56,75 @@ NOTICE:  VLabel "test" has been created
 (1 row)
 
 SELECT * FROM postgraph.ag_label;
-       name       | graph | id | kind |            relation            |           vertex_adjlist            |      label_path       
-------------------+-------+----+------+--------------------------------+-------------------------------------+-----------------------
- _ag_label_vertex | 18780 |  1 | v    | 18783                          | 18792                               | _ag_label_vertex
- _ag_label_edge   | 18780 |  2 | e    | 18796                          |                                     | _ag_label_edge
- _ag_label_vertex | 18805 |  1 | v    | 18808                          | 18817                               | _ag_label_vertex
- _ag_label_edge   | 18805 |  2 | e    | 18821                          |                                     | _ag_label_edge
- _ag_label_vertex | 18833 |  1 | v    | cypher_create._ag_label_vertex | cypher_create._adj__ag_label_vertex | _ag_label_vertex
- _ag_label_edge   | 18833 |  2 | e    | cypher_create._ag_label_edge   |                                     | _ag_label_edge
- test             | 18833 |  3 | v    | cypher_create.test             | cypher_create._adj_test             | _ag_label_vertex.test
-(7 rows)
+            name            | graph | id | kind |                 relation                 |           vertex_adjlist            |                label_path                 
+----------------------------+-------+----+------+------------------------------------------+-------------------------------------+-------------------------------------------
+ _adj__adj__ag_label_vertex | 18790 |  2 | e    | 18807                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18790 |  1 | v    | 18793                                    | 18802                               | _ag_label_vertex
+ _ag_label_edge             | 18790 |  3 | e    | 18817                                    |                                     | _ag_label_edge
+ _adj__adj__ag_label_vertex | 18826 |  2 | e    | 18843                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18826 |  1 | v    | 18829                                    | 18838                               | _ag_label_vertex
+ _ag_label_edge             | 18826 |  3 | e    | 18853                                    |                                     | _ag_label_edge
+ _adj__adj__ag_label_vertex | 18862 |  2 | e    | cypher_create._adj__adj__ag_label_vertex |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18862 |  1 | v    | cypher_create._ag_label_vertex           | cypher_create._adj__ag_label_vertex | _ag_label_vertex
+ _ag_label_edge             | 18862 |  3 | e    | cypher_create._ag_label_edge             |                                     | _ag_label_edge
+ _adj__adj_test             | 18862 |  5 | e    | cypher_create._adj__adj_test             |                                     | _ag_label_edge._adj__adj_test
+ test                       | 18862 |  4 | v    | cypher_create.test                       | cypher_create._adj_test             | _ag_label_vertex.test
+(11 rows)
 
 CREATE (:test);
-WARNING:  relcache reference leak: relation "test" not closed
 WARNING:  relcache reference leak: relation "test" not closed
 --
 (0 rows)
 
 SELECT * FROM postgraph.ag_label;
-       name       | graph | id | kind |            relation            |           vertex_adjlist            |      label_path       
-------------------+-------+----+------+--------------------------------+-------------------------------------+-----------------------
- _ag_label_vertex | 18780 |  1 | v    | 18783                          | 18792                               | _ag_label_vertex
- _ag_label_edge   | 18780 |  2 | e    | 18796                          |                                     | _ag_label_edge
- _ag_label_vertex | 18805 |  1 | v    | 18808                          | 18817                               | _ag_label_vertex
- _ag_label_edge   | 18805 |  2 | e    | 18821                          |                                     | _ag_label_edge
- _ag_label_vertex | 18833 |  1 | v    | cypher_create._ag_label_vertex | cypher_create._adj__ag_label_vertex | _ag_label_vertex
- _ag_label_edge   | 18833 |  2 | e    | cypher_create._ag_label_edge   |                                     | _ag_label_edge
- test             | 18833 |  3 | v    | cypher_create.test             | cypher_create._adj_test             | _ag_label_vertex.test
-(7 rows)
+            name            | graph | id | kind |                 relation                 |           vertex_adjlist            |                label_path                 
+----------------------------+-------+----+------+------------------------------------------+-------------------------------------+-------------------------------------------
+ _adj__adj__ag_label_vertex | 18790 |  2 | e    | 18807                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18790 |  1 | v    | 18793                                    | 18802                               | _ag_label_vertex
+ _ag_label_edge             | 18790 |  3 | e    | 18817                                    |                                     | _ag_label_edge
+ _adj__adj__ag_label_vertex | 18826 |  2 | e    | 18843                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18826 |  1 | v    | 18829                                    | 18838                               | _ag_label_vertex
+ _ag_label_edge             | 18826 |  3 | e    | 18853                                    |                                     | _ag_label_edge
+ _adj__adj__ag_label_vertex | 18862 |  2 | e    | cypher_create._adj__adj__ag_label_vertex |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18862 |  1 | v    | cypher_create._ag_label_vertex           | cypher_create._adj__ag_label_vertex | _ag_label_vertex
+ _ag_label_edge             | 18862 |  3 | e    | cypher_create._ag_label_edge             |                                     | _ag_label_edge
+ _adj__adj_test             | 18862 |  5 | e    | cypher_create._adj__adj_test             |                                     | _ag_label_edge._adj__adj_test
+ test                       | 18862 |  4 | v    | cypher_create.test                       | cypher_create._adj_test             | _ag_label_vertex.test
+(11 rows)
 
 SELECT * FROM cypher_create.test;
-       id        | properties 
------------------+------------
- 844424930131969 | 
+   id   | properties 
+--------+------------
+ (4, 1) | 
 (1 row)
 
 CREATE (:test2);
 WARNING:  relcache reference leak: relation "test2" not closed
-WARNING:  relcache reference leak: relation "test2" not closed
 --
 (0 rows)
 
 SELECT * FROM postgraph.ag_label;
-       name       | graph | id | kind |            relation            |           vertex_adjlist            |       label_path       
-------------------+-------+----+------+--------------------------------+-------------------------------------+------------------------
- _ag_label_vertex | 18780 |  1 | v    | 18783                          | 18792                               | _ag_label_vertex
- _ag_label_edge   | 18780 |  2 | e    | 18796                          |                                     | _ag_label_edge
- _ag_label_vertex | 18805 |  1 | v    | 18808                          | 18817                               | _ag_label_vertex
- _ag_label_edge   | 18805 |  2 | e    | 18821                          |                                     | _ag_label_edge
- _ag_label_vertex | 18833 |  1 | v    | cypher_create._ag_label_vertex | cypher_create._adj__ag_label_vertex | _ag_label_vertex
- _ag_label_edge   | 18833 |  2 | e    | cypher_create._ag_label_edge   |                                     | _ag_label_edge
- test             | 18833 |  3 | v    | cypher_create.test             | cypher_create._adj_test             | _ag_label_vertex.test
- test2            | 18833 |  4 | v    | cypher_create.test2            | cypher_create._adj_test2            | _ag_label_vertex.test2
-(8 rows)
+            name            | graph | id | kind |                 relation                 |           vertex_adjlist            |                label_path                 
+----------------------------+-------+----+------+------------------------------------------+-------------------------------------+-------------------------------------------
+ _adj__adj__ag_label_vertex | 18790 |  2 | e    | 18807                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18790 |  1 | v    | 18793                                    | 18802                               | _ag_label_vertex
+ _ag_label_edge             | 18790 |  3 | e    | 18817                                    |                                     | _ag_label_edge
+ _adj__adj__ag_label_vertex | 18826 |  2 | e    | 18843                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18826 |  1 | v    | 18829                                    | 18838                               | _ag_label_vertex
+ _ag_label_edge             | 18826 |  3 | e    | 18853                                    |                                     | _ag_label_edge
+ _adj__adj__ag_label_vertex | 18862 |  2 | e    | cypher_create._adj__adj__ag_label_vertex |                                     | _ag_label_edge._adj__adj__ag_label_vertex
+ _ag_label_vertex           | 18862 |  1 | v    | cypher_create._ag_label_vertex           | cypher_create._adj__ag_label_vertex | _ag_label_vertex
+ _ag_label_edge             | 18862 |  3 | e    | cypher_create._ag_label_edge             |                                     | _ag_label_edge
+ _adj__adj_test             | 18862 |  5 | e    | cypher_create._adj__adj_test             |                                     | _ag_label_edge._adj__adj_test
+ test                       | 18862 |  4 | v    | cypher_create.test                       | cypher_create._adj_test             | _ag_label_vertex.test
+ _adj__adj_test2            | 18862 |  7 | e    | cypher_create._adj__adj_test2            |                                     | _ag_label_edge._adj__adj_test2
+ test2                      | 18862 |  6 | v    | cypher_create.test2                      | cypher_create._adj_test2            | _ag_label_vertex.test2
+(13 rows)
 
 SELECT * FROM cypher_create.test2;
-        id        | properties 
-------------------+------------
- 1125899906842625 | 
+   id   | properties 
+--------+------------
+ (6, 1) | 
 (1 row)
 
 MATCH () RETURN 1;
@@ -128,11 +138,61 @@ MATCH () RETURN 1;
 CREATE ()-[]->();
 WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
 WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
-WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
-WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
 WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
 --
 (0 rows)
+
+EXPLAIN MATCH ()-[]->() RETURN 1;
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=12.50..50471.30 rows=2520000 width=32)
+   ->  Append  (cost=0.00..58.80 rows=2520 width=8)
+         ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8)
+         ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8)
+         ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8)
+   ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=0)
+(6 rows)
+
+EXPLAIN ANALYZE MATCH ()-[]->() RETURN 1;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=12.50..50471.30 rows=2520000 width=32) (actual time=0.060..0.237 rows=1 loops=1)
+   ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.005..0.013 rows=5 loops=1)
+         ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.005..0.006 rows=3 loops=1)
+         ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.002 rows=1 loops=1)
+         ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.002..0.002 rows=1 loops=1)
+   ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=0) (actual time=0.043..0.043 rows=0 loops=5)
+ Planning Time: 0.095 ms
+ Execution Time: 0.262 ms
+(8 rows)
+
+MATCH ()-[]->() RETURN 1;
+ ?column? 
+----------
+ 1
+(1 row)
+
+SELECT * FROM cypher_create._ag_label_vertex;
+   id   | properties 
+--------+------------
+ (1, 1) | 
+ (1, 2) | 
+ (1, 3) | 
+ (4, 1) | 
+ (6, 1) | 
+(5 rows)
+
+SELECT * FROM cypher_create._adj__adj__ag_label_vertex;
+      id       | start_id | end_id | properties 
+---------------+----------+--------+------------
+ (0, 41914048) | (1, 2)   | (1, 3) | 
+(1 row)
+
+SELECT * FROM cypher_create._adj__ag_label_vertex;
+      id       | start_id | end_id | properties 
+---------------+----------+--------+------------
+ (0, 41914048) | (1, 2)   | (1, 3) | 
+(1 row)
 
 MATCH () RETURN 1;
  ?column? 
@@ -153,14 +213,17 @@ ERROR:  CREATE doesn't work with next clauses
 -- Clean up
 --
 DROP GRAPH cypher_create CASCADE;
-NOTICE:  drop cascades to 7 other objects
+NOTICE:  drop cascades to 10 other objects
 DETAIL:  drop cascades to table cypher_create._ag_label_vertex
 drop cascades to table cypher_create._adj__ag_label_vertex
+drop cascades to table cypher_create._adj__adj__ag_label_vertex
 drop cascades to table cypher_create._ag_label_edge
 drop cascades to table cypher_create.test
 drop cascades to table cypher_create._adj_test
+drop cascades to table cypher_create._adj__adj_test
 drop cascades to table cypher_create.test2
 drop cascades to table cypher_create._adj_test2
+drop cascades to table cypher_create._adj__adj_test2
 NOTICE:  graph "cypher_create" has been dropped
  drop_graph 
 ------------
