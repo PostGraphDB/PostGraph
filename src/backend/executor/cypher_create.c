@@ -282,10 +282,10 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
         if(i % 2 == 1)
             css->vertex_ids[0][i/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
         else {
-            css->edge_ids[0][i/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
-            i++;
+            css->edge_ids[0][(i-1)/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
+
         }  
-        
+        i++;
         
     }
 
@@ -323,7 +323,7 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
             ExecClearTuple(elemTupleSlot);
 
             // get the next graphid for this vertex.
-            elemTupleSlot->tts_values[0] = css->edge_ids[0][i];
+            elemTupleSlot->tts_values[0] = css->edge_ids[0][i-1];
             elemTupleSlot->tts_isnull[0] = false;
 
             elemTupleSlot->tts_values[1] = css->vertex_ids[0][i];

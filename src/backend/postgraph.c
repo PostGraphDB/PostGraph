@@ -39,7 +39,7 @@ void _PG_init(void)
     set_rel_pathlist_init();
     parse_analyze_init();
     parse_init();
-    register_seq_scan_hook();
+    //register_seq_scan_hook();
 }
 
 void _PG_fini(void);
@@ -49,5 +49,5 @@ void _PG_fini(void)
     set_rel_pathlist_fini();
     parse_analyze_fini();
     parse_fini();
-    unregister_seq_scan_hook();
+    //unregister_seq_scan_hook();
 }

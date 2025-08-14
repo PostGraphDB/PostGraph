@@ -83,6 +83,8 @@ static void setNamespaceLateralState(List *namespace, bool lateral_only, bool la
 
 static char *make_id_alias(char *var_name);
 static char *make_property_alias(char *var_name);
+static char *make_startid_alias(char *var_name);
+static char *make_endid_alias(char *var_name);
 
 static Node *make_vertex_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi);
 static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi);
@@ -90,6 +92,22 @@ static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi
 List *
 transform_window_definitions(ParseState *pstate, List *windowdefs, List **targetlist);
 
+static char *make_vertex_adjlist_alias(char *var_name) {
+    char *str = palloc0(strlen(var_name) + 8);
+
+    str[0] = '_';
+    str[1] = 'a';
+    str[2] = 'd';
+    str[3] = 'j';
+    str[4] = '_';
+
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 5] = var_name[i];
+    str[i + 5] = '\0';
+
+    return str;
+}
 /*
  * transform a cypher_clause
  */
@@ -149,6 +167,43 @@ static char *make_id_alias(char *var_name) {
     for (; i < strlen(var_name); i++)
         str[i + 4] = var_name[i];
     str[i + 4] = '_';
+    str[i + 5] = '_';
+    str[i + 6] = '_';
+    str[i + 7] = '\0';
+
+    return str;
+}
+static char *make_startid_alias(char *var_name) {
+    char *str = palloc0(strlen(var_name) + 8);
+
+    str[0] = '_';
+    str[1] = 's';
+    str[2] = 't';
+    str[3] = '_';
+
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 4] = var_name[i];
+
+    str[i + 5] = '_';
+    str[i + 6] = '_';
+    str[i + 7] = '\0';
+
+    return str;
+}
+
+static char *make_endid_alias(char *var_name) {
+    char *str = palloc0(strlen(var_name) + 8);
+
+    str[0] = '_';
+    str[1] = 'e';
+    str[2] = 'n';
+    str[3] = '_';
+
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 4] = var_name[i];
+
     str[i + 5] = '_';
     str[i + 6] = '_';
     str[i + 7] = '\0';
@@ -809,6 +864,290 @@ static Query *transform_cypher_match_pattern(cypher_parsestate *cpstate, cypher_
 }
 
 
+static Node *transform_srf_function(cypher_parsestate *cpstate, Node *n, RangeTblEntry **top_rte, int *top_rti, List **namespace) ;
+static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok);
+
+
+static Node *make_null_const(int location) {
+    A_Const *n;
+
+    n = makeNode(A_Const);
+    n->val.type = T_Null;
+    n->location = location;
+
+    return (Node *)n;
+}
+
+static A_Expr *
+makeSimpleCypherA_Expr(A_Expr_Kind kind, char *name,
+				 Node *lexpr, Node *rexpr, int location)
+{
+	A_Expr	   *a = makeNode(A_Expr);
+
+	a->kind = kind;
+	a->name = list_make2(makeString("postgraph"), makeString((char *) name));
+	a->lexpr = lexpr;
+	a->rexpr = rexpr;
+	a->location = location;
+	return a;
+}
+
+
+
+Alias *make_alias(char *name, List *colnames) {
+    Alias *alias = makeNode(Alias);
+    
+    alias->aliasname = name;
+    alias->colnames = colnames;
+
+    return alias;
+}
+
+
+
+RangeFunction *make_range_function(FuncCall *func, Alias *alias, bool is_lateral, bool ordinality, bool is_rows_from) {
+    RangeFunction *rf = makeNode(RangeFunction);
+
+    rf->lateral = is_lateral;
+    rf->ordinality = ordinality;
+    rf->is_rowsfrom = is_rows_from;
+    rf->functions = list_make1(list_make2(func, NIL));
+    rf->alias = alias;
+
+    return rf;
+}
+
+static ParseNamespaceItem *add_srf_to_query(cypher_parsestate *cpstate, Node *n, char *var_name) {
+    RangeTblEntry *rte = NULL;
+    RangeTblRef *rtr;
+    List *namespace = NULL;
+    int rtindex;
+    ParseState *pstate = (ParseState *)cpstate;
+
+    Alias *alias = make_alias(var_name, list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
+    //Alias *alias = make_alias(var_name, NIL);
+    RangeFunction *rf = make_range_function(n, alias, true, false, false);
+
+
+    rtr = transform_srf_function(cpstate, rf, &rte, &rtindex, &namespace);
+    Assert(rtr != NULL);
+
+    checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
+
+    setNamespaceLateralState(namespace, true, true);
+    //((ParseNamespaceItem *)lfirst(list_head(namespace)))->p_names = alias;//list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties"));
+    pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+    pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
+
+    setNamespaceLateralState(pstate->p_namespace, true, true);
+
+    return lfirst(list_head(namespace));
+}
+
+
+
+static ParseNamespaceItem *add_srf_to_query1(cypher_parsestate *cpstate, Node *n, char *var_name) {
+    RangeTblEntry *rte = NULL;
+    RangeTblRef *rtr;
+    List *namespace = NULL;
+    int rtindex;
+    ParseState *pstate = (ParseState *)cpstate;
+
+    Alias *alias = make_alias(var_name, list_make1(makeString("properties")));
+    //Alias *alias = make_alias(var_name, NIL);
+    RangeFunction *rf = make_range_function(n, alias, true, false, false);
+
+
+    rtr = transform_srf_function(cpstate, rf, &rte, &rtindex, &namespace);
+    Assert(rtr != NULL);
+
+    checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
+
+    setNamespaceLateralState(namespace, true, true);
+    //((ParseNamespaceItem *)lfirst(list_head(namespace)))->p_names = alias;//list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties"));
+    pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+    pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
+
+    setNamespaceLateralState(pstate->p_namespace, true, true);
+
+    return lfirst(list_head(namespace));
+}
+
+
+// transform a function call appearing in FROM
+static ParseNamespaceItem *transform_RangeFunction(cypher_parsestate *cpstate, RangeFunction *r) {
+    ParseState *pstate = NULL;
+    List *funcexprs = NIL;
+    List *funcnames = NIL;
+    List *coldeflists = NIL;
+    bool is_lateral = false;
+    ListCell *lc = NULL;
+    ParseNamespaceItem *pnsi;
+
+    pstate = &cpstate->pstate;
+
+    Assert(!pstate->p_lateral_active);
+    pstate->p_lateral_active = true;
+
+    // transform the raw expressions 
+    foreach(lc, r->functions)
+    {
+        List *pair = (List*)lfirst(lc);
+        Node *fexpr;
+        List *coldeflist;
+        Node *newfexpr;
+        Node *last_srf;
+
+        // Disassemble the function-call/column-def-list pairs 
+        Assert(list_length(pair) == 2);
+        fexpr = (Node*) linitial(pair);
+        coldeflist = (List*) lsecond(pair);
+
+        // normal case ... 
+        last_srf = pstate->p_last_srf;
+
+        // transform the function expression 
+        newfexpr = transform_cypher_expr(cpstate, fexpr, EXPR_KIND_FROM_FUNCTION);
+
+        // nodeFunctionscan.c requires SRFs to be at top level 
+        if (pstate->p_last_srf != last_srf && pstate->p_last_srf != newfexpr)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("set-returning functions must appear at top level of FROM"),
+                     parser_errposition(pstate, exprLocation(pstate->p_last_srf))));
+
+        funcexprs = lappend(funcexprs, newfexpr);
+        funcnames = lappend(funcnames, FigureColname(fexpr));
+
+        if (coldeflist && r->coldeflist)
+            ereport(ERROR,
+                    (errcode(ERRCODE_SYNTAX_ERROR),
+                     errmsg("multiple column definition lists are not allowed for the same function"),
+                     parser_errposition(pstate, exprLocation((Node *) r->coldeflist))));
+
+        coldeflists = lappend(coldeflists, coldeflist);
+    }
+
+    pstate->p_lateral_active = false;
+
+    /*
+     * We must assign collations now so that the RTE exposes correct collation
+     * info for Vars created from it.
+     */
+    assign_list_collations(pstate, funcexprs);
+
+    // currently this is not used by the VLE 
+    Assert(r->coldeflist == NULL);
+
+    // mark the RTE as LATERAL 
+    is_lateral = r->lateral || contain_vars_of_level((Node *) funcexprs, 0);
+
+    // build an RTE for the function 
+    pnsi = addRangeTableEntryForFunction(pstate, funcnames, funcexprs, coldeflists, r, is_lateral, true);
+
+    return pnsi;
+}
+
+static Node *transform_srf_function(cypher_parsestate *cpstate, Node *n, RangeTblEntry **top_rte, int *top_rti, List **namespace) {
+    ParseState *pstate = (ParseState *)cpstate;
+    
+    Assert(IsA(n, RangeFunction));
+    
+    if (IsA(n, RangeFunction)) {
+        RangeTblRef *rtr;
+        RangeTblEntry *rte;
+        ParseNamespaceItem *nsitem;
+        int rtindex;
+    
+        nsitem = transform_RangeFunction(cpstate, (RangeFunction *) n);
+        rte = nsitem->p_rte;
+        rtindex = list_length(pstate->p_rtable);
+        Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
+        *top_rte = rte;
+        *top_rti = rtindex;
+        *namespace = list_make1(nsitem);
+        rtr = makeNode(RangeTblRef);
+        rtr->rtindex = rtindex;
+        return (Node *) rtr;
+    }
+    
+    return NULL;
+}
+
+
+static Node *transform_VLE_Function(cypher_parsestate *cpstate, Node *n, RangeTblEntry **top_rte, int *top_rti, List **namespace) {
+    ParseState *pstate = &cpstate->pstate;
+
+    Assert(IsA(n, RangeFunction));
+
+    if (IsA(n, RangeFunction)) {
+        RangeTblRef *rtr;
+        RangeTblEntry *rte;
+        ParseNamespaceItem *nsitem;
+        int rtindex;
+
+        nsitem = transform_RangeFunction(cpstate, (RangeFunction *) n);
+        rte = nsitem->p_rte;
+        rtindex = list_length(pstate->p_rtable);
+        Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
+        *top_rte = rte;
+        *top_rti = rtindex;
+        *namespace = list_make1(nsitem);
+        rtr = makeNode(RangeTblRef);
+        rtr->rtindex = rtindex;
+        return (Node *) rtr;
+    }
+
+    return NULL;
+}
+
+
+static ParseNamespaceItem *add_vle_to_query(cypher_parsestate *cpstate, Node *n) {
+    ParseState *pstate = &cpstate->pstate;
+    RangeTblEntry *rte = NULL;
+    List *namespace = NULL;
+    int rtindex;
+
+    n = transform_VLE_Function(cpstate, n, &rte, &rtindex, &namespace);
+    Assert(n != NULL);
+
+    checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
+    
+    setNamespaceLateralState(namespace, true, true);
+
+    pstate->p_joinlist = lappend(pstate->p_joinlist, n);
+    pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
+        
+    setNamespaceLateralState(pstate->p_namespace, false, true);
+        
+    return lfirst(list_head(namespace));
+}
+
+
+// setNamespaceLateralState - subroutine to update LATERAL flags in a namespace list.
+static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok) {
+    ListCell *lc;
+
+    foreach(lc, namespace) {
+        ParseNamespaceItem *nsitem = (ParseNamespaceItem *) lfirst(lc);
+
+        nsitem->p_lateral_only = lateral_only;
+        nsitem->p_lateral_ok = lateral_ok;
+    }
+}
+
+static Node *make_int_const(int i, int location) {
+    A_Const *n;
+
+    n = makeNode(A_Const);
+    n->val.type = T_Integer;
+    n->val.val.ival = i;
+    n->location = location;
+
+    return (Node *)n;
+}
+
+
 static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, List *pattern, Node *where) {
     ParseState *pstate = (ParseState *)cpstate;
     ListCell *lc;
@@ -832,12 +1171,17 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                     (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                      errmsg("MATCH paths only support 1 vertex")));
 
+        char *vertex_label = NULL;
+        ParseNamespaceItem *vertex_pnsi;
+        Node *vertex_id = NULL;
         ListCell *path_cell;
+        cypher_node *prev_node;
+        ParseNamespaceItem *edge_pnsi;
         int i = 1;
         foreach(path_cell, path->path) {
             if (i % 2 == 1) {
                 cypher_node *node = lfirst(path_cell);
-
+                prev_node = node;
                 if (node->name)
                     ereport(ERROR,
                             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -853,71 +1197,92 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                 else
                     node->label = AG_DEFAULT_LABEL_VERTEX;
 
-                char *schema_name;
-                char *rel_name;
-                int resno;
-                TargetEntry *te;
-                Expr *expr;
-                ParseNamespaceItem *pnsi;
-                RangeVar *label_range_var;
-                Alias *alias;
+                    char *schema_name;
+                    char *rel_name;
+                    int resno;
+                    TargetEntry *te;
+                    Expr *expr;
+                    ParseNamespaceItem *pnsi;
+                    RangeVar *label_range_var;
+                    Alias *alias;
 
-                schema_name = get_graph_namespace_name(cpstate->graph_name);
+                if (i < 2) {
 
-                // XXX: LTree Labeling Project, first code is here
-                Datum label_lquery;
-                if (is_default_label)
-                    label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(node->label));
-                else
-                    label_lquery = DirectFunctionCall2(ltree_addltree, 
-                                        DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
-                                        DirectFunctionCall1(ltree_in, CStringGetDatum(node->label)));
-                
-                int ltq_query_args[2];
-                ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-                ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-                
-                Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
-                
-                ScanKeyData scan_keys[1];
-                ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
-                
-                Relation label_catalog = table_open(ag_label_relation_id(), AccessShareLock);
-                SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
 
-                HeapTuple tuple = systable_getnext(scan_desc);
+                    schema_name = get_graph_namespace_name(cpstate->graph_name);
 
-                if (!HeapTupleIsValid(tuple))
-                    ereport(ERROR,
-                            (errcode(ERRCODE_UNDEFINED_SCHEMA),
-                            errmsg("not found %s", node->label)));
-                
-                bool is_null;
-                rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
+                    // XXX: LTree Labeling Project, first code is here
+                    Datum label_lquery;
+                    if (is_default_label)
+                        label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(node->label));
+                    else
+                        label_lquery = DirectFunctionCall2(ltree_addltree, 
+                                            DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
+                                            DirectFunctionCall1(ltree_in, CStringGetDatum(node->label)));
+                    
 
-                systable_endscan(scan_desc);
-                table_close(label_catalog, AccessShareLock);
 
-                //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
-                label_range_var = makeRangeVar(schema_name, rel_name, -1);
-                alias = makeAlias(node->name, NIL);
+                    int ltq_query_args[2];
+                    ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+                    ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+                    
+                    Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
+                    
+                    ScanKeyData scan_keys[1];
+                    ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
+                    
+                    Relation label_catalog = table_open(ag_label_relation_id(), AccessShareLock);
+                    SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
 
-                pnsi = addRangeTableEntry(pstate, label_range_var, alias, label_range_var->inh, true);
-                Assert(pnsi != NULL);
+                    HeapTuple tuple = systable_getnext(scan_desc);
 
-                addNSItemToQuery(pstate, pnsi, true, true, true);
+                    if (!HeapTupleIsValid(tuple))
+                        ereport(ERROR,
+                                (errcode(ERRCODE_UNDEFINED_SCHEMA),
+                                errmsg("not found %s", node->label)));
+                    
+                    bool is_null;
+                    rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
 
-                resno = pstate->p_next_resno++;
-                // XXX: End LTree Code here
+                    systable_endscan(scan_desc);
+                    table_close(label_catalog, AccessShareLock);
 
-                expr = (Expr *)make_vertex_expr(cpstate, pnsi);
+                    //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
+                    label_range_var = makeRangeVar(schema_name, rel_name, -1);
+                    vertex_label = node->label;
+                    alias = makeAlias(node->name, NIL);
 
+                    pnsi = addRangeTableEntry(pstate, label_range_var, alias, label_range_var->inh, true);
+                    vertex_pnsi = pnsi;
+                    Assert(pnsi != NULL);
+
+                    addNSItemToQuery(pstate, pnsi, true, true, true);
+
+                    //resno = pstate->p_next_resno++;
+                    // XXX: End LTree Code here
+
+                  // 
+                } else {
+
+                    int sublevels_up =1;
+                    Node * id_field = scanNSItemForColumn(cpstate, edge_pnsi, 0, "endid", -1);
+
+                    FuncCall *fc = makeFuncCall(list_make2(makeString("postgraph"), makeString("retrieve_vertex")),
+                                                list_make2(make_int_const(cpstate->graph_oid, -1),id_field),
+                                                COERCE_EXPLICIT_CALL, -1);
+                    pnsi = add_srf_to_query1(cpstate, fc, node->name);
+                    //edge_pnsi = pnsi;
+                } 
+                //expr = (Expr *)make_vertex_expr(cpstate, pnsi);
                 // make target entry and add it 
-                te = makeTargetEntry(expr, resno, node->name, false);
-                query->targetList = lappend(query->targetList, te);
+                    //    pstate->p_next_resno++;
+                //te = makeTargetEntry(expr, resno, node->name, false);
+
+                //query->targetList = lappend(query->targetList, te);
 
                 // id field
                 Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
+                vertex_id = id;
                 resno = pstate->p_next_resno++;
 
                 te = makeTargetEntry(id, resno, make_id_alias(node->name), false);
@@ -933,22 +1298,6 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
 
                 quals = list_concat(quals, NULL);
             } else {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
                 cypher_relationship *edge = lfirst(path_cell);
 
                 if (edge->name)
@@ -977,60 +1326,39 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
 
                 schema_name = get_graph_namespace_name(cpstate->graph_name);
 
-                // XXX: LTree Labeling Project, first code is here
-                Datum label_lquery;
-                if (is_default_label)
-                    label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(edge->label));
-                else
-                    label_lquery = DirectFunctionCall2(ltree_addltree, 
-                                        DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
-                                        DirectFunctionCall1(ltree_in, CStringGetDatum(edge->label)));
-                
-                int ltq_query_args[2];
-                ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-                ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-                
-                Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
-                
-                ScanKeyData scan_keys[1];
-                ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
-                
-                Relation label_catalog = table_open(ag_label_relation_id(), AccessShareLock);
-                SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
-
-                HeapTuple tuple = systable_getnext(scan_desc);
-
-                if (!HeapTupleIsValid(tuple))
-                    ereport(ERROR,
-                            (errcode(ERRCODE_UNDEFINED_SCHEMA),
-                            errmsg("not found %s", edge->label)));
-                
-                bool is_null;
-                rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
-
-                systable_endscan(scan_desc);
-                table_close(label_catalog, AccessShareLock);
 
                 //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
-                label_range_var = makeRangeVar(schema_name, rel_name, -1);
-                alias = makeAlias(edge->name, NIL);
 
-                pnsi = addRangeTableEntry(pstate, label_range_var, alias, label_range_var->inh, true);
-                Assert(pnsi != NULL);
 
-                addNSItemToQuery(pstate, pnsi, true, true, true);
 
-                resno = pstate->p_next_resno++;
+                int sublevels_up;
+                Node * id_field = scanNSItemForColumn(cpstate, vertex_pnsi, 0, "id", -1);
+
+                //Node * id_field = makeColumnRef(makeString(prev_node->name), list_make1(makeString("id")), -1, NULL);
+                //alias = makeAlias(edge->name, list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
+                //make_alias(var_name, list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
+                FuncCall *fc = makeFuncCall(list_make2(makeString("postgraph"), makeString("edge_search")),
+                                            list_make4(make_int_const(cpstate->graph_oid, -1),id_field, make_null_const(-1), make_null_const(-1)),
+                                            COERCE_EXPLICIT_CALL, -1);
+                pnsi = add_srf_to_query(cpstate, fc, edge->name);
+                edge_pnsi = pnsi;
+                //RangeFunction *rf = make_range_function(fc, alias, false, false, false);
+                //pnsi = add_vle_to_query(cpstate, (Node*)rf);
+                //addNSItemToQuery(pstate, pnsi, true, true, true);
+
+              //  resno = pstate->p_next_resno++;
                 // XXX: End LTree Code here
 
-                expr = (Expr *)make_edge_expr(cpstate, pnsi);
+               // expr = (Expr *)make_edge_expr(cpstate, pnsi);
 
                 // make target entry and add it 
-                te = makeTargetEntry(expr, resno, edge->name, false);
-                query->targetList = lappend(query->targetList, te);
+             //   te = makeTargetEntry(expr, resno, edge->name, false);
+             //   query->targetList = lappend(query->targetList, te);
 
+             
                 // id field
                 Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_ID, -1);
+                //vertex_id = id;
                 resno = pstate->p_next_resno++;
 
                 te = makeTargetEntry(id, resno, make_id_alias(edge->name), false);
@@ -1041,7 +1369,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                 Node *startid = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_START_ID, -1);
                 resno = pstate->p_next_resno++;
 
-                te = makeTargetEntry(startid, resno, make_id_alias(edge->name), false);
+                te = makeTargetEntry(startid, resno, make_startid_alias(edge->name), false);
                 query->targetList = lappend(query->targetList, te);
 
 
@@ -1049,7 +1377,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                 Node *endid = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_END_ID, -1);
                 resno = pstate->p_next_resno++;
 
-                te = makeTargetEntry(endid, resno, make_id_alias(edge->name), false);
+                te = makeTargetEntry(endid, resno, make_endid_alias(edge->name), false);
                 query->targetList = lappend(query->targetList, te);
 
                 // properties field
@@ -1060,8 +1388,19 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                 query->targetList = lappend(query->targetList, te);
 
 
-                quals = list_concat(quals, NULL);
+                //quals = list_concat(quals, NULL);
 
+
+                int sublevels;
+                char *entity_name = vertex_label;
+                
+
+                //ParseNamespaceItem *pnsi1 = refnameNamespaceItem(cpstate, NULL, entity_name, -1, &sublevels);
+//scanNSItemForColumn(pstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
+
+               //quals = list_concat(quals, list_make1(makeSimpleCypherA_Expr(AEXPR_OP, "=", startid, vertex_id, -1)));
+
+                
             }
             i++;
         }
@@ -1069,11 +1408,11 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
 
     // AND the quals for each path together
     Expr *q = NULL;
-    /*
+    
     if (quals != NIL) {
         q = makeBoolExpr(AND_EXPR, quals, -1);
         expr = (Expr *)sql_transform_expr(&cpstate->pstate, (Node *)q, EXPR_KIND_WHERE);
-    }*/
+    }
 
     /*
     / property constraints on MATCH Pattern
@@ -1112,8 +1451,8 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
     //    expr = (Expr *)coerce_to_boolean(pstate, (Node *)expr, "WHERE");
 
     query->rtable = cpstate->pstate.p_rtable;
-    //query->jointree = makeFromExpr(cpstate->pstate.p_joinlist, (Node *)expr);
-    query->jointree = makeFromExpr(cpstate->pstate.p_joinlist, (Node *)NULL);
+    query->jointree = makeFromExpr(cpstate->pstate.p_joinlist, (Node *)expr);
+    //query->jointree = makeFromExpr(cpstate->pstate.p_joinlist, (Node *)NULL);
 }
 
 

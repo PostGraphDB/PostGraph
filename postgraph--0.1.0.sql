@@ -429,6 +429,26 @@ PARALLEL SAFE
 RETURNS NULL ON NULL INPUT 
 as 'MODULE_PATHNAME';
 
+CREATE TYPE edge_composite AS (id graphid, startid graphid, endid graphid, properties gtype);
+
+CREATE FUNCTION edge_search(graph_oid gtype, id graphid, label gtype, include_props gtype)
+RETURNS TABLE  (id graphid, startid graphid, endid graphid, properties gtype)
+CALLED ON NULL INPUT
+STABLE
+PARALLEL SAFE
+LANGUAGE C
+COST 5000
+AS 'MODULE_PATHNAME';
+
+
+CREATE FUNCTION retrieve_vertex(graph_oid gtype, id graphid)
+RETURNS gtype
+RETURNS NULL ON NULL INPUT
+STABLE
+PARALLEL SAFE
+LANGUAGE C
+COST 5000
+AS 'MODULE_PATHNAME';
 
 --
 -- There are times when the optimizer might eliminate

@@ -48,6 +48,7 @@ CREATE ()-[]->();
 
 EXPLAIN MATCH ()-[]->() RETURN 1;
 
+EXPLAIN ANALYZE MATCH ()-[]->() RETURN 1;
 
 MATCH ()-[]->() RETURN 1;
 
@@ -57,10 +58,12 @@ SELECT * FROM cypher_create._adj__adj__ag_label_vertex;
 SELECT * FROM cypher_create._adj__ag_label_vertex;
 MATCH () RETURN 1;
 
+
 CYPHER WITH 1 as a
 CREATE ();
 
 CREATE () RETURN 1 as a;
+
 
 --
 -- Clean up

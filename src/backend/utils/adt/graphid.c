@@ -52,6 +52,7 @@ Datum graphid_in(PG_FUNCTION_ARGS)
 PG_FUNCTION_INFO_V1(graphid_out);
 // graphid type output function
 Datum graphid_out(PG_FUNCTION_ARGS) {
+/*
     graphid gid = AG_GETARG_GRAPHID(0);
     char buf[32]; // greater than MAXINT8LEN+1
     char *out;
@@ -60,6 +61,23 @@ Datum graphid_out(PG_FUNCTION_ARGS) {
     out = pstrdup(buf);
 
     PG_RETURN_CSTRING(out);
+*/
+    graphid gid = AG_GETARG_GRAPHID(0);
+    int32 first_num;
+    int64_t second_num;
+    char *out;
+
+    // The first number is the last 8 bits of the graphid
+    first_num = gid >> ENTRY_ID_BITS;
+
+    // The second number is the remaining bits, shifted right by 8
+    second_num = gid & ENTRY_ID_MASK ;
+
+    // Use psprintf to format the output string
+    out = psprintf("(%d, %ld)", first_num, second_num);
+
+    PG_RETURN_CSTRING(out);
+
 }
 
 // graphid_recv - converts external binary format to a graphid.

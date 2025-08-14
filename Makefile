@@ -64,6 +64,7 @@ OBJS = src/backend/postgraph.o \
        src/backend/utils/adt/vector.o \
        src/backend/utils/adt/vertex.o \
        src/backend/utils/ag_func.o \
+       src/backend/utils/edge_searching.o \
        src/backend/utils/cache/ag_cache.o \
 
 EXTENSION = postgraph
