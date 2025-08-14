@@ -336,6 +336,26 @@ static Expr *add_volatile_wrapper(Expr *node) {
     return (Expr *)makeFuncExpr(oid, GTYPEOID, list_make1(node), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
 }
 
+static void validate_or_create_elabel(cypher_parsestate *cpstate, cypher_relationship *edge) {
+    ParseState *pstate = (ParseState *)cpstate;
+    label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
+
+    if (lcd && lcd->kind != LABEL_KIND_EDGE) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("label %s is for vertices, not edges", edge->label),
+                        parser_errposition(pstate, edge->location)));
+    } else if (!lcd)  {
+        List *parent;
+        RangeVar *rv;
+
+        rv = get_label_range_var(cpstate->graph_name, cpstate->graph_oid, AG_DEFAULT_LABEL_EDGE);
+
+        parent = list_make1(rv);
+
+        create_label(cpstate->graph_name, edge->label, LABEL_TYPE_EDGE, parent, NULL);
+    }
+}
+
 static void validate_or_create_vlabel(cypher_parsestate *cpstate, cypher_node *node) {
     ParseState *pstate = (ParseState *)cpstate;
     label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
@@ -423,7 +443,7 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
                 cypher_relationship *edge = lfirst(lc2);
 
                 if (edge->label) 
-                    ereport(ERROR, (errmsg_internal("edges in CREATE cannot have labels")));
+                    validate_or_create_elabel(cpstate, edge);
                 else
                     edge->label = AG_DEFAULT_LABEL_EDGE;
 
@@ -1190,10 +1210,12 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                     node->name = get_next_default_alias(cpstate);
 
                 bool is_default_label = true;
-                if (node->label)
+                if (node->label && i != 1)
                     ereport(ERROR,
                             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                             errmsg("MATCH labels are not supported")));
+                else if (node->label)
+                    is_default_label = false;
                 else
                     node->label = AG_DEFAULT_LABEL_VERTEX;
 
@@ -1281,7 +1303,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                     } else {
                         continue;
                     }
-                    //edge_pnsi = pnsi;
+
                 } 
 
                 // id field
