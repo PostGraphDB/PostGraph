@@ -23,6 +23,7 @@ typedef struct VertexScanDescData
 
 	int ndesc;
 	TableScanDesc **desc;
+	bool *isIndex;
 } VertexScanDescData;
 
 typedef struct VertexScanDescData *VertexHeapScanDesc;

@@ -67,6 +67,7 @@ static Datum get_vertex(Oid graph_oid, int64 graphid)
 
     ScanKeyInit(&scan_keys[0], 1, BTEqualStrategyNumber, F_OIDEQ, Int64GetDatum(graphid));
 
+	
     graph_vertex_label = table_open(lcd->relation, ShareLock);
     scan_desc = table_beginscan(graph_vertex_label, snapshot, 1, scan_keys);
     tuple = heap_getnext(scan_desc, ForwardScanDirection);

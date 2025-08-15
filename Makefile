@@ -81,7 +81,7 @@ PG_LIBS += -ltree
 all: postgraph--0.1.0.sql
 
 ag_regress_dir = $(srcdir)/regress
-REGRESS_OPTS = --load-extension=postgis --load-extension=ltree --load-extension=postgraph --inputdir=$(ag_regress_dir) --outputdir=$(ag_regress_dir) --temp-instance=$(ag_regress_dir)/instance --port=61958 --encoding=UTF-8
+REGRESS_OPTS = --load-extension=bloom --load-extension=postgis --load-extension=ltree --load-extension=postgraph --inputdir=$(ag_regress_dir) --outputdir=$(ag_regress_dir) --temp-instance=$(ag_regress_dir)/instance --port=61958 --encoding=UTF-8
 
 ag_regress_out = instance/ log/ results/ regression.*
 EXTRA_CLEAN = $(addprefix $(ag_regress_dir)/, $(ag_regress_out)) src/backend/parser/cypher_gram.c src/backend/parser/ag_scanner.c src/include/parser/cypher_gram_def.h src/include/parser/cypher_kwlist_d.h
@@ -90,9 +90,9 @@ GEN_KEYWORDLIST = $(PERL) -I ./tools/ ./tools/gen_keywordlist.pl
 GEN_KEYWORDLIST_DEPS = ./tools/gen_keywordlist.pl tools/PerfectHash.pm
 
 ag_include_dir = $(srcdir)/src/include
-PG_CPPFLAGS = -w -I$(ag_include_dir) -I$(ag_include_dir)/parser -I$(POSTGIS_DIR) -I$(POSTGIS_DIR)/liblwgeom -I/home/josh/postgres/contrib/ltree
+PG_CPPFLAGS = -w -I$(ag_include_dir) -I$(ag_include_dir)/parser -I$(POSTGIS_DIR) -I$(POSTGIS_DIR)/liblwgeom -I/home/josh/postgres/contrib/ltree -I/home/josh/postgres/contrib/bloom
 PG_LDFLAGS = -lgeos_c
-SHLIB_LINK=  $(POSTGIS_DIR)/liblwgeom/.libs/liblwgeom.a -Wl,--no-as-needed -Wl,-l:postgis-3.so -Wl,-l:ltree.so
+SHLIB_LINK=  $(POSTGIS_DIR)/liblwgeom/.libs/liblwgeom.a -Wl,--no-as-needed -Wl,-l:postgis-3.so -Wl,-l:ltree.so -Wl,-l:bloom.so
 
 PG_CONFIG ?= pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)

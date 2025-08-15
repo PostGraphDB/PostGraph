@@ -63,7 +63,10 @@ static void create_table_for_label(char *graph_name, char *label_name,
                                    char *schema_name, char *rel_name,
                                    char *seq_name, char label_type,
                                    List *parents);
-
+static void create_hash_idx(char *graph_name, char *label_name,
+                                   char *schema_name, char *rel_name,
+                                   char *seq_name, char label_type,
+                                   List *parents, char *col_name);
 // common
 static List *create_edge_table_elements(char *graph_name, char *label_name,
                                         char *schema_name, char *rel_name,
@@ -495,6 +498,26 @@ Datum create_property_index(PG_FUNCTION_ARGS)
 
     PG_RETURN_VOID();
 }
+static char *make_hash_idx_alias(char *var_name) {
+    char *str = palloc0(strlen(var_name) + 10);
+
+    str[0] = 'i';
+    str[1] = 'd';
+    str[2] = 'x';
+    str[3] = '_';
+    str[4] = 'h';
+    str[5] = 'a';
+    str[6] = 's';
+    str[7] = 'h';
+    str[8] = '_';
+    
+    int i = 0;
+    for (; i < strlen(var_name); i++)
+        str[i + 9] = var_name[i];
+    str[i + 9] = '\0';
+
+    return str;
+}
 
 static char *make_vertex_adjlist_alias(char *var_name) {
     char *str = palloc0(strlen(var_name) + 8);
@@ -629,16 +652,83 @@ void create_label(char *graph_name, char *label_name, char label_type,
         // 08/2/25: TODO - this is incorrect, but it will allow me to get the first two edge table I need created.
         //                 So do it for now, change in the very near future
         create_label(graph_name, make_vertex_adjlist_alias(make_vertex_adjlist_alias(label_name)), 'e', NIL , NULL);  
+        create_hash_idx(graph_name, label_name,
+                                        schema_name, label_name, seq_name, label_type,
+                                        parents, AG_VERTEX_COLNAME_ID);
 
 
+
+
+        create_hash_idx(graph_name, label_name,
+                                        schema_name, make_vertex_adjlist_alias(label_name), seq_name, label_type,
+                                        parents, AG_EDGE_COLNAME_START_ID);
         insert_label(label_name, graph_oid, label_id, label_type, relation_id, NULL, adj_oid);
 
     }else {
         insert_label(label_name, graph_oid, label_id, label_type, relation_id, NULL, InvalidOid);
 
+
     }
     
     CommandCounterIncrement();
+}
+
+static void create_hash_idx(char *graph_name, char *label_name,
+                                   char *schema_name, char *rel_name,
+                                   char *seq_name, char label_type,
+                                   List *parents, char *col_name) {
+    IndexStmt *index_stmt;
+    PlannedStmt *wrapper;
+
+    index_stmt = makeNode(IndexStmt);
+
+
+    IndexElem *start_id_elem = makeNode(IndexElem);
+    start_id_elem->name = col_name;
+    start_id_elem->expr = NULL;
+    start_id_elem->indexcolname = NULL;
+    start_id_elem->collation = NIL;
+    start_id_elem->opclass = NIL;
+    start_id_elem->opclassopts = NIL;
+    start_id_elem->ordering = SORTBY_DEFAULT;
+    start_id_elem->nulls_ordering = SORTBY_NULLS_DEFAULT;
+
+	index_stmt->idxname = make_hash_idx_alias(rel_name);;
+	index_stmt->relation = makeRangeVar(schema_name, rel_name, -1);
+	index_stmt->accessMethod = "hash";
+	index_stmt->tableSpace = NULL;
+	index_stmt->indexParams = list_make1(start_id_elem);
+	index_stmt->indexIncludingParams = NIL;
+	index_stmt->options = NIL;
+	index_stmt->whereClause = NULL;
+	index_stmt->excludeOpNames = NIL;
+	index_stmt->idxcomment = NULL;
+	index_stmt->indexOid = InvalidOid;
+	index_stmt->oldNode = InvalidOid;
+	index_stmt->oldCreateSubid = InvalidSubTransactionId;
+	index_stmt->oldFirstRelfilenodeSubid = InvalidSubTransactionId;
+	index_stmt->unique = false;
+	index_stmt->primary = false;
+	index_stmt->isconstraint = false;
+	index_stmt->deferrable = false;
+	index_stmt->initdeferred = false;
+	index_stmt->transformed = false;
+	index_stmt->concurrent = false;
+	index_stmt->if_not_exists = false;
+	index_stmt->reset_default_tblspc = false;
+
+
+    wrapper = makeNode(PlannedStmt);
+    wrapper->commandType = CMD_UTILITY;
+    wrapper->canSetTag = false;
+    wrapper->utilityStmt = (Node *)index_stmt;
+    wrapper->stmt_location = -1;
+    wrapper->stmt_len = 0;
+
+    ProcessUtility(wrapper, "(generated CREATE INDEX command)", false,
+                   PROCESS_UTILITY_SUBCOMMAND, NULL, NULL, None_Receiver,
+                   NULL);
+    
 }
 
 // CREATE TABLE `schema_name`.`rel_name` (

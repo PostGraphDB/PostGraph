@@ -105,6 +105,7 @@ static char *make_vertex_adjlist_alias(char *var_name) {
 
     return str;
 }
+#include "bloom.h"
 
 TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
                 struct ScanKeyData *key, 
@@ -123,9 +124,29 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
 	Oid oid = get_relname_relid(make_vertex_adjlist_alias(get_rel_name(RelationGetRelid(relation))), get_rel_namespace(RelationGetRelid(relation)));
 	Relation rel = RelationIdGetRelation(oid);
 
-	TableScanDesc *desc = tableam->scan_begin(rel, snapshot, nkeys, key, parallel_scan, flags);
-	vertex_desc->desc = palloc(sizeof (TableScanDesc *) * vertex_desc->ndesc);
-	vertex_desc->desc[0] = desc;
+    vertex_desc->desc = palloc(sizeof (TableScanDesc *) * vertex_desc->ndesc);
+    vertex_desc->isIndex = palloc(sizeof (bool) * vertex_desc->ndesc);
+
+    List *indexoidlist = RelationGetIndexList(relation);
+    if(list_length(indexoidlist) == 1) {
+        Oid idx = linitial_oid(indexoidlist);
+	
+        IndexScanDesc *desc = index_beginscan(rel,
+									 RelationIdGetRelation(idx),
+									 snapshot,
+									 nkeys, 0);
+
+        index_rescan(desc, key, nkeys, NULL, 0);
+
+        vertex_desc->desc[0] = desc;
+        vertex_desc->isIndex[0] = true;
+    } else {
+        
+        TableScanDesc *desc = tableam->scan_begin(rel, snapshot, nkeys, key, parallel_scan, flags);
+            
+        vertex_desc->desc[0] = desc;
+        vertex_desc->isIndex[0] = false;
+    }
 	return vertex_desc;
 }
 
@@ -133,7 +154,10 @@ void vertex_scan_end(TableScanDesc sscan) {
 	VertexScanDescData *vertex_desc = sscan;
 	RelationDecrementReferenceCount( ((HeapScanDesc)vertex_desc->desc[0])->rs_base.rs_rd);
 
-	GetHeapamTableAmRoutine()->scan_end(vertex_desc->desc[0]);
+    if (vertex_desc->isIndex[0])
+        index_endscan(vertex_desc->desc[0]);
+    else
+	    GetHeapamTableAmRoutine()->scan_end(vertex_desc->desc[0]);
 }
 
 /*
@@ -156,8 +180,12 @@ bool vertex_scan_getnextslot(TableScanDesc sscan, ScanDirection direction,
 	VertexScanDescData *vertex_desc = sscan;
 
 	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
-	
-	return tableam->scan_getnextslot(vertex_desc->desc[0], direction, slot);
+    if (vertex_desc->desc[0])
+        return false;
+	if (vertex_desc->isIndex[0])
+		return index_getnext_slot(vertex_desc->desc[0], direction, slot);
+    else
+	    return tableam->scan_getnextslot(vertex_desc->desc[0], direction, slot);
 }
 
 /* ------------------------------------------------------------------------
@@ -214,7 +242,7 @@ void vertex_parallelscan_reinitialize(Relation rel, ParallelTableScanDesc pscan)
  */
 struct IndexFetchTableData *vertex_index_fetch_begin(Relation rel) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_index_fetch_begin not implemented")));
     
     return NULL;
 }
@@ -225,7 +253,7 @@ struct IndexFetchTableData *vertex_index_fetch_begin(Relation rel) {
  */
 void vertex_index_fetch_reset(struct IndexFetchTableData *data) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_index_fetch_reset not implemented")));
 }
 
 /*
@@ -233,7 +261,7 @@ void vertex_index_fetch_reset(struct IndexFetchTableData *data) {
  */
 void vertex_index_fetch_end(struct IndexFetchTableData *data) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_index_fetch_end not implemented")));
 }
 
 /*
@@ -261,7 +289,7 @@ bool vertex_index_fetch_tuple(struct IndexFetchTableData *scan,
                               TupleTableSlot *slot,
                               bool *call_again, bool *all_dead) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_index_fetch_tuple not implemented")));
     return false;
 }
 
@@ -301,7 +329,7 @@ bool vertex_tuple_fetch_row_version(Relation relation, ItemPointer tid,
  */
 bool vertex_tuple_tid_valid(TableScanDesc scan, ItemPointer tid) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_tuple_tid_valid not implemented")));
     
 
     return false;
@@ -313,7 +341,7 @@ bool vertex_tuple_tid_valid(TableScanDesc scan, ItemPointer tid) {
  */
 void vertex_tuple_get_latest_tid(TableScanDesc scan, ItemPointer tid) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_tuple_get_latest_tid not implemented")));
     
 
 }
@@ -325,7 +353,7 @@ void vertex_tuple_get_latest_tid(TableScanDesc scan, ItemPointer tid) {
 bool vertex_tuple_satisfies_snapshot(Relation rel, TupleTableSlot *slot,
                          Snapshot snapshot) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_tuple_satisfies_snapshot not implemented")));
     
      return false;
 }
@@ -333,7 +361,7 @@ bool vertex_tuple_satisfies_snapshot(Relation rel, TupleTableSlot *slot,
 /* see table_index_delete_tuples() */
 TransactionId vertex_index_delete_tuples(Relation rel, TM_IndexDeleteOp *delstate) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_index_delete_tuples not implemented")));
     
 
     return InvalidTransactionId;
@@ -370,14 +398,14 @@ void vertex_tuple_insert_speculative(Relation rel, TupleTableSlot *slot,
 void vertex_tuple_complete_speculative(Relation rel, TupleTableSlot *slot,
                        uint32 specToken, bool succeeded) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_tuple_complete_speculative not implemented")));
 }
 
 /* see table_multi_insert() for reference about parameters */
 void vertex_multi_insert(Relation rel, TupleTableSlot **slots, int nslots,
              CommandId cid, int options, struct BulkInsertStateData *bistate) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_multi_insert not implemented")));
 }
 
 /* see table_tuple_delete() for reference about parameters */
@@ -401,7 +429,7 @@ TM_Result vertex_tuple_lock(Relation rel, ItemPointer tid, Snapshot snapshot,
                 TupleTableSlot *slot, CommandId cid, LockTupleMode mode,
                 LockWaitPolicy wait_policy, uint8 flags, TM_FailureData *tmfd) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_tuple_lock not implemented")));
     return 0;
 }
 
@@ -456,7 +484,7 @@ void vertex_relation_nontransactional_truncate(Relation rel) {
  */
 void vertex_relation_copy_data(Relation rel, const RelFileNode *newrnode) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_relation_copy_data not implemented")));
     
 
 
@@ -469,7 +497,7 @@ void vertex_relation_copy_for_cluster(Relation OldTable, Relation NewTable,
                       MultiXactId *multi_cutoff, double *num_tuples,
                       double *tups_vacuumed, double *tups_recently_dead) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_relation_copy_for_cluster not implemented")));
 }
 
 /*
@@ -491,7 +519,7 @@ void vertex_relation_vacuum(Relation rel, struct VacuumParams *params,
                             BufferAccessStrategy bstrategy) {
 
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_relation_vacuum not implemented")));
 }
 
 /*
@@ -514,7 +542,7 @@ void vertex_relation_vacuum(Relation rel, struct VacuumParams *params,
 bool vertex_scan_analyze_next_block(TableScanDesc scan, BlockNumber blockno,
                                     BufferAccessStrategy bstrategy) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_scan_analyze_next_block not implemented")));
     
     return false;
 }
@@ -530,7 +558,7 @@ bool vertex_scan_analyze_next_block(TableScanDesc scan, BlockNumber blockno,
 bool vertex_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin,
                                     double *liverows, double *deadrows, TupleTableSlot *slot) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_scan_analyze_next_tuple not implemented")));
     
 
 
@@ -543,9 +571,13 @@ double vertex_index_build_range_scan(Relation table_rel, Relation index_rel,
                                      bool anyvisible, bool progress, BlockNumber start_blockno,
                                      BlockNumber numblocks, IndexBuildCallback callback,
                                      void *callback_state, TableScanDesc scan) {
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
-    return 0;
+	Oid oid = get_relname_relid(make_vertex_adjlist_alias(get_rel_name(RelationGetRelid(table_rel))), get_rel_namespace(RelationGetRelid(table_rel)));
+
+    return GetHeapamTableAmRoutine()->index_build_range_scan(RelationIdGetRelation(oid),
+                                        index_rel, index_info, allow_sync,
+                                        anyvisible, progress, start_blockno,
+                                        numblocks, callback, callback_state,
+                                        scan);
 }
 
 /* see table_index_validate_scan for reference about parameters */
@@ -553,7 +585,7 @@ void vertex_index_validate_scan(Relation table_rel, Relation index_rel,
                                 struct IndexInfo *index_info, Snapshot snapshot,
                                 struct ValidateIndexState *state) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_index_validate_scan not implemented")));
 }
 
 
@@ -683,7 +715,7 @@ void vertex_relation_estimate_size(Relation rel, int32 *attr_widths,
  */
 bool vertex_scan_bitmap_next_block(TableScanDesc scan, struct TBMIterateResult *tbmres) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_scan_bitmap_next_block not implemented")));
 
     return false;
 }
@@ -702,7 +734,7 @@ bool vertex_scan_bitmap_next_block(TableScanDesc scan, struct TBMIterateResult *
 bool vertex_scan_bitmap_next_tuple(TableScanDesc scan, struct TBMIterateResult *tbmres,
                    TupleTableSlot *slot) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_scan_bitmap_next_tuple not implemented")));
 
     return false;
 }
@@ -734,7 +766,7 @@ bool vertex_scan_bitmap_next_tuple(TableScanDesc scan, struct TBMIterateResult *
  */
 bool vertex_scan_sample_next_block(TableScanDesc scan, struct SampleScanState *scanstate) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_scan_sample_next_block not implemented")));
 
     return false;
 }
@@ -756,7 +788,7 @@ bool vertex_scan_sample_next_tuple(TableScanDesc scan, struct SampleScanState *s
                        TupleTableSlot *slot) {
     
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg_internal("vertex_parallelscan_reinitialize not implemented")));
+            errmsg_internal("vertex_scan_sample_next_tuple not implemented")));
 
 return false;    
 }

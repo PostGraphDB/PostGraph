@@ -468,7 +468,7 @@ HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
     HeapTuple tuple = NULL;
 
     ExecStoreVirtualTuple(elemTupleSlot);
-   // tuple = ExecFetchSlotHeapTuple(elemTupleSlot, true, NULL);
+    //tuple = ExecFetchSlotHeapTuple(elemTupleSlot, true, NULL);
 
     /* Check the constraints of the tuple */
     //tuple->t_tableOid = resultRelInfo->ri_RelationDesc->rd_id;
@@ -483,7 +483,11 @@ HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
     // Insert index entries for the tuple
     if (resultRelInfo->ri_NumIndices > 0)
     {
+        Oid oid = elemTupleSlot->tts_tableOid;
+        elemTupleSlot->tts_tableOid = RelationGetRelid(resultRelInfo->ri_RelationDesc);// RelationGetRelid(heapRelation)
+
         ExecInsertIndexTuples(resultRelInfo, elemTupleSlot, estate, false, false, NULL, NIL);
+        elemTupleSlot->tts_tableOid = oid;
     }
 
     return NULL;

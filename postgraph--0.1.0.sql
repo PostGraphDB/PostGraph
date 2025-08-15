@@ -751,6 +751,15 @@ USING hash
 AS 
     OPERATOR 1 =, 
     FUNCTION 1 graphid_hash_cmp(graphid);
+
+
+CREATE OPERATOR CLASS graphid_ops_bloom
+DEFAULT FOR TYPE graphid
+USING bloom 
+AS
+	OPERATOR	1	=,
+	FUNCTION	1	graphid_hash_cmp(graphid);
+
 --
 -- btree operator classes for graphid
 --
