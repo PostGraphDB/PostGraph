@@ -1167,6 +1167,44 @@ static Node *make_int_const(int i, int location) {
     return (Node *)n;
 }
 
+static char *
+lookup_vertex_label_relname(ParseState *pstate, const char *label, bool is_default_label)
+{
+    Datum label_lquery;
+    if (is_default_label)
+        label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(label));
+    else
+        label_lquery = DirectFunctionCall2(ltree_addltree,
+                                           DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
+                                           DirectFunctionCall1(ltree_in, CStringGetDatum(label)));
+
+    int ltq_query_args[2];
+    ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+    ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+
+    Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
+
+    ScanKeyData scan_keys[1];
+    ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
+
+    Relation label_catalog = table_open(ag_label_relation_id(), ShareLock);
+    SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
+
+    HeapTuple tuple = systable_getnext(scan_desc);
+
+    if (!HeapTupleIsValid(tuple))
+        ereport(ERROR,
+                (errcode(ERRCODE_UNDEFINED_SCHEMA),
+                 errmsg("not found %s", label)));
+
+    bool is_null;
+    Datum rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
+
+    systable_endscan(scan_desc);
+    table_close(label_catalog, ShareLock);
+
+    return rel_name;
+}
 
 static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, List *pattern, Node *where) {
     ParseState *pstate = (ParseState *)cpstate;
@@ -1234,40 +1272,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                     schema_name = get_graph_namespace_name(cpstate->graph_name);
 
                     // XXX: LTree Labeling Project, first code is here
-                    Datum label_lquery;
-                    if (is_default_label)
-                        label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(node->label));
-                    else
-                        label_lquery = DirectFunctionCall2(ltree_addltree, 
-                                            DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
-                                            DirectFunctionCall1(ltree_in, CStringGetDatum(node->label)));
-                    
-
-
-                    int ltq_query_args[2];
-                    ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-                    ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-                    
-                    Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
-                    
-                    ScanKeyData scan_keys[1];
-                    ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
-                    
-                    Relation label_catalog = table_open(ag_label_relation_id(), ShareLock);
-                    SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
-
-                    HeapTuple tuple = systable_getnext(scan_desc);
-
-                    if (!HeapTupleIsValid(tuple))
-                        ereport(ERROR,
-                                (errcode(ERRCODE_UNDEFINED_SCHEMA),
-                                errmsg("not found %s", node->label)));
-                    
-                    bool is_null;
-                    rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
-
-                    systable_endscan(scan_desc);
-                    table_close(label_catalog, ShareLock);
+                    char *rel_name = lookup_vertex_label_relname(pstate, node->label, is_default_label);
 
                     //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
                     label_range_var = makeRangeVar(schema_name, rel_name, -1);
