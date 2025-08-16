@@ -166,7 +166,7 @@ static char *make_id_alias(char *var_name) {
     int i = 0;
     for (; i < strlen(var_name); i++)
         str[i + 4] = var_name[i];
-    str[i + 4] = '_';
+
     str[i + 5] = '_';
     str[i + 6] = '_';
     str[i + 7] = '\0';
@@ -966,36 +966,8 @@ static ParseNamespaceItem *add_srf_to_query(cypher_parsestate *cpstate, Node *n,
 
 
 
-static ParseNamespaceItem *add_srf_to_query1(cypher_parsestate *cpstate, Node *n, char *var_name) {
-    RangeTblEntry *rte = NULL;
-    RangeTblRef *rtr;
-    List *namespace = NULL;
-    int rtindex;
-    ParseState *pstate = (ParseState *)cpstate;
-
-    Alias *alias = make_alias(var_name, list_make1(makeString("properties")));
-    //Alias *alias = make_alias(var_name, NIL);
-    RangeFunction *rf = make_range_function(n, alias, true, false, false);
-
-
-    rtr = transform_srf_function(cpstate, rf, &rte, &rtindex, &namespace);
-    Assert(rtr != NULL);
-
-    checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
-
-    setNamespaceLateralState(namespace, true, true);
-    //((ParseNamespaceItem *)lfirst(list_head(namespace)))->p_names = alias;//list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties"));
-    pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
-    pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
-
-    setNamespaceLateralState(pstate->p_namespace, true, true);
-
-    return lfirst(list_head(namespace));
-}
-
-
 // transform a function call appearing in FROM
-static ParseNamespaceItem *transform_RangeFunction(cypher_parsestate *cpstate, RangeFunction *r) {
+static ParseNamespaceItem *transformRangeFunction(cypher_parsestate *cpstate, RangeFunction *r) {
     ParseState *pstate = NULL;
     List *funcexprs = NIL;
     List *funcnames = NIL;
@@ -1079,7 +1051,7 @@ static Node *transform_srf_function(cypher_parsestate *cpstate, Node *n, RangeTb
         ParseNamespaceItem *nsitem;
         int rtindex;
     
-        nsitem = transform_RangeFunction(cpstate, (RangeFunction *) n);
+        nsitem = transformRangeFunction(cpstate, (RangeFunction *) n);
         rte = nsitem->p_rte;
         rtindex = list_length(pstate->p_rtable);
         Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
@@ -1106,7 +1078,7 @@ static Node *transform_VLE_Function(cypher_parsestate *cpstate, Node *n, RangeTb
         ParseNamespaceItem *nsitem;
         int rtindex;
 
-        nsitem = transform_RangeFunction(cpstate, (RangeFunction *) n);
+        nsitem = transformRangeFunction(cpstate, (RangeFunction *) n);
         rte = nsitem->p_rte;
         rtindex = list_length(pstate->p_rtable);
         Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
@@ -1122,26 +1094,6 @@ static Node *transform_VLE_Function(cypher_parsestate *cpstate, Node *n, RangeTb
 }
 
 
-static ParseNamespaceItem *add_vle_to_query(cypher_parsestate *cpstate, Node *n) {
-    ParseState *pstate = &cpstate->pstate;
-    RangeTblEntry *rte = NULL;
-    List *namespace = NULL;
-    int rtindex;
-
-    n = transform_VLE_Function(cpstate, n, &rte, &rtindex, &namespace);
-    Assert(n != NULL);
-
-    checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
-    
-    setNamespaceLateralState(namespace, true, true);
-
-    pstate->p_joinlist = lappend(pstate->p_joinlist, n);
-    pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
-        
-    setNamespaceLateralState(pstate->p_namespace, false, true);
-        
-    return lfirst(list_head(namespace));
-}
 
 
 // setNamespaceLateralState - subroutine to update LATERAL flags in a namespace list.
@@ -1167,6 +1119,232 @@ static Node *make_int_const(int i, int location) {
     return (Node *)n;
 }
 
+char *get_vertex_relation_name(cypher_parsestate *cpstate, char *label, bool is_default_label) {
+                    // XXX: LTree Labeling Project, first code is here
+    Datum label_lquery;
+    if (is_default_label)
+        label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(label));
+    else
+        label_lquery = DirectFunctionCall2(ltree_addltree, 
+                            DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
+                            DirectFunctionCall1(ltree_in, CStringGetDatum(label)));
+
+
+
+    int ltq_query_args[2];
+    ltq_query_args[0] = LookupTypeNameOid(cpstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+    ltq_query_args[1] = LookupTypeNameOid(cpstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
+                    
+    Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
+                    
+    ScanKeyData scan_keys[1];
+    ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
+                    
+    Relation label_catalog = table_open(ag_label_relation_id(), ShareLock);
+    SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
+
+    HeapTuple tuple = systable_getnext(scan_desc);
+
+    if (!HeapTupleIsValid(tuple))
+        ereport(ERROR,(errcode(ERRCODE_UNDEFINED_SCHEMA),
+                errmsg("not found %s", label)));
+                    
+    bool is_null;
+    char *rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
+
+    systable_endscan(scan_desc);
+    table_close(label_catalog, ShareLock);
+
+    return rel_name;
+}
+
+static ParseNamespaceItem *
+add_vertex_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node)
+{
+    ParseState *pstate = (ParseState *)cpstate;
+
+    bool has_variable = false;
+    if (node->name)
+        has_variable = true;
+    else
+        node->name = get_next_default_alias(cpstate);
+
+    node->is_default_label = true;
+    if (node->label)
+        node->is_default_label = false;
+    else
+        node->label = AG_DEFAULT_LABEL_VERTEX;
+
+    node->in_join_tree = true;
+
+    ParseNamespaceItem *pnsi = addRangeTableEntry(pstate, 
+                                    makeRangeVar(get_graph_namespace_name(cpstate->graph_name),
+                                                 get_vertex_relation_name(cpstate, node->label, node->is_default_label),
+                                                 -1),
+                                    makeAlias(node->name, list_make2(makeString("id"), makeString("properties"))), 
+                                    true, 
+                                    true);
+
+
+    addNSItemToQuery(pstate, pnsi, true, true, true);
+
+    return pnsi;
+}
+
+static ParseNamespaceItem *
+add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node, ParseNamespaceItem *edge_pnsi)
+{
+    ParseState *pstate = (ParseState *)cpstate;
+
+    bool has_variable = false;
+    if (node->name)
+        has_variable = true;
+    else {
+        node->in_join_tree = false;
+        return NULL;
+    }
+     node->in_join_tree = true;   
+
+    bool is_default_label = true;
+    if (node->label)
+        is_default_label = false;
+    else
+        node->label = AG_DEFAULT_LABEL_VERTEX;
+
+
+    ParseNamespaceItem *pnsi = transformRangeFunction(cpstate, 
+        make_range_function(
+            makeFuncCall(
+                list_make2(makeString("postgraph"), makeString("retrieve_vertex")),
+                list_make2(
+                    make_int_const(cpstate->graph_oid, -1), 
+                    scanNSItemForColumn(cpstate, edge_pnsi, 0, "endid", -1)),
+                COERCE_EXPLICIT_CALL, -1), 
+            make_alias(node->name, 
+                list_make1(makeString("properties"))), 
+            true, 
+            false, 
+            false));
+
+    addNSItemToQuery(pstate, pnsi, true, true, true);
+
+    return pnsi;
+}
+
+static ParseNamespaceItem *
+add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, ParseNamespaceItem *vertex_pnsi)
+{
+    ParseState *pstate = (ParseState *)cpstate;
+
+    if (edge->name)
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("MATCH variable names are not supported")));
+    else
+        edge->name = get_next_default_alias(cpstate);
+
+    bool is_default_label = true;
+    if (edge->label)
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("MATCH labels are not supported")));
+    else
+        edge->label = AG_DEFAULT_LABEL_EDGE;
+
+    Node *id_field = scanNSItemForColumn(cpstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
+
+    FuncCall *fc = makeFuncCall(
+        list_make2(makeString("postgraph"), makeString("edge_search")),
+        list_make4(make_int_const(cpstate->graph_oid, -1), id_field, make_null_const(-1), make_null_const(-1)),
+        COERCE_EXPLICIT_CALL, -1);
+
+    return add_srf_to_query(cpstate, fc, edge->name);
+}
+
+static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *query,
+    cypher_node *left_vertex, cypher_relationship *edge, cypher_node *right_vertex) {
+    ParseState *pstate = (ParseState *)cpstate;
+
+   // left vertex id field
+    query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                edge->dir == CYPHER_REL_DIR_RIGHT ?
+                                    scanNSItemForColumn(pstate, left_vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1) :
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1), 
+                                pstate->p_next_resno++, 
+                                make_id_alias(left_vertex->name), 
+                                false));
+
+    // Vertex expression
+    if (left_vertex->has_variable) {
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, left_vertex->pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_property_alias(left_vertex->name), 
+                                    false));
+/*
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    (Expr *)make_vertex_expr(cpstate, left_vertex->pnsi), 
+                                    pstate->p_next_resno++, 
+                                    left_vertex->name, 
+                                    false));
+*/
+    }
+
+    // id field
+    query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_ID, -1), 
+                                pstate->p_next_resno++, 
+                                make_id_alias(edge->name), 
+                                false));
+
+    // start id field
+    query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_START_ID, -1), 
+                                pstate->p_next_resno++, 
+                                make_startid_alias(edge->name), 
+                                false));
+
+    // end id field
+    query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1), 
+                                pstate->p_next_resno++, 
+                                make_endid_alias(edge->name), 
+                                false));
+
+    // properties field
+    query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_PROPERTIES, -1), 
+                                pstate->p_next_resno++, 
+                                make_property_alias(edge->name), 
+                                false));
+
+    // id field
+    query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                edge->dir == CYPHER_REL_DIR_RIGHT ?
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1) :
+                                    scanNSItemForColumn(pstate, right_vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1),
+                                pstate->p_next_resno++, 
+                                make_id_alias(left_vertex->name), 
+                                false));
+
+    // properties field
+    if (right_vertex->in_join_tree)
+        query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                scanNSItemForColumn(pstate, right_vertex->pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1), 
+                                pstate->p_next_resno++, 
+                                make_property_alias(right_vertex->name), 
+                                false));
+
+}
 
 static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, List *pattern, Node *where) {
     ParseState *pstate = (ParseState *)cpstate;
@@ -1181,255 +1359,73 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                 errmsg("MATCH found more than one pattern")));
 
     foreach (lc, pattern) {
-        List *qual = NULL;
         cypher_path *path = (cypher_path *) lfirst(lc);
-        // TODO: implement the new match logic 
-        //qual = transform_match_path(cpstate, query, path);
 
-        if (list_length(path->path) != 1 && list_length(path->path) != 3)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("MATCH paths only support 1 vertex")));
+        if (list_length(path->path) == 1) {
+            cypher_node *node = linitial(path->path);
 
-        char *vertex_label = NULL;
-        ParseNamespaceItem *vertex_pnsi;
-        Node *vertex_id = NULL;
-        ListCell *path_cell;
-        cypher_node *prev_node;
-        ParseNamespaceItem *edge_pnsi;
-        int i = 1;
-        foreach(path_cell, path->path) {
-            if (i % 2 == 1) {
-                cypher_node *node = lfirst(path_cell);
-                prev_node = node;
-                bool has_variable = false;
+            node->pnsi = add_vertex_to_query(cpstate, query, node);
+            // left vertex id field
+            query->targetList = lappend(query->targetList, 
+                                    makeTargetEntry(
+                                        scanNSItemForColumn(pstate, node->pnsi, 0, AG_VERTEX_COLNAME_ID, -1), 
+                                        pstate->p_next_resno++, 
+                                        make_id_alias(node->name), 
+                                        false));
 
-                if (node->name)
-                    has_variable = true;
-                else
-                    node->name = get_next_default_alias(cpstate);
+            // Vertex expression
+            if (node->has_variable) {
+                query->targetList = lappend(query->targetList, 
+                                        makeTargetEntry(
+                                            scanNSItemForColumn(pstate, node->pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1), 
+                                            pstate->p_next_resno++, 
+                                            make_property_alias(node->name), 
+                                            false));
 
-                bool is_default_label = true;
-                if (node->label && i != 1)
-                    ereport(ERROR,
-                            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("MATCH labels are not supported")));
-                else if (node->label)
-                    is_default_label = false;
-                else
-                    node->label = AG_DEFAULT_LABEL_VERTEX;
+                query->targetList = lappend(query->targetList, 
+                                        makeTargetEntry(
+                                            (Expr *)make_vertex_expr(cpstate, node->pnsi), 
+                                            pstate->p_next_resno++, 
+                                            node->name, 
+                                            false));
 
-                    char *schema_name;
-                    char *rel_name;
-                    int resno;
-                    TargetEntry *te;
-                    Expr *expr;
-                    ParseNamespaceItem *pnsi;
-                    RangeVar *label_range_var;
-                    Alias *alias;
-
-                if (i < 2) {
-
-
-                    schema_name = get_graph_namespace_name(cpstate->graph_name);
-
-                    // XXX: LTree Labeling Project, first code is here
-                    Datum label_lquery;
-                    if (is_default_label)
-                        label_lquery = DirectFunctionCall1(ltree_in, CStringGetDatum(node->label));
-                    else
-                        label_lquery = DirectFunctionCall2(ltree_addltree, 
-                                            DirectFunctionCall1(ltree_in, CStringGetDatum(AG_DEFAULT_LABEL_VERTEX)),
-                                            DirectFunctionCall1(ltree_in, CStringGetDatum(node->label)));
-                    
-
-
-                    int ltq_query_args[2];
-                    ltq_query_args[0] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-                    ltq_query_args[1] = LookupTypeNameOid(pstate, makeTypeNameFromNameList(list_make2(makeString("public"), makeString("ltree"))), false);
-                    
-                    Oid ltree_contains_oid = LookupFuncName(list_make2(makeString("public"), makeString("ltree_risparent")), 2, &ltq_query_args, false);
-                    
-                    ScanKeyData scan_keys[1];
-                    ScanKeyInit(&scan_keys[0], Anum_ag_label_label_path, BTEqualStrategyNumber, ltree_contains_oid, label_lquery);
-                    
-                    Relation label_catalog = table_open(ag_label_relation_id(), ShareLock);
-                    SysScanDesc scan_desc = systable_beginscan(label_catalog, ag_label_label_index_id(), true, NULL, 1, scan_keys);
-
-                    HeapTuple tuple = systable_getnext(scan_desc);
-
-                    if (!HeapTupleIsValid(tuple))
-                        ereport(ERROR,
-                                (errcode(ERRCODE_UNDEFINED_SCHEMA),
-                                errmsg("not found %s", node->label)));
-                    
-                    bool is_null;
-                    rel_name = heap_getattr(tuple, Anum_ag_label_name, RelationGetDescr(label_catalog), &is_null);
-
-                    systable_endscan(scan_desc);
-                    table_close(label_catalog, ShareLock);
-
-                    //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
-                    label_range_var = makeRangeVar(schema_name, rel_name, -1);
-                    vertex_label = node->label;
-                    alias = makeAlias(node->name, NIL);
-
-                    pnsi = addRangeTableEntry(pstate, label_range_var, alias, label_range_var->inh, true);
-                    vertex_pnsi = pnsi;
-                    Assert(pnsi != NULL);
-
-                    addNSItemToQuery(pstate, pnsi, true, true, true);
-
-                    //resno = pstate->p_next_resno++;
-                    // XXX: End LTree Code here
-                    expr = (Expr *)make_vertex_expr(cpstate, pnsi);
-                    // make target entry and add it 
-                    resno = pstate->p_next_resno++;
-                    te = makeTargetEntry(expr, resno, node->name, false);
-
-                    query->targetList = lappend(query->targetList, te);
-
-                  // 
-                } else {
-
-                    if (node->props || has_variable) {
-                    int sublevels_up =1;
-                    Node * id_field = scanNSItemForColumn(cpstate, edge_pnsi, 0, "endid", -1);
-
-                    FuncCall *fc = makeFuncCall(list_make2(makeString("postgraph"), makeString("retrieve_vertex")),
-                                                list_make2(make_int_const(cpstate->graph_oid, -1),id_field),
-                                                COERCE_EXPLICIT_CALL, -1);
-                    pnsi = add_srf_to_query1(cpstate, fc, node->name);
-                    } else {
-                        continue;
-                    }
-
-                } 
-
-                // id field
-                Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
-                vertex_id = id;
-                resno = pstate->p_next_resno++;
-
-                te = makeTargetEntry(id, resno, make_id_alias(node->name), false);
-                query->targetList = lappend(query->targetList, te);
-
-                // properties field
-                Node *props = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
-                resno = pstate->p_next_resno++;
-
-                te = makeTargetEntry(props, resno, make_property_alias(node->name), false);
-                query->targetList = lappend(query->targetList, te);
-
-
-                quals = list_concat(quals, NULL);
-            } else {
-                cypher_relationship *edge = lfirst(path_cell);
-
-                if (edge->name)
-                    ereport(ERROR,
-                            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("MATCH variable names are not supported")));
-                else
-                    edge->name = get_next_default_alias(cpstate);
-
-                bool is_default_label = true;
-                if (edge->label)
-                    ereport(ERROR,
-                            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("MATCH labels are not supported")));
-                else
-                    edge->label = AG_DEFAULT_LABEL_EDGE;
-
-                char *schema_name;
-                char *rel_name;
-                int resno;
-                TargetEntry *te;
-                Expr *expr;
-                ParseNamespaceItem *pnsi;
-                RangeVar *label_range_var;
-                Alias *alias;
-
-                schema_name = get_graph_namespace_name(cpstate->graph_name);
-
-
-                //rel_name = get_label_relation_name(node->label, cpstate->graph_oid);
-
-
-
-                int sublevels_up;
-                Node * id_field = scanNSItemForColumn(cpstate, vertex_pnsi, 0, "id", -1);
-
-                //Node * id_field = makeColumnRef(makeString(prev_node->name), list_make1(makeString("id")), -1, NULL);
-                //alias = makeAlias(edge->name, list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
-                //make_alias(var_name, list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
-                FuncCall *fc = makeFuncCall(list_make2(makeString("postgraph"), makeString("edge_search")),
-                                            list_make4(make_int_const(cpstate->graph_oid, -1),id_field, make_null_const(-1), make_null_const(-1)),
-                                            COERCE_EXPLICIT_CALL, -1);
-                pnsi = add_srf_to_query(cpstate, fc, edge->name);
-                edge_pnsi = pnsi;
-                //RangeFunction *rf = make_range_function(fc, alias, false, false, false);
-                //pnsi = add_vle_to_query(cpstate, (Node*)rf);
-                //addNSItemToQuery(pstate, pnsi, true, true, true);
-
-              //  resno = pstate->p_next_resno++;
-                // XXX: End LTree Code here
-
-               // expr = (Expr *)make_edge_expr(cpstate, pnsi);
-
-                // make target entry and add it 
-             //   te = makeTargetEntry(expr, resno, edge->name, false);
-             //   query->targetList = lappend(query->targetList, te);
-
-             
-                // id field
-                Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_ID, -1);
-                //vertex_id = id;
-                resno = pstate->p_next_resno++;
-
-                te = makeTargetEntry(id, resno, make_id_alias(edge->name), false);
-                query->targetList = lappend(query->targetList, te);
-
-
-                // start id field
-                Node *startid = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_START_ID, -1);
-                resno = pstate->p_next_resno++;
-
-                te = makeTargetEntry(startid, resno, make_startid_alias(edge->name), false);
-                query->targetList = lappend(query->targetList, te);
-
-
-                // id field
-                Node *endid = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_END_ID, -1);
-                resno = pstate->p_next_resno++;
-
-                te = makeTargetEntry(endid, resno, make_endid_alias(edge->name), false);
-                query->targetList = lappend(query->targetList, te);
-
-                // properties field
-                Node *props = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_PROPERTIES, -1);
-                resno = pstate->p_next_resno++;
-
-                te = makeTargetEntry(props, resno, make_property_alias(edge->name), false);
-                query->targetList = lappend(query->targetList, te);
-
-
-                //quals = list_concat(quals, NULL);
-
-
-                int sublevels;
-                char *entity_name = vertex_label;
-                
-
-                //ParseNamespaceItem *pnsi1 = refnameNamespaceItem(cpstate, NULL, entity_name, -1, &sublevels);
-//scanNSItemForColumn(pstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
-
-               //quals = list_concat(quals, list_make1(makeSimpleCypherA_Expr(AEXPR_OP, "=", startid, vertex_id, -1)));
-
-                
             }
-            i++;
+            continue;
         }
+
+        if (list_length(path->path) != 3)
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("MATCH paths only support 3 vertex")));
+
+        if( ((cypher_relationship *)lsecond(path->path))->dir == CYPHER_REL_DIR_RIGHT) {
+            ListCell *path_cell;
+
+            // left vertex FROM item
+            cypher_node *node = linitial(path->path);
+            node->pnsi = add_vertex_to_query(cpstate, query, node);
+
+            
+            // edge FROM item 
+            cypher_relationship *edge = lsecond(path->path);
+            edge->pnsi = add_edge_to_query(cpstate, query, edge, node->pnsi);
+
+            // right vertex FROM item
+            node = lthird(path->path);
+
+            node->pnsi = add_vertex_retrieval_to_query(cpstate, query, node, edge->pnsi);
+
+            // SELECT fields
+            add_all_fields_to_target_list(cpstate, 
+                                            query,
+                                            (cypher_node *)linitial(path->path),
+                                            (cypher_relationship *)lsecond(path->path), 
+                                            (cypher_node *)lthird(path->path));
+        } else {
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("MATCH edge can't be bi directional")));
+        }
+
+        
     }
 
     // AND the quals for each path together

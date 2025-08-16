@@ -192,6 +192,10 @@ typedef struct cypher_node
     char *label;
     Node *props; // map or parameter
     int location;
+    ParseNamespaceItem *pnsi;
+    bool has_variable;
+    bool is_default_label;
+    bool in_join_tree;
 } cypher_node;
 
 typedef enum
@@ -210,6 +214,7 @@ typedef struct cypher_relationship
     Node *props; // map or parameter
     Node *varlen; // variable length relationships (A_Indices)
     cypher_rel_dir dir;
+    ParseNamespaceItem *pnsi;
     int location;
 } cypher_relationship;
 
