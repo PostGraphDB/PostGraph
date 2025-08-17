@@ -29,18 +29,16 @@ SELECT * FROM cypher_create._ag_label_vertex;
 
 MATCH () RETURN 1;
 
+SELECT '{}'::postgraph.gtype;
+CREATE ({msg: 'Hello World'});
+MATCH (a) RETURN a;
+SELECT * FROM cypher_create._ag_label_vertex;
+
+
 CREATE VLABEL test;
-SELECT * FROM postgraph.ag_label;
-
 CREATE (:test);
-SELECT * FROM postgraph.ag_label;
-SELECT * FROM cypher_create.test;
-
 
 CREATE (:test2);
-SELECT * FROM postgraph.ag_label;
-SELECT * FROM cypher_create.test2;
-
 
 MATCH () RETURN 1;
 
@@ -51,11 +49,6 @@ MATCH (a:test) RETURN a;
 CREATE ()-[]->();
 
 CREATE ()-[:elabel]->();
-
-
-EXPLAIN MATCH ()-[]->() RETURN 1;
-
-EXPLAIN ANALYZE MATCH ()-[]->() RETURN 1;
 
 MATCH ()-[]->() RETURN 1;
 
@@ -73,12 +66,10 @@ MATCH ()-[]->(a) RETURN a;
 
 MATCH ()<-[]-(a) RETURN a;
 
-SELECT * FROM cypher_create._ag_label_vertex;
+CREATE ()<-[{msg: 'Hello edge'}]-();
+CREATE ()-[{msg: 'Hello edge'}]->();
 
-SELECT * FROM cypher_create._adj__adj__ag_label_vertex;
-SELECT * FROM cypher_create._adj__ag_label_vertex;
-MATCH () RETURN 1;
-
+MATCH ()<-[a]-() RETURN a;
 
 CYPHER WITH 1 as a
 CREATE ();

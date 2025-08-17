@@ -102,13 +102,13 @@ build_vertex(PG_FUNCTION_ARGS) {
     graphid id = AG_GETARG_GRAPHID(0);
     Oid graph_oid = PG_GETARG_OID(1);
     gtype *properties = NULL;
-  /*  if (!PG_ARGISNULL(2)) {
+    if (!PG_ARGISNULL(2)) {
         properties = AG_GET_ARG_GTYPE_P(2);
 
         if (!AGT_ROOT_IS_OBJECT(properties))
             PG_RETURN_NULL();
     }
-*/
+
     AG_RETURN_VERTEX(create_vertex(id, graph_oid, properties));
 }
   

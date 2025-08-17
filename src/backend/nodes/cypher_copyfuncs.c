@@ -100,6 +100,7 @@ void copy_cypher_target_node(ExtensibleNode *newnode, const ExtensibleNode *from
     COPY_SCALAR_FIELD(type);
     COPY_SCALAR_FIELD(flags);
     COPY_SCALAR_FIELD(dir);
+    COPY_SCALAR_FIELD(id_attr_num);
     COPY_SCALAR_FIELD(prop_attr_num);
     COPY_SCALAR_FIELD(relid);
     COPY_SCALAR_FIELD(adj_relid);

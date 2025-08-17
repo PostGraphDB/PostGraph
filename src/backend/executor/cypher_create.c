@@ -267,8 +267,12 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
     EState *estate = css->css.ss.ps.state;
     ExprContext *econtext = css->css.ss.ps.ps_ExprContext;
 
-    TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
-
+    //TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
+    //econtext->ecxt_scantuple =
+      //      csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
+    TupleTableSlot *slot = ExecProcNode(csnode->ss.ps.lefttree);
+    slot = csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
+    slot->tts_ops->materialize(slot);
     if (list_length(css->pattern) != 1)
         ereport(ERROR, (errmsg_internal("executor create found a multi pattern")));
 
@@ -309,8 +313,16 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
         elemTupleSlot->tts_isnull[0] = false;
 
         // get the properties for this vertex
-        elemTupleSlot->tts_values[1] = NULL;
-        elemTupleSlot->tts_isnull[1] = true;
+        if (node->prop_attr_num == InvalidAttrNumber) {
+            elemTupleSlot->tts_values[1] = NULL;
+            elemTupleSlot->tts_isnull[1] = true;
+        } else {
+            //TupleTableSlot *scanTupleSlot = csnode->ss.ss_ScanTupleSlot;
+            //ereport(WARNING, errmsg("adsf %i", scanTupleSlot->tts_values[node->prop_attr_num]));
+            elemTupleSlot->tts_values[1] = slot->tts_values[node->prop_attr_num -  1];
+            elemTupleSlot->tts_isnull[1] = slot->tts_isnull[node->prop_attr_num - 1];
+        }
+
         // Insert the new vertex
         insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
 
@@ -331,9 +343,16 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
             
             elemTupleSlot->tts_values[2] = css->vertex_ids[0][i+1];
             elemTupleSlot->tts_isnull[2] = false;
-            // get the properties for this vertex
-            elemTupleSlot->tts_values[3] = NULL;
-            elemTupleSlot->tts_isnull[3] = true;
+
+
+            if (node->prop_attr_num == InvalidAttrNumber) {
+                elemTupleSlot->tts_values[3] = NULL;
+                elemTupleSlot->tts_isnull[3] = true;
+            } else {
+                //TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
+                elemTupleSlot->tts_values[3] = slot->tts_values[node->prop_attr_num];
+                elemTupleSlot->tts_isnull[3] = slot->tts_isnull[node->prop_attr_num];
+            }
 
             // Insert the new vertex
             insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);

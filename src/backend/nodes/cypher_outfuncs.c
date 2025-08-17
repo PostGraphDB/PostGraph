@@ -367,6 +367,7 @@ void out_cypher_target_node(StringInfo str, const ExtensibleNode *node)
     WRITE_ENUM_FIELD(dir, cypher_rel_dir);
     WRITE_NODE_FIELD(id_expr);
     WRITE_NODE_FIELD(id_expr_state);
+    WRITE_INT32_FIELD(id_attr_num);
     WRITE_NODE_FIELD(prop_expr);
     WRITE_NODE_FIELD(prop_expr_state);
     WRITE_INT32_FIELD(prop_attr_num);

@@ -301,6 +301,17 @@ static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi
     return (Node *)func_expr;
 }
 
+
+static Node *
+make_graphid_placeholder(cypher_parsestate *cpstate) {
+     
+    // typtypmod, typcollation, typlen, and typbyval of gtype are hard-coded.
+    Const *c = makeConst(GRAPHIDOID, -1, InvalidOid, -1, 0, false, false);
+    c->location = -1;
+
+    return (Node *)c;
+} 
+
 static Node *
 make_int_placeholder(cypher_parsestate *cpstate) {
         
@@ -400,6 +411,7 @@ static void validate_or_create_vlabel(cypher_parsestate *cpstate, cypher_node *n
     }
 }
 
+
 static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause *clause) {
     ParseState *pstate = (ParseState *)cpstate;
     cypher_create *self = (cypher_create *)clause->self;
@@ -439,18 +451,54 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
             if (i % 2 == 1) {
                 cypher_node *node = (cypher_node *)lfirst(lc2);
 
+                cypher_target_node *target = make_ag_node(cypher_target_node);
+
                 if (node->label) 
                     validate_or_create_vlabel(cpstate, node);
                 else
                     node->label = AG_DEFAULT_LABEL_VERTEX;
                     
-                if (node->name)
-                    ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have variable names")));
+                if (node->name) {
+                           ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
+  /* TODO: After props are supported
+                    target->variable_name = node->name;
+            
+                    query->targetList = lappend(query->targetList,
+                        makeTargetEntry(
+                            make_graphid_placeholder(cpstate),
+                            pstate->p_next_resno++,
+                            make_id_alias(get_next_default_alias(cpstate)), 
+                            false));
+                        }
+                    target->id_attr_num = list_length(query->targetList);
 
-                if (node->props)
-                    ereport(ERROR, (errmsg_internal("nodes in CREATE cannot have properties")));
+                    query->targetList = lappend(query->targetList,
+                        makeTargetEntry(
+                            make_int_placeholder(cpstate),
+                            pstate->p_next_resno++,
+                            make_id_alias(get_next_default_alias(cpstate)), 
+                            false));
+                        }
 
-                cypher_target_node *target = make_ag_node(cypher_target_node);
+                    target->props_attr_num = list_length(query->targetList);
+*/
+                } else
+                    node->name = get_next_default_alias(cpstate);
+
+                if (node->props) {
+                    target->prop_attr_num = pstate->p_next_resno;
+                    query->targetList = lappend(query->targetList,
+                        makeTargetEntry(
+                            (Expr *)add_volatile_wrapper(
+                                transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
+                            pstate->p_next_resno++,
+                            make_property_alias(node->name),
+                            false));
+    
+                } else {
+                    target->prop_attr_num = InvalidAttrNumber;
+                }
+        
 
                 label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
 
@@ -458,14 +506,11 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
                 target->relid = lcd->relation;
                 target->adj_relid = lcd->vertex_adjlist;
 
-                TargetEntry *te = makeTargetEntry(make_int_placeholder(cpstate), pstate->p_next_resno++, make_id_alias(get_next_default_alias(cpstate)), false);
-
                 ccp->target_nodes = lappend(ccp->target_nodes, target);
                 
-                query->targetList = lappend(query->targetList, te);
             } else {
                 cypher_relationship *edge = lfirst(lc2);
-
+                cypher_target_node *target = make_ag_node(cypher_target_node);
                 if (edge->label) 
                     validate_or_create_elabel(cpstate, edge);
                 else
@@ -473,19 +518,30 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
 
                 if (edge->name)
                     ereport(ERROR, (errmsg_internal("edges in CREATE cannot have variable names")));
-
-                if (edge->props)
-                    ereport(ERROR, (errmsg_internal("edges in CREATE cannot have properties")));
-
+                else
+                    edge->name = get_next_default_alias(cpstate);
+                
+                if (edge->props) {
+                    target->prop_attr_num = pstate->p_next_resno;
+                    query->targetList = lappend(query->targetList,
+                        makeTargetEntry(
+                            (Expr *)add_volatile_wrapper(
+                                transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET)),
+                            pstate->p_next_resno++,
+                            make_property_alias(edge->name),
+                            false));
+                } else {
+                    target->prop_attr_num = InvalidAttrNumber;
+                }
                 if (edge->dir != CYPHER_REL_DIR_RIGHT)
                     ereport(ERROR, (errmsg_internal("edges CREATE are right only right now")));
 
-                cypher_target_node *target = make_ag_node(cypher_target_node);
+
                 label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
                 target->relid = lcd->relation;
 
                 target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
-
+                //target->prop_attr_num = InvalidAttrNumber;
                 ccp->target_nodes = lappend(ccp->target_nodes, target);
                 
             }
