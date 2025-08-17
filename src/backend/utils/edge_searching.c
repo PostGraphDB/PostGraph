@@ -88,13 +88,6 @@ static Datum get_vertex(Oid graph_oid, int64 graphid)
 PG_FUNCTION_INFO_V1(retrieve_vertex);
 Datum retrieve_vertex(PG_FUNCTION_ARGS) {
     
-	//PG_RETURN_POINTER(get_vertex(graph_oid, id));
-
- 	//gtype *graph_oid = GT_ARG_TO_INT4_DATUM(0);
-    //graphid id = AG_GETARG_GRAPHID(1);
-   
-    //lquery *label = PG_GETARG_LQUERY_P(1);
-    //bool include_props = PG_GETARG_BOOL(2);
 	FuncCallContext *funcctx;
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -132,12 +125,6 @@ Datum retrieve_vertex(PG_FUNCTION_ARGS) {
 	}
 
 	SRF_RETURN_DONE(funcctx);
-	
-	
-	
-
-
-
 }
 
 
@@ -189,7 +176,7 @@ Datum edge_search(PG_FUNCTION_ARGS)
 
 		Snapshot snapshot = GetActiveSnapshot();
 		
-		ScanKeyInit(cxt->scanKey, Anum_ag_label_edge_table_start_id, BTEqualStrategyNumber, F_GRAPHIDEQ, GRAPHID_GET_DATUM(id));
+		ScanKeyInit(cxt->scanKey, 1, HTEqualStrategyNumber, F_GRAPHIDEQ, GRAPHID_GET_DATUM(id));
 
 		cxt->rel = table_open(lcd->vertex_adjlist, ShareLock);
 		cxt->scan_desc = table_beginscan(cxt->rel, snapshot, 1, cxt->scanKey);

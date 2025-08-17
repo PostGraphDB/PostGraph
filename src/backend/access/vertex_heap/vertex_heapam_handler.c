@@ -127,7 +127,7 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
     vertex_desc->desc = palloc(sizeof (TableScanDesc *) * vertex_desc->ndesc);
     vertex_desc->isIndex = palloc(sizeof (bool) * vertex_desc->ndesc);
 
-    /*List *indexoidlist = RelationGetIndexList(relation);
+    List *indexoidlist = RelationGetIndexList(relation);
     if(list_length(indexoidlist) == 1) {
         Oid idx = linitial_oid(indexoidlist);
 	
@@ -140,13 +140,13 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
 
         vertex_desc->desc[0] = desc;
         vertex_desc->isIndex[0] = true;
-    } else {*/
+    } else {
         
         TableScanDesc *desc = tableam->scan_begin(rel, snapshot, nkeys, key, parallel_scan, flags);
             
         vertex_desc->desc[0] = desc;
         vertex_desc->isIndex[0] = false;
-    //}
+    }
 	return vertex_desc;
 }
 
