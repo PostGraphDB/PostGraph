@@ -460,18 +460,18 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
                     
                 if (node->name) {
                            ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
-  /* TODO: After props are supported
+  
                     target->variable_name = node->name;
-            
+                    target->id_attr_num = pstate->p_next_resno;
                     query->targetList = lappend(query->targetList,
                         makeTargetEntry(
                             make_graphid_placeholder(cpstate),
                             pstate->p_next_resno++,
                             make_id_alias(get_next_default_alias(cpstate)), 
                             false));
-                        }
-                    target->id_attr_num = list_length(query->targetList);
-
+                        
+                    
+/*
                     query->targetList = lappend(query->targetList,
                         makeTargetEntry(
                             make_int_placeholder(cpstate),
@@ -533,8 +533,10 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
                 } else {
                     target->prop_attr_num = InvalidAttrNumber;
                 }
-                if (edge->dir != CYPHER_REL_DIR_RIGHT)
-                    ereport(ERROR, (errmsg_internal("edges CREATE are right only right now")));
+
+                target->dir = edge->dir;
+                if (edge->dir == CYPHER_REL_DIR_NONE)
+                    ereport(ERROR, (errmsg_internal("edges in CREATE must have a direction")));
 
 
                 label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);

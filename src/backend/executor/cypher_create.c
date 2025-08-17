@@ -338,10 +338,10 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
             elemTupleSlot->tts_values[0] = css->edge_ids[0][i];
             elemTupleSlot->tts_isnull[0] = false;
 	
-            elemTupleSlot->tts_values[1] = css->vertex_ids[0][i];
+            elemTupleSlot->tts_values[1] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i : i + 1];
             elemTupleSlot->tts_isnull[1] = false;
             
-            elemTupleSlot->tts_values[2] = css->vertex_ids[0][i+1];
+            elemTupleSlot->tts_values[2] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i+1 : i];
             elemTupleSlot->tts_isnull[2] = false;
 
 
