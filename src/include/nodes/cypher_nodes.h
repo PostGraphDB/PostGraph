@@ -214,6 +214,7 @@ typedef struct cypher_relationship
     Node *props; // map or parameter
     Node *varlen; // variable length relationships (A_Indices)
     cypher_rel_dir dir;
+    bool has_variable;
     ParseNamespaceItem *pnsi;
     int location;
 } cypher_relationship;

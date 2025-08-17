@@ -133,11 +133,14 @@ build_edge(PG_FUNCTION_ARGS) {
     graphid end_id = AG_GETARG_GRAPHID(2);
     Oid graph_oid = PG_GETARG_OID(3);
     //char *label = PG_GETARG_CSTRING(3);
-    gtype *properties = AG_GET_ARG_GTYPE_P(4);
 
-    if (!AGT_ROOT_IS_OBJECT(properties))
-        PG_RETURN_NULL();
-    
+    gtype *properties = NULL;
+    if (!PG_ARGISNULL(4)) {
+        properties = AG_GET_ARG_GTYPE_P(4);
+
+        if (!AGT_ROOT_IS_OBJECT(properties))
+            PG_RETURN_NULL();
+    }
     AG_RETURN_EDGE(create_edge(id, start_id, end_id, graph_oid, properties));
 }
  
@@ -162,6 +165,17 @@ create_edge(graphid id,graphid start_id,graphid end_id, Oid graph_oid, gtype *pr
     append_to_buffer(&buffer, (char *)&graph_oid, sizeof(Oid));
 
     // properties
+ // properties
+    if (properties == NULL) {   
+        gtype_in_state result;
+        
+        memset(&result, 0, sizeof(gtype_in_state));
+                                            
+        push_gtype_value(&result.parse_state, WGT_BEGIN_OBJECT, NULL);
+        result.res = push_gtype_value(&result.parse_state, WGT_END_OBJECT, NULL); 
+                    
+        properties = gtype_value_to_gtype(result.res);
+    }    
     append_to_buffer(&buffer, properties, VARSIZE(properties));
 
     edge *v = (edge *)buffer.data;

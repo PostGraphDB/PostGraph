@@ -86,13 +86,6 @@ static Datum get_vertex(Oid graph_oid, int64 graphid)
 }
 
 PG_FUNCTION_INFO_V1(retrieve_vertex);
-/*
- * Function to convert the Array type of Agtype into each row. It is used for
- * Cypher `UNWIND` clause, but considering the situation in which the user can
- * directly use this function in vanilla PGSQL, put a second parameter related
- * to this.
- */
-static int this_is_a_test1 = 0;
 Datum retrieve_vertex(PG_FUNCTION_ARGS) {
     gtype *graph_oid = GT_ARG_TO_INT4_DATUM(0);
     graphid id = AG_GETARG_GRAPHID(1);
@@ -110,13 +103,6 @@ struct edge_search_cxt
 } edge_search_cxt;
 
 PG_FUNCTION_INFO_V1(edge_search);
-/*
- * Function to convert the Array type of Agtype into each row. It is used for
- * Cypher `UNWIND` clause, but considering the situation in which the user can
- * directly use this function in vanilla PGSQL, put a second parameter related
- * to this.
- */
-static int this_is_a_test = 0;
 Datum edge_search(PG_FUNCTION_ARGS)
 {
     gtype *graph_oid = GT_ARG_TO_INT4_DATUM(0);
@@ -134,6 +120,9 @@ Datum edge_search(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		tupdesc = CreateTemplateTupleDesc(4);
+
+	tupdesc->tdtypeid = RECORDOID;	/* not right, but we don't care */
+	tupdesc->tdtypmod = -1;
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "id",
 						   GRAPHIDOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "startid",
@@ -157,8 +146,10 @@ Datum edge_search(PG_FUNCTION_ARGS)
 
 		cxt->rel = table_open(lcd->vertex_adjlist, ShareLock);
 		cxt->scan_desc = table_beginscan(cxt->rel, snapshot, 1, cxt->scanKey);
+		//VertexHeapScanDesc vertex_desc = cxt->scan_desc;
 		List *empty = NIL;
 		cxt->slot = table_slot_create(cxt->rel, &empty);
+		//funcctx->tuple_desc = RelationBuildTupleDesc(cxt->rel);
 		funcctx->user_fctx = cxt;
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -173,18 +164,38 @@ Datum edge_search(PG_FUNCTION_ARGS)
     	table_close(cxt->rel, ShareLock);
 		SRF_RETURN_DONE(funcctx);
 	}
+	
+	
+	Datum values[4];
+	bool nulls[4];
+	HeapTuple tuple1;
+	cxt->slot->tts_ops->materialize(cxt->slot);
+	//cxt->slot->tts_ops->getsomeattrs(cxt->slot, 10000);
+	//memset(nulls, false, sizeof(nulls));
+	//datum = heap_getattr(cxt->slot.tuple, 1,
+	//					 RelationGetDescr(cxt->rel), &isnull);
 
-	Datum		values[4];
-	bool		nulls[4];
-	HeapTuple	tuple1;
+	VertexHeapScanDesc vertex_desc = cxt->scan_desc;
+	//vertex_desc->desc[0]
+	bool isnull;
+	//slot_getattr(cxt->slot, i, &isnull);
+	values[0] = heap_getattr(cxt->slot->tts_ops->get_heap_tuple(cxt->slot), 1, RelationGetDescr(vertex_desc->desc[0]->rs_rd), &isnull);
+	nulls[0] = isnull;
+	//ereport(WARNING, errmsg("value %lu", DatumGetInt64(values[0])));
+	values[1] = heap_getattr(cxt->slot->tts_ops->get_heap_tuple(cxt->slot), 2, RelationGetDescr(vertex_desc->desc[0]->rs_rd), &isnull);
+	nulls[1] = isnull;
+	//ereport(WARNING, errmsg("value %lu", DatumGetInt64(values[1])));
+	values[2] = heap_getattr(cxt->slot->tts_ops->get_heap_tuple(cxt->slot), 3, RelationGetDescr(vertex_desc->desc[0]->rs_rd), &isnull);
+	nulls[2] = isnull;
+	//ereport(WARNING, errmsg("value %lu", DatumGetInt64(values[2])));	
+	values[3] = heap_getattr(cxt->slot->tts_ops->get_heap_tuple(cxt->slot), 4, RelationGetDescr(vertex_desc->desc[0]->rs_rd), &isnull);
+	nulls[3] = isnull;
+	tuple1 = heap_form_tuple(funcctx->tuple_desc, &values, &nulls);
+	//cxt->slot->tts_ops->get_heap_tuple(cxt->slot);
 
-	memset(nulls, true, sizeof(nulls));
-
-	values[0] = cxt->slot->tts_values[0];
-	values[1] = cxt->slot->tts_values[1];
-	values[2] = cxt->slot->tts_values[2];
-	values[3] = cxt->slot->tts_values[3];
-	tuple1 = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-
+	//tuple1 = cxt->slot->tts_ops->copy_heap_tuple(cxt->slot);
+	//tuple1->t_tableOid = RelationGetRelid(cxt->rel);
+	//SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(cxt->slot->tts_ops->get_heap_tuple(cxt->slot)));
+	//SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(cxt->slot->tts_ops->get_heap_tuple(cxt->slot)));
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple1));
 }

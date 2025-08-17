@@ -22,7 +22,7 @@ typedef struct VertexScanDescData
 	TableScanDescData rs_base;	/* AM independent part of the descriptor */
 
 	int ndesc;
-	TableScanDesc **desc;
+	TableScanDesc *desc;
 	bool *isIndex;
 } VertexScanDescData;
 

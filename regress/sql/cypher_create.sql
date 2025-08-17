@@ -61,6 +61,23 @@ MATCH ()-[]->() RETURN 1;
 
 MATCH ()<-[]-() RETURN 1;
 
+MATCH ()<-[q]-() RETURN 1;
+
+
+MATCH ()<-[q]-() RETURN q;
+
+MATCH (e)<-[q]-() RETURN q, e;
+
+/*
+MATCH (a)-[]->() RETURN a;
+
+MATCH (a)<-[]-() RETURN a;
+
+
+MATCH ()-[]->(a) RETURN a;
+
+MATCH ()<-[]-(a) RETURN a;
+*/
 SELECT * FROM cypher_create._ag_label_vertex;
 
 SELECT * FROM cypher_create._adj__adj__ag_label_vertex;

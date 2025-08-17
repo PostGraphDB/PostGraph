@@ -88,6 +88,7 @@ static char *make_endid_alias(char *var_name);
 
 static Node *make_vertex_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi);
 static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi);
+static Node *make_vertex_expr_with_edge(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi, ParseNamespaceItem *edge_pnsi);
 
 List *
 transform_window_definitions(ParseState *pstate, List *windowdefs, List **targetlist);
@@ -253,6 +254,29 @@ static Node *make_vertex_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pn
 }
 
 
+static Node *make_vertex_expr_with_edge(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi, ParseNamespaceItem *edge_pnsi) {
+    ParseState *pstate = (ParseState *)cpstate;
+
+    Oid func_oid = get_ag_func_oid("build_vertex", 3, GRAPHIDOID, OIDOID, GTYPEOID);
+
+    Node *id = scanNSItemForColumn(pstate, edge_pnsi, 0, "endid", -1);
+
+    Const *graph_oid_const = makeConst(OIDOID, -1, InvalidOid, sizeof(Oid),
+                                ObjectIdGetDatum(cpstate->graph_oid), false, true);
+
+    Node * props = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
+
+    List *args = list_make3(id, graph_oid_const, props);
+    
+    FuncExpr *func_expr = makeFuncExpr(func_oid, VERTEXOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+    func_expr->location = -1;
+
+
+    return (Node *)func_expr;
+}
+
+
+
 static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi) {
     ParseState *pstate = (ParseState *)cpstate;
 
@@ -260,9 +284,9 @@ static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi
 
     Node *id = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_ID, -1);
 
-    Node *start_id = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_START_ID, -1);
+    Node *start_id = scanNSItemForColumn(pstate, pnsi, 0, "startid", -1);
 
-    Node *end_id = scanNSItemForColumn(pstate, pnsi, 0, AG_EDGE_COLNAME_END_ID, -1);
+    Node *end_id = scanNSItemForColumn(pstate, pnsi, 0, "endid", -1);
 
     Const *graph_oid_const = makeConst(OIDOID, -1, InvalidOid, sizeof(Oid),
                                 ObjectIdGetDatum(cpstate->graph_oid), false, true);
@@ -1067,34 +1091,6 @@ static Node *transform_srf_function(cypher_parsestate *cpstate, Node *n, RangeTb
 }
 
 
-static Node *transform_VLE_Function(cypher_parsestate *cpstate, Node *n, RangeTblEntry **top_rte, int *top_rti, List **namespace) {
-    ParseState *pstate = &cpstate->pstate;
-
-    Assert(IsA(n, RangeFunction));
-
-    if (IsA(n, RangeFunction)) {
-        RangeTblRef *rtr;
-        RangeTblEntry *rte;
-        ParseNamespaceItem *nsitem;
-        int rtindex;
-
-        nsitem = transformRangeFunction(cpstate, (RangeFunction *) n);
-        rte = nsitem->p_rte;
-        rtindex = list_length(pstate->p_rtable);
-        Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
-        *top_rte = rte;
-        *top_rti = rtindex;
-        *namespace = list_make1(nsitem);
-        rtr = makeNode(RangeTblRef);
-        rtr->rtindex = rtindex;
-        return (Node *) rtr;
-    }
-
-    return NULL;
-}
-
-
-
 
 // setNamespaceLateralState - subroutine to update LATERAL flags in a namespace list.
 static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok) {
@@ -1163,9 +1159,9 @@ add_vertex_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node)
 {
     ParseState *pstate = (ParseState *)cpstate;
 
-    bool has_variable = false;
+    node->has_variable = false;
     if (node->name)
-        has_variable = true;
+        node->has_variable = true;
     else
         node->name = get_next_default_alias(cpstate);
 
@@ -1196,9 +1192,9 @@ add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_n
 {
     ParseState *pstate = (ParseState *)cpstate;
 
-    bool has_variable = false;
+    node->has_variable = false;
     if (node->name)
-        has_variable = true;
+        node->has_variable = true;
     else {
         node->in_join_tree = false;
         return NULL;
@@ -1236,10 +1232,9 @@ add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship 
 {
     ParseState *pstate = (ParseState *)cpstate;
 
+    edge->has_variable = false;
     if (edge->name)
-        ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("MATCH variable names are not supported")));
+        edge->has_variable = true;
     else
         edge->name = get_next_default_alias(cpstate);
 
@@ -1266,7 +1261,8 @@ static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *que
     ParseState *pstate = (ParseState *)cpstate;
 
    // left vertex id field
-    query->targetList = lappend(query->targetList, 
+    if (left_vertex->in_join_tree) {
+        query->targetList = lappend(query->targetList, 
                             makeTargetEntry(
                                 edge->dir == CYPHER_REL_DIR_RIGHT ?
                                     scanNSItemForColumn(pstate, left_vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1) :
@@ -1275,22 +1271,24 @@ static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *que
                                 make_id_alias(left_vertex->name), 
                                 false));
 
-    // Vertex expression
-    if (left_vertex->has_variable) {
         query->targetList = lappend(query->targetList, 
                                 makeTargetEntry(
                                     scanNSItemForColumn(pstate, left_vertex->pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1), 
                                     pstate->p_next_resno++, 
                                     make_property_alias(left_vertex->name), 
                                     false));
-/*
-        query->targetList = lappend(query->targetList, 
-                                makeTargetEntry(
-                                    (Expr *)make_vertex_expr(cpstate, left_vertex->pnsi), 
-                                    pstate->p_next_resno++, 
-                                    left_vertex->name, 
-                                    false));
-*/
+        
+        // Vertex expression
+        if (left_vertex->has_variable)
+            query->targetList = lappend(query->targetList, 
+                                    makeTargetEntry(
+                                        edge->dir == CYPHER_REL_DIR_LEFT ?
+                                            (Expr *)make_vertex_expr_with_edge(cpstate, left_vertex->pnsi, edge->pnsi) :
+                                            (Expr *)make_vertex_expr(cpstate, left_vertex->pnsi),
+                                        pstate->p_next_resno++,
+                                        left_vertex->name,
+                                        false));
+
     }
 
     // id field
@@ -1326,23 +1324,43 @@ static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *que
                                 false));
 
     // id field
-    query->targetList = lappend(query->targetList, 
+    if (edge->has_variable)
+        query->targetList = lappend(query->targetList, 
+                                    makeTargetEntry(
+                                        (Expr *)make_edge_expr(cpstate, edge->pnsi),
+                                        pstate->p_next_resno++,
+                                        edge->name,
+                                        false));
+
+    // properties field
+    if (right_vertex->in_join_tree){
+        query->targetList = lappend(query->targetList, 
                             makeTargetEntry(
                                 edge->dir == CYPHER_REL_DIR_RIGHT ?
                                     scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1) :
                                     scanNSItemForColumn(pstate, right_vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1),
                                 pstate->p_next_resno++, 
-                                make_id_alias(left_vertex->name), 
+                                make_id_alias(right_vertex->name), 
                                 false));
 
-    // properties field
-    if (right_vertex->in_join_tree)
         query->targetList = lappend(query->targetList, 
                             makeTargetEntry(
                                 scanNSItemForColumn(pstate, right_vertex->pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1), 
                                 pstate->p_next_resno++, 
                                 make_property_alias(right_vertex->name), 
                                 false));
+
+        // Vertex expression
+        if (right_vertex->has_variable) 
+            query->targetList = lappend(query->targetList, 
+                                    makeTargetEntry(
+                                        edge->dir == CYPHER_REL_DIR_RIGHT ?
+                                            (Expr *)make_vertex_expr_with_edge(cpstate, right_vertex->pnsi, edge->pnsi) :
+                                            (Expr *)make_vertex_expr(cpstate, right_vertex->pnsi),
+                                        pstate->p_next_resno++, 
+                                        right_vertex->name, 
+                                        false));     
+    }
 
 }
 
@@ -1411,6 +1429,29 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
 
             // right vertex FROM item
             node = lthird(path->path);
+
+            node->pnsi = add_vertex_retrieval_to_query(cpstate, query, node, edge->pnsi);
+
+            // SELECT fields
+            add_all_fields_to_target_list(cpstate, 
+                                            query,
+                                            (cypher_node *)linitial(path->path),
+                                            (cypher_relationship *)lsecond(path->path), 
+                                            (cypher_node *)lthird(path->path));
+        } else if( ((cypher_relationship *)lsecond(path->path))->dir == CYPHER_REL_DIR_LEFT) {
+            ListCell *path_cell;
+
+            // left vertex FROM item
+            cypher_node *node = lthird(path->path);
+            node->pnsi = add_vertex_to_query(cpstate, query, node);
+
+            
+            // edge FROM item 
+            cypher_relationship *edge = lsecond(path->path);
+            edge->pnsi = add_edge_to_query(cpstate, query, edge, node->pnsi);
+
+            // right vertex FROM item
+            node = linitial(path->path);
 
             node->pnsi = add_vertex_retrieval_to_query(cpstate, query, node, edge->pnsi);
 
