@@ -87,10 +87,57 @@ static Datum get_vertex(Oid graph_oid, int64 graphid)
 
 PG_FUNCTION_INFO_V1(retrieve_vertex);
 Datum retrieve_vertex(PG_FUNCTION_ARGS) {
-    gtype *graph_oid = GT_ARG_TO_INT4_DATUM(0);
-    graphid id = AG_GETARG_GRAPHID(1);
+    
+	//PG_RETURN_POINTER(get_vertex(graph_oid, id));
+
+ 	//gtype *graph_oid = GT_ARG_TO_INT4_DATUM(0);
+    //graphid id = AG_GETARG_GRAPHID(1);
    
-	PG_RETURN_POINTER(get_vertex(graph_oid, id));
+    //lquery *label = PG_GETARG_LQUERY_P(1);
+    //bool include_props = PG_GETARG_BOOL(2);
+	FuncCallContext *funcctx;
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+		TupleDesc	tupdesc;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		tupdesc = CreateTemplateTupleDesc(1);
+
+		tupdesc->tdtypeid = RECORDOID;	/* not right, but we don't care */
+		tupdesc->tdtypmod = -1;
+		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "properties",
+						   GTYPEOID, -1, 0);
+
+		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+		MemoryContextSwitchTo(oldcontext);
+
+		funcctx = SRF_PERCALL_SETUP();
+	
+
+		Datum values[1];
+		bool nulls[1];
+		HeapTuple tuple1;
+		gtype *graph_oid = GT_ARG_TO_INT4_DATUM(0);
+		graphid id = AG_GETARG_GRAPHID(1);
+   
+		bool isnull;
+		values[0] = get_vertex(graph_oid, id);
+		nulls[0] = true;
+		tuple1 = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple1));
+	}
+
+	SRF_RETURN_DONE(funcctx);
+	
+	
+	
+
+
+
 }
 
 
@@ -190,7 +237,7 @@ Datum edge_search(PG_FUNCTION_ARGS)
 	//ereport(WARNING, errmsg("value %lu", DatumGetInt64(values[2])));	
 	values[3] = heap_getattr(cxt->slot->tts_ops->get_heap_tuple(cxt->slot), 4, RelationGetDescr(vertex_desc->desc[0]->rs_rd), &isnull);
 	nulls[3] = isnull;
-	tuple1 = heap_form_tuple(funcctx->tuple_desc, &values, &nulls);
+	tuple1 = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 	//cxt->slot->tts_ops->get_heap_tuple(cxt->slot);
 
 	//tuple1 = cxt->slot->tts_ops->copy_heap_tuple(cxt->slot);

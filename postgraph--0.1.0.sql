@@ -313,7 +313,7 @@ AS 'MODULE_PATHNAME';
 CREATE FUNCTION build_vertex(graphid, oid, gtype) 
 RETURNS vertex 
 LANGUAGE c 
-IMMUTABLE 
+STABLE
 CALLED ON NULL INPUT 
 PARALLEL SAFE 
 COST 50
@@ -442,7 +442,7 @@ AS 'MODULE_PATHNAME';
 
 
 CREATE FUNCTION retrieve_vertex(graph_oid gtype, id graphid)
-RETURNS gtype
+RETURNS TABLE (properties gtype)
 RETURNS NULL ON NULL INPUT
 STABLE
 PARALLEL SAFE
@@ -590,9 +590,9 @@ CREATE OPERATOR = (
     COMMUTATOR = =, 
     NEGATOR = <>, 
     RESTRICT = eqsel, 
-    JOIN = eqjoinsel--, 
-    --HASHES, 
-    --MERGES
+    JOIN = eqjoinsel, 
+    HASHES, 
+    MERGES
 );
 
 CREATE FUNCTION graphid_ne(graphid, graphid) 
