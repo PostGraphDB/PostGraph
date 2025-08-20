@@ -59,18 +59,9 @@
 #include "utils/lsyscache.h"
 #include "access/table.h"
 
-
 #include "access/vertex.h"
 #include "utils/graphid.h"
 #include "utils/gtype.h"
-
-#define HEAP_OVERHEAD_BYTES_PER_TUPLE \
-        (MAXALIGN(SizeofHeapTupleHeader) + sizeof(ItemIdData))
-#define HEAP_USABLE_BYTES_PER_PAGE \
-        (BLCKSZ - SizeOfPageHeaderData)
-
-static void GetMultiXactIdHintBits(MultiXactId multi, uint16 *new_infomask,
-										   uint16 *new_infomask2);
 
 
 /* ------------------------------------------------------------------------
@@ -120,8 +111,9 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
 	vertex_desc->rs_base.rs_flags = flags;
 	vertex_desc->rs_base.rs_parallel = NULL;
 	vertex_desc->ndesc = 1;
-	TableAmRoutine *tableam = GetHeapamTableAmRoutine();
-	Oid oid = get_relname_relid(make_vertex_adjlist_alias(get_rel_name(RelationGetRelid(relation))), get_rel_namespace(RelationGetRelid(relation)));
+	Oid oid = get_relname_relid(
+        make_vertex_adjlist_alias(get_rel_name(RelationGetRelid(relation))),
+        get_rel_namespace(RelationGetRelid(relation)));
 	Relation rel = RelationIdGetRelation(oid);
 
     vertex_desc->desc = palloc(sizeof (TableScanDesc *) * vertex_desc->ndesc);
@@ -130,11 +122,8 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
     List *indexoidlist = RelationGetIndexList(relation);
     if(list_length(indexoidlist) == 1) {
         Oid idx = linitial_oid(indexoidlist);
-	
-        IndexScanDesc *desc = index_beginscan(rel,
-									 RelationIdGetRelation(idx),
-									 snapshot,
-									 nkeys, 0);
+		Relation idxrel = index_open(idx, RowExclusiveLock);
+        IndexScanDesc *desc = index_beginscan(rel, idxrel, snapshot, nkeys, 0);
 
         index_rescan(desc, key, nkeys, NULL, 0);
 
@@ -142,7 +131,7 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
         vertex_desc->isIndex[0] = true;
     } else {
         
-        TableScanDesc *desc = tableam->scan_begin(rel, snapshot, nkeys, key, parallel_scan, flags);
+        TableScanDesc *desc = GetHeapamTableAmRoutine()->scan_begin(rel, snapshot, nkeys, key, parallel_scan, flags);
             
         vertex_desc->desc[0] = desc;
         vertex_desc->isIndex[0] = false;
@@ -152,12 +141,16 @@ TableScanDesc vertex_scan_begin(Relation relation, Snapshot snapshot, int nkeys,
 
 void vertex_scan_end(TableScanDesc sscan) {
 	VertexScanDescData *vertex_desc = sscan;
-	RelationDecrementReferenceCount( ((HeapScanDesc)vertex_desc->desc[0])->rs_base.rs_rd);
+        RelationDecrementReferenceCount( ((HeapScanDesc)vertex_desc->desc[0])->rs_base.rs_rd);
 
-    if (vertex_desc->isIndex[0])
+    if (vertex_desc->isIndex[0]) {
+        index_close(((IndexScanDesc)vertex_desc->desc[0])->indexRelation, NoLock);
         index_endscan(vertex_desc->desc[0]);
-    else
+
+    } else {
+        //RelationDecrementReferenceCount( ((HeapScanDesc)vertex_desc->desc[0])->rs_base.rs_rd);
 	    GetHeapamTableAmRoutine()->scan_end(vertex_desc->desc[0]);
+    }
 }
 
 /*
@@ -169,7 +162,6 @@ void vertex_scan_rescan(TableScanDesc scan, struct ScanKeyData *key,
             bool allow_sync, bool allow_pagemode) {
     ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg_internal("vertex_scan_rescan not implemented")));
-    
 }
 
 /*

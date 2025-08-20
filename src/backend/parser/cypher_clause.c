@@ -1048,6 +1048,35 @@ static ParseNamespaceItem *add_srf_to_query(cypher_parsestate *cpstate, Node *n,
 
 
 
+static ParseNamespaceItem *add_srf_to_query2(cypher_parsestate *cpstate, Node *n, char *var_name) {
+    RangeTblEntry *rte = NULL;
+    RangeTblRef *rtr;
+    List *namespace = NULL;
+    int rtindex;
+    ParseState *pstate = (ParseState *)cpstate;
+
+    Alias *alias = make_alias(var_name, list_make2(makeString("edges"), makeString("endid")));
+    //Alias *alias = make_alias(var_name, NIL);
+    RangeFunction *rf = make_range_function(n, alias, true, false, false);
+
+
+    rtr = transform_srf_function(cpstate, rf, &rte, &rtindex, &namespace);
+    Assert(rtr != NULL);
+
+    checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
+
+    setNamespaceLateralState(namespace, true, true);
+    //((ParseNamespaceItem *)lfirst(list_head(namespace)))->p_names = alias;//list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties"));
+    pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+    pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
+
+    setNamespaceLateralState(pstate->p_namespace, true, true);
+
+    return lfirst(list_head(namespace));
+}
+
+
+
 // transform a function call appearing in FROM
 static ParseNamespaceItem *transformRangeFunction(cypher_parsestate *cpstate, RangeFunction *r) {
     ParseState *pstate = NULL;
@@ -1314,6 +1343,41 @@ add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship 
     return add_srf_to_query(cpstate, fc, edge->name);
 }
 
+
+static ParseNamespaceItem *
+add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, ParseNamespaceItem *vertex_pnsi)
+{
+    ParseState *pstate = (ParseState *)cpstate;
+
+    edge->has_variable = false;
+    if (edge->name)
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("MATCH variable edge variables are not supported")));        
+    else
+        edge->name = get_next_default_alias(cpstate);
+
+    bool is_default_label = true;
+    if (edge->label)
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("MATCH labels are not supported")));
+    else
+        edge->label = AG_DEFAULT_LABEL_EDGE;
+
+    Node *id_field = scanNSItemForColumn(cpstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
+    
+    A_Indices *idx= edge->varlen;
+
+    FuncCall *fc = makeFuncCall(
+        list_make2(makeString("postgraph"), makeString("variable_edge_search")),
+        list_make4(make_int_const(cpstate->graph_oid, -1), id_field, idx->lidx, make_null_const(-1)),
+        COERCE_EXPLICIT_CALL, -1);
+
+    return add_srf_to_query2(cpstate, fc, edge->name);
+}
+
+
 static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *query,
     cypher_node *left_vertex, cypher_relationship *edge, cypher_node *right_vertex) {
     ParseState *pstate = (ParseState *)cpstate;
@@ -1349,37 +1413,47 @@ static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *que
 
     }
 
-    // id field
-    query->targetList = lappend(query->targetList, 
-                            makeTargetEntry(
-                                scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_ID, -1), 
-                                pstate->p_next_resno++, 
-                                make_id_alias(edge->name), 
-                                false));
+    if (edge->varlen) {
+        // end id field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_endid_alias(edge->name), 
+                                    false));
+    } else {
+        // id field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_ID, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_id_alias(edge->name), 
+                                    false));
 
-    // start id field
-    query->targetList = lappend(query->targetList, 
-                            makeTargetEntry(
-                                scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_START_ID, -1), 
-                                pstate->p_next_resno++, 
-                                make_startid_alias(edge->name), 
-                                false));
+        // start id field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_START_ID, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_startid_alias(edge->name), 
+                                    false));
 
-    // end id field
-    query->targetList = lappend(query->targetList, 
-                            makeTargetEntry(
-                                scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1), 
-                                pstate->p_next_resno++, 
-                                make_endid_alias(edge->name), 
-                                false));
+        // end id field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_endid_alias(edge->name), 
+                                    false));
 
-    // properties field
-    query->targetList = lappend(query->targetList, 
-                            makeTargetEntry(
-                                scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_PROPERTIES, -1), 
-                                pstate->p_next_resno++, 
-                                make_property_alias(edge->name), 
-                                false));
+        // properties field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_PROPERTIES, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_property_alias(edge->name), 
+                                    false));
+    }
 
     // id field
     if (edge->has_variable)
@@ -1483,8 +1557,11 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
             
             // edge FROM item 
             cypher_relationship *edge = lsecond(path->path);
-            edge->pnsi = add_edge_to_query(cpstate, query, edge, node->pnsi);
-
+            if (edge->varlen) {
+                edge->pnsi = add_variable_edge_to_query(cpstate, query, edge, node->pnsi);
+            } else {
+                edge->pnsi = add_edge_to_query(cpstate, query, edge, node->pnsi);
+            }
             // right vertex FROM item
             node = lthird(path->path);
 
@@ -1496,6 +1573,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
                                             (cypher_node *)linitial(path->path),
                                             (cypher_relationship *)lsecond(path->path), 
                                             (cypher_node *)lthird(path->path));
+        
         } else if( ((cypher_relationship *)lsecond(path->path))->dir == CYPHER_REL_DIR_LEFT) {
             ListCell *path_cell;
 

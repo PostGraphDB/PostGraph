@@ -211,8 +211,8 @@ typedef struct cypher_relationship
     ExtensibleNode extensible;
     char *name;
     char *label;
-    Node *props; // map or parameter
-    Node *varlen; // variable length relationships (A_Indices)
+    Node *props;
+    Node *varlen;
     cypher_rel_dir dir;
     bool has_variable;
     ParseNamespaceItem *pnsi;

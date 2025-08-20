@@ -6818,3 +6818,14 @@ CREATE AGGREGATE regr_r2(gtype, gtype) (
     parallel = SAFE
 );
 
+
+
+CREATE FUNCTION variable_edge_search(graph_oid gtype, id graphid, min gtype, max gtype)
+RETURNS TABLE  (edges variable_edge, endid graphid)
+CALLED ON NULL INPUT
+STABLE
+PARALLEL SAFE
+LANGUAGE C
+COST 50000
+AS 'MODULE_PATHNAME';
+

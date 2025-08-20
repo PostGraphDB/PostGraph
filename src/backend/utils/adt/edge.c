@@ -414,7 +414,8 @@ static Datum get_vertex(Oid graph_oid, int64 graphid)
 
     tupdesc = RelationGetDescr(graph_vertex_label);
 
-    properties = column_get_datum(tupdesc, tuple, 1, "properties", GTYPEOID, true);
+    bool isnull;
+    properties = heap_getattr(tuple, 2, tupdesc, &isnull);
 
     table_endscan(scan_desc);
     table_close(graph_vertex_label, ShareLock);

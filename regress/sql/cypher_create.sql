@@ -76,7 +76,15 @@ CREATE ();
 
 CREATE () RETURN 1 as a;
 
+CREATE ()-[]->()-[]->();
 
+SELECT * FROM cypher_create._adj__ag_label_vertex;
+MATCH (a) RETURN a;
+--SELECT * FROM cypher_create.idx_hash__adj__ag_label_vertex;
+
+MATCH ()-[*1]->() RETURN 1;
+MATCH ()-[]->() RETURN 1;
+MATCH ()-[*2]->() RETURN 1;
 --
 -- Clean up
 --

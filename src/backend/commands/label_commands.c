@@ -693,9 +693,9 @@ static void create_hash_idx(char *graph_name, char *label_name,
     start_id_elem->ordering = SORTBY_DEFAULT;
     start_id_elem->nulls_ordering = SORTBY_NULLS_DEFAULT;
 
-	index_stmt->idxname = make_hash_idx_alias(rel_name);;
+	index_stmt->idxname = make_hash_idx_alias(rel_name);
 	index_stmt->relation = makeRangeVar(schema_name, rel_name, -1);
-	index_stmt->accessMethod = "hash";
+	index_stmt->accessMethod = "btree";
 	index_stmt->tableSpace = NULL;
 	index_stmt->indexParams = list_make1(start_id_elem);
 	index_stmt->indexIncludingParams = NIL;
@@ -716,7 +716,6 @@ static void create_hash_idx(char *graph_name, char *label_name,
 	index_stmt->concurrent = false;
 	index_stmt->if_not_exists = false;
 	index_stmt->reset_default_tblspc = false;
-
 
     wrapper = makeNode(PlannedStmt);
     wrapper->commandType = CMD_UTILITY;

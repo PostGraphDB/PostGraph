@@ -2020,53 +2020,6 @@ Datum gtype_btree_cmp(PG_FUNCTION_ARGS)
     PG_RETURN_INT16(compare_gtype_containers_orderability(&gtype_lhs->root, &gtype_rhs->root));
 }
 
-/*
- * Helper function to return the Datum value of a column (attribute) in a heap
- * tuple (row) given the column number (starting from 0), attribute name, typid,
- * and whether it can be null. The function is designed to extract and validate
- * that the data (attribute) is what is expected. The function will error on any
- * issues.
- */
-Datum column_get_datum(TupleDesc tupdesc, HeapTuple tuple, int column,
-                       const char *attname, Oid typid, bool isnull)
-{
-    Form_pg_attribute att;
-    HeapTupleHeader hth;
-    HeapTupleData tmptup, *htd;
-    Datum result;
-    bool _isnull = true;
-
-    // build the heap tuple data 
-    hth = tuple->t_data;
-    tmptup.t_len = HeapTupleHeaderGetDatumLength(hth);
-    tmptup.t_data = hth;
-    htd = &tmptup;
-
-    // get the description for the column from the tuple descriptor 
-    att = TupleDescAttr(tupdesc, column);
-    // get the datum (attribute) for that column
-    result = heap_getattr(htd, column + 1, tupdesc, &_isnull);
-    // verify that the attribute typid is as expected 
-    if (att->atttypid != typid)
-        ereport(ERROR,
-                (errcode(ERRCODE_UNDEFINED_TABLE),
-                 errmsg("Invalid attribute typid. Expected %d, found %d", typid,
-                        att->atttypid)));
-    // verify that the attribute name is as expected 
-    if (strcmp(att->attname.data, attname) != 0)
-        ereport(ERROR,
-                (errcode(ERRCODE_UNDEFINED_TABLE),
-                 errmsg("Invalid attribute name. Expected %s, found %s",
-                        attname, att->attname.data)));
-    // verify that if it is null, it is allowed to be null 
-    if (isnull == false && _isnull == true)
-        ereport(ERROR,
-                (errcode(ERRCODE_UNDEFINED_TABLE),
-                 errmsg("Attribute was found to be null when null is not allowed.")));
-
-    return result;
-}
-
 PG_FUNCTION_INFO_V1(gtype_head);
 
 Datum gtype_head(PG_FUNCTION_ARGS)
@@ -2682,88 +2635,30 @@ Datum gtype_collect_aggfinalfn(PG_FUNCTION_ARGS) {
     PG_RETURN_POINTER(gtype_value_to_gtype(castate->res));
 }
 
-/*
- * Extract an gtype_value from an gtype and optionally verify that it is of
- * the correct type. It will always complain if the passed argument is not a
- * scalar.
- *
- * Optionally, the function will throw an error, stating the calling function
- * name, for invalid values - including AGTV_NULL
- *
- * Note: This only works for scalars wrapped in an array container, not
- * in objects.
- */
-gtype_value *get_gtype_value(char *funcname, gtype *agt_arg,
-                               enum gtype_value_type type, bool error)
-{
-    gtype_value *agtv_value = NULL;
-
-    // we need these 
-    Assert(funcname != NULL);
-    Assert(agt_arg != NULL);
-
-    // error if the argument is not a scalar 
-    if (!GTYPE_CONTAINER_IS_SCALAR(&agt_arg->root))
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                 errmsg("%s: gtype argument must be a scalar", funcname)));
-
-    // is it AGTV_NULL? 
-    if (error && is_gtype_null(agt_arg))
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                 errmsg("%s: gtype argument must not be AGTV_NULL", funcname)));
-
-    // get the gtype value 
-    agtv_value = get_ith_gtype_value_from_container(&agt_arg->root, 0);
-
-    // is it the correct type? 
-    if (error && agtv_value->type != type)
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                 errmsg("%s: gtype argument of wrong type", funcname)));
-
-    return agtv_value;
-}
-
 static gtype_iterator *get_next_object_key(gtype_iterator *it, gtype_container *agtc, gtype_value *key) {
     gtype_iterator_token itok;
     gtype_value tmp;
 
-    // verify input params 
-    Assert(agtc != NULL);
-    Assert(key != NULL);
-
-    // check to see if the container is empty 
     if (GTYPE_CONTAINER_SIZE(agtc) == 0)
         return NULL;
 
-    // if the passed iterator is NULL, this is the first time, create it 
     if (it == NULL) {
-        // initial the iterator 
         it = gtype_iterator_init(agtc);
-        // get the first token 
         itok = gtype_iterator_next(&it, &tmp, false);
-        // it should be WGT_BEGIN_OBJECT 
         Assert(itok == WGT_BEGIN_OBJECT);
     }
 
-    // the next token should be a key or the end of the object 
     itok = gtype_iterator_next(&it, &tmp, false);
     Assert(itok == WGT_KEY || WGT_END_OBJECT);
-    // if this is the end of the object return NULL 
     if (itok == WGT_END_OBJECT)
         return NULL;
 
-    // this should be the key, copy it 
     if (itok == WGT_KEY)
         memcpy(key, &tmp, sizeof(gtype_value));
 
-    /*
-     * The next token should be a value but, it could be a begin tokens for
-     * arrays or objects. For those we just return NULL to ignore them.
-     */
     itok = gtype_iterator_next(&it, &tmp, true);
     Assert(itok == WGT_VALUE);
 
-    // return the iterator 
     return it;
 }
 
@@ -2781,11 +2676,7 @@ Datum vertex_keys(PG_FUNCTION_ARGS) {
     while ((it = get_next_object_key(it, &agt_arg->root, &obj_key)))
         agtv_result = push_gtype_value(&parse_state, WGT_ELEM, &obj_key);
 
-    // push the end of the array
     agtv_result = push_gtype_value(&parse_state, WGT_END_ARRAY, NULL);
-
-    Assert(agtv_result != NULL);
-    Assert(agtv_result->type == AGTV_ARRAY);
 
     PG_RETURN_POINTER(gtype_value_to_gtype(agtv_result));
 }
@@ -2807,7 +2698,7 @@ Datum edge_keys(PG_FUNCTION_ARGS)
     while ((it = get_next_object_key(it, &agt_arg->root, &obj_key)))
         agtv_result = push_gtype_value(&parse_state, WGT_ELEM, &obj_key);
 
-    // push the end of the array
+
     agtv_result = push_gtype_value(&parse_state, WGT_END_ARRAY, NULL);
 
     Assert(agtv_result != NULL);
