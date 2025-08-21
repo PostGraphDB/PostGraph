@@ -543,6 +543,7 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
                 target->relid = lcd->relation;
 
                 target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
+
                 //target->prop_attr_num = InvalidAttrNumber;
                 ccp->target_nodes = lappend(ccp->target_nodes, target);
                 
@@ -1345,6 +1346,43 @@ add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship 
 
 
 static ParseNamespaceItem *
+add_edge_to_query_with_prev_edge(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, ParseNamespaceItem *prev_pnsi, char *prev_name)
+{
+    ParseState *pstate = (ParseState *)cpstate;
+
+    edge->has_variable = false;
+    if (edge->name)
+        edge->has_variable = true;
+    else
+        edge->name = get_next_default_alias(cpstate);
+
+    bool is_default_label = true;
+    if (edge->label)
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("MATCH labels are not supported")));
+    else
+        edge->label = AG_DEFAULT_LABEL_EDGE;
+
+    Node *id_field;
+    if(edge->dir != CYPHER_REL_DIR_NONE) 
+        id_field = scanNSItemForColumn(cpstate, prev_pnsi, 0, "endid", -1);
+    else 
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("MATCH edge can't be bi directional")));
+            
+
+
+    FuncCall *fc = makeFuncCall(
+        list_make2(makeString("postgraph"), makeString("edge_search")),
+        list_make4(make_int_const(cpstate->graph_oid, -1), id_field, make_null_const(-1), make_null_const(-1)),
+        COERCE_EXPLICIT_CALL, -1);
+
+    return add_srf_to_query(cpstate, fc, edge->name);
+}
+
+
+static ParseNamespaceItem *
 add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, ParseNamespaceItem *vertex_pnsi)
 {
     ParseState *pstate = (ParseState *)cpstate;
@@ -1496,6 +1534,218 @@ static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *que
 
 }
 
+static void add_new_fields_to_target_list(cypher_parsestate *cpstate, Query *query,
+    cypher_node *left_vertex, cypher_relationship *edge, cypher_node *right_vertex) {
+    ParseState *pstate = (ParseState *)cpstate;
+
+    if (edge->varlen) {
+        // end id field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_endid_alias(edge->name), 
+                                    false));
+    } else {
+        // id field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_ID, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_id_alias(edge->name), 
+                                    false));
+
+        // start id field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_START_ID, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_startid_alias(edge->name), 
+                                    false));
+
+        // end id field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_endid_alias(edge->name), 
+                                    false));
+
+        // properties field
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_PROPERTIES, -1), 
+                                    pstate->p_next_resno++, 
+                                    make_property_alias(edge->name), 
+                                    false));
+    }
+
+    // id field
+    if (edge->has_variable)
+        query->targetList = lappend(query->targetList, 
+                                    makeTargetEntry(
+                                        (Expr *)make_edge_expr(cpstate, edge->pnsi),
+                                        pstate->p_next_resno++,
+                                        edge->name,
+                                        false));
+
+    // properties field
+    if (right_vertex->in_join_tree){
+        query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                edge->dir == CYPHER_REL_DIR_RIGHT ?
+                                    scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_END_ID, -1) :
+                                    scanNSItemForColumn(pstate, right_vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1),
+                                pstate->p_next_resno++, 
+                                make_id_alias(right_vertex->name), 
+                                false));
+
+        query->targetList = lappend(query->targetList, 
+                            makeTargetEntry(
+                                scanNSItemForColumn(pstate, right_vertex->pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1), 
+                                pstate->p_next_resno++, 
+                                make_property_alias(right_vertex->name), 
+                                false));
+
+        // Vertex expression
+        if (right_vertex->has_variable) 
+            query->targetList = lappend(query->targetList, 
+                                    makeTargetEntry(
+                                        edge->dir == CYPHER_REL_DIR_RIGHT ?
+                                            (Expr *)make_vertex_expr_with_edge(cpstate, right_vertex->pnsi, edge->pnsi) :
+                                            (Expr *)make_vertex_expr(cpstate, right_vertex->pnsi),
+                                        pstate->p_next_resno++, 
+                                        right_vertex->name, 
+                                        false));     
+    }
+
+}
+static void
+process_three_element_path(cypher_parsestate *cpstate, Query *query, cypher_path *path)
+{
+    cypher_node *start_vertex;
+    cypher_node *end_vertex;
+    cypher_relationship *edge = lsecond(path->path);
+
+    if (edge->dir == CYPHER_REL_DIR_RIGHT) {
+        start_vertex = linitial(path->path);
+        end_vertex = lthird(path->path);
+    } else if (edge->dir == CYPHER_REL_DIR_LEFT) {
+        start_vertex = lthird(path->path);
+        end_vertex = linitial(path->path);
+    } else {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("MATCH edge can't be bi directional")));
+    }
+
+    start_vertex->pnsi = add_vertex_to_query(cpstate, query, start_vertex);
+    if (edge->varlen)
+        edge->pnsi = add_variable_edge_to_query(cpstate, query, edge, start_vertex->pnsi);
+    else
+        edge->pnsi = add_edge_to_query(cpstate, query, edge, start_vertex->pnsi);
+
+    end_vertex->pnsi = add_vertex_retrieval_to_query(cpstate, query, end_vertex, edge->pnsi);
+
+    // SELECT fields
+    add_all_fields_to_target_list(cpstate, query, linitial(path->path), edge, lthird(path->path));
+}
+
+static Query *
+transform_cypher_clause_as_subquery_match(cypher_parsestate *cpstate, cypher_path *path) {
+    ParseState *pstate = (ParseState *)cpstate;
+    ParseExprKind old_expr_kind = pstate->p_expr_kind;
+    bool lateral = pstate->p_lateral_active;
+
+
+    /*
+     * If this is a WHERE, pass it through and set lateral to true because it
+     * needs to see what comes before it.
+     */
+
+
+    cypher_parsestate *sub_cpstate;
+    Query *query;
+    ParseState *parent_pstate = (ParseState*)cpstate;
+    ParseState *sub_pstate;
+
+    sub_cpstate = make_cypher_parsestate(cpstate);
+    sub_pstate = (ParseState*)sub_cpstate;
+
+
+    sub_pstate->p_expr_kind = pstate->p_expr_kind;
+
+
+        query = makeNode(Query);
+        query->commandType = CMD_SELECT;
+
+        process_three_element_path(sub_cpstate, query, path);
+
+
+
+        markTargetListOrigins(sub_pstate, query->targetList);
+
+        query->rtable = pstate->p_rtable;
+        query->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+
+        assign_query_collations(sub_cpstate, query);
+
+
+    free_cypher_parsestate(sub_cpstate);
+
+    pstate->p_expr_kind = old_expr_kind;
+
+  //  if (!alias)
+    //    alias = makeAlias(PREV_CYPHER_CLAUSE_ALIAS, NIL);
+
+   // ParseNamespaceItem *pnsi = addRangeTableEntryForSubquery(pstate, query, alias, lateral, true);
+
+   // addNSItemToQuery(pstate, pnsi, true, false, true);
+
+    return query;
+}
+
+typedef struct path_parts {
+    int start;
+    int end;
+    cypher_rel_dir dir;
+} path_parts;
+
+static List *find_path_parts(cypher_path *path) {
+    cypher_relationship *start = list_nth(path->path,1);
+
+    if (start->dir == CYPHER_REL_DIR_NONE)
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("MATCH edge can't be bi directional")));
+
+    path_parts *pp = palloc(sizeof(path_parts));
+    pp->start = 1;
+    pp->dir = start->dir;
+
+    List *parts = list_make1(pp);
+    int i;
+    for (i = 3; i < list_length(path->path); i += 2) {
+        cypher_relationship *rel = list_nth(path->path, i);
+
+        if (rel->dir == CYPHER_REL_DIR_NONE)
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("MATCH edge can't be bi directional")));
+
+        if (pp->dir != rel->dir) {
+            pp->end = i;
+
+            pp = palloc(sizeof(path_parts));
+            pp->start = i;
+            
+            pp->dir = rel->dir;
+            parts = lappend(parts, pp);
+        } else
+            pp->end = i;
+    }
+    pp->end = i;
+
+    return parts;
+}
+
 static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, List *pattern, Node *where) {
     ParseState *pstate = (ParseState *)cpstate;
     ListCell *lc;
@@ -1543,72 +1793,125 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
             continue;
         }
 
-        if (list_length(path->path) != 3)
-            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("MATCH paths only support 3 vertex")));
-
-        if( ((cypher_relationship *)lsecond(path->path))->dir == CYPHER_REL_DIR_RIGHT) {
-            ListCell *path_cell;
-
-            // left vertex FROM item
-            cypher_node *node = linitial(path->path);
-            node->pnsi = add_vertex_to_query(cpstate, query, node);
-
-            
-            // edge FROM item 
-            cypher_relationship *edge = lsecond(path->path);
-            if (edge->varlen) {
-                edge->pnsi = add_variable_edge_to_query(cpstate, query, edge, node->pnsi);
-            } else {
-                edge->pnsi = add_edge_to_query(cpstate, query, edge, node->pnsi);
-            }
-            // right vertex FROM item
-            node = lthird(path->path);
-
-            node->pnsi = add_vertex_retrieval_to_query(cpstate, query, node, edge->pnsi);
-
-            // SELECT fields
-            add_all_fields_to_target_list(cpstate, 
-                                            query,
-                                            (cypher_node *)linitial(path->path),
-                                            (cypher_relationship *)lsecond(path->path), 
-                                            (cypher_node *)lthird(path->path));
         
-        } else if( ((cypher_relationship *)lsecond(path->path))->dir == CYPHER_REL_DIR_LEFT) {
-            ListCell *path_cell;
-
-            // left vertex FROM item
-            cypher_node *node = lthird(path->path);
-            node->pnsi = add_vertex_to_query(cpstate, query, node);
-
-            
-            // edge FROM item 
-            cypher_relationship *edge = lsecond(path->path);
-            edge->pnsi = add_edge_to_query(cpstate, query, edge, node->pnsi);
-
-            // right vertex FROM item
-            node = linitial(path->path);
-
-            node->pnsi = add_vertex_retrieval_to_query(cpstate, query, node, edge->pnsi);
-
-            // SELECT fields
-            add_all_fields_to_target_list(cpstate, 
-                                            query,
-                                            (cypher_node *)linitial(path->path),
-                                            (cypher_relationship *)lsecond(path->path), 
-                                            (cypher_node *)lthird(path->path));
+        if (list_length(path->path) == 3) {
+            process_three_element_path(cpstate, query, path);
         } else {
-            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                errmsg("MATCH edge can't be bi directional")));
+            List *parts = find_path_parts(path);
+            ListCell *lc;
+            cypher_relationship *prev_edge = NULL;
+            foreach (lc, parts) {
+                path_parts *pp = (path_parts *) lfirst(lc);
+
+
+                if (pp->dir == CYPHER_REL_DIR_RIGHT) {
+                    cypher_node *left_vertex = list_nth(path->path, pp->start - 1);
+                    left_vertex->pnsi = add_vertex_to_query(cpstate, query, left_vertex);
+
+                    for (int i = pp->start; i < pp->end; i += 2) {
+                        cypher_node *left_vertex = list_nth(path->path, i - 1);
+                        cypher_relationship *edge = list_nth(path->path, i);
+                        cypher_node *right_vertex = list_nth(path->path, i + 1);
+
+                        //left_vertex->pnsi = add_vertex_to_query(cpstate, query, left_vertex);
+                        if (edge->varlen)
+                            edge->pnsi = add_variable_edge_to_query(cpstate, query, edge, left_vertex->pnsi);
+                        else if ( i == pp->start) 
+                            edge->pnsi = add_edge_to_query(cpstate, query, edge, left_vertex->pnsi);
+                        else {
+                            cypher_relationship *prev_edge = list_nth(path->path, i - 2);
+                            edge->pnsi = add_edge_to_query_with_prev_edge(cpstate, query, edge, prev_edge->pnsi, make_endid_alias(prev_edge->name));
+                        }
+                        right_vertex->pnsi = add_vertex_retrieval_to_query(cpstate, query, right_vertex, edge->pnsi);
+
+                        if (i == pp->start && prev_edge) {
+                                    ereport(WARNING, errmsg("start quals"));
+                            quals = lappend(quals, 
+                                makeSimpleCypherA_Expr(AEXPR_OP, "=", 
+                                    (Node *)scanNSItemForColumn(cpstate, prev_edge->pnsi, 0, "endid", -1),
+                                    (Node *)scanNSItemForColumn(cpstate, edge->pnsi, 0, "endid", -1), -1));
+                        }
+
+                        for (int j = 1; j < i; j += 2) {
+                            cypher_relationship *earlier_edge = list_nth(path->path, j);
+                            if (!earlier_edge->varlen)
+                                quals = lappend(quals, 
+                                    makeSimpleCypherA_Expr(AEXPR_OP, "<>", 
+                                        (Node *)scanNSItemForColumn(cpstate, earlier_edge->pnsi, 0, "id", -1),
+                                        (Node *)scanNSItemForColumn(cpstate, edge->pnsi, 0, "id", -1), -1));
+                        }
+
+                        // SELECT fields
+                        if (pp->start == i)
+                            add_all_fields_to_target_list(cpstate, query, left_vertex, edge, right_vertex);
+                        else
+                            add_new_fields_to_target_list(cpstate, query, left_vertex, edge, right_vertex);
+
+                        prev_edge = edge;
+                    }
+                } else if (pp->dir == CYPHER_REL_DIR_LEFT) {
+                    cypher_node *right_vertex = list_nth(path->path, pp->end - 1);
+                    right_vertex->pnsi = add_vertex_to_query(cpstate, query, right_vertex);
+
+                    for (int i = pp->end; i > pp->start; i -= 2) {
+                        cypher_node *left_vertex = list_nth(path->path, i - 3);
+                        cypher_relationship *edge = list_nth(path->path, i - 2);
+                        cypher_node *right_vertex = list_nth(path->path, i - 1);
+
+                        //left_vertex->pnsi = add_vertex_to_query(cpstate, query, left_vertex);
+                        if (edge->varlen)
+                            edge->pnsi = add_variable_edge_to_query(cpstate, query, edge, right_vertex->pnsi);
+                        else if ( i == pp->end) 
+                            edge->pnsi = add_edge_to_query(cpstate, query, edge, right_vertex->pnsi);
+                        else {
+                            cypher_relationship *prev_edge = list_nth(path->path, i);
+                            edge->pnsi = add_edge_to_query_with_prev_edge(cpstate, query, edge, prev_edge->pnsi, make_endid_alias(prev_edge->name));
+                        }
+                        right_vertex->pnsi = add_vertex_retrieval_to_query(cpstate, query, left_vertex, edge->pnsi);
+
+                        if (i == pp->end && prev_edge != NULL) {
+                            quals = lappend(quals, 
+                                makeSimpleCypherA_Expr(AEXPR_OP, "=", 
+                                    (Node *)scanNSItemForColumn(cpstate, prev_edge->pnsi, 0, "endid", -1),
+                                    (Node *)scanNSItemForColumn(cpstate, edge->pnsi, 0, "endid", -1), -1));
+                        }
+
+                        for (int p = 1; p < pp->start; p += 2) {
+                            cypher_relationship *prev_edge = list_nth(path->path, p);
+                            quals = lappend(quals, 
+                                makeSimpleCypherA_Expr(AEXPR_OP, "<>", 
+                                    (Node *)scanNSItemForColumn(cpstate, prev_edge->pnsi, 0, "id", -1),
+                                    (Node *)scanNSItemForColumn(cpstate, edge->pnsi, 0, "id", -1), -1));
+                        }
+
+                        // 2. All previous edges in this path_part (pp)
+                        for (int k = pp->end; k > i; k -= 2) {
+                            cypher_relationship *prev_edge = list_nth(path->path, k - 2);
+                            quals = lappend(quals, 
+                                makeSimpleCypherA_Expr(AEXPR_OP, "<>", 
+                                    (Node *)scanNSItemForColumn(cpstate, prev_edge->pnsi, 0, "id", -1),
+                                    (Node *)scanNSItemForColumn(cpstate, edge->pnsi, 0, "id", -1), -1));
+                        }
+
+                        // SELECT fields
+                        if (pp->start == i)
+                            add_all_fields_to_target_list(cpstate, query, left_vertex, edge, right_vertex);
+                        else
+                            add_new_fields_to_target_list(cpstate, query, right_vertex, edge, left_vertex);
+
+                        prev_edge = edge;
+                    }
+                }
+
+            }
         }
-
-        
-    }
-
+    } 
+    
     // AND the quals for each path together
     Expr *q = NULL;
     
     if (quals != NIL) {
+        ereport(WARNING, errmsg("quals"));
         q = makeBoolExpr(AND_EXPR, quals, -1);
         expr = (Expr *)sql_transform_expr(&cpstate->pstate, (Node *)q, EXPR_KIND_WHERE);
     }

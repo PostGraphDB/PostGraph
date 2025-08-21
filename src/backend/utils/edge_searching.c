@@ -463,12 +463,7 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 			//destroyHashSet(cxt->hashSet);
 			SRF_RETURN_DONE(funcctx);
 		}
-/*
-		if (cxt->current_path[++cxt->current_path_length].count == 0) {
-			cxt->current_path_length--;
-			variable_edge_stack_pop(cxt->stack, &cxt->current_path[cxt->current_path_length--]);
-		}
-*/
+
 		cxt->current_path[++cxt->current_path_length].count = 0;
 		cxt->current_path[cxt->current_path_length].count = id;
 

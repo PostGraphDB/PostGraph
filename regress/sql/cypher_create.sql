@@ -77,6 +77,15 @@ CREATE ();
 CREATE () RETURN 1 as a;
 
 CREATE ()-[]->()-[]->();
+MATCH  ()<-[]-()<-[]-() RETURN 1;
+MATCH  ()-[]->()-[]->() RETURN 1;
+EXPLAIN MATCH  ()-[]->()<-[]-() RETURN 1;
+EXPLAIN ANALYZE MATCH  ()-[]->()<-[]-() RETURN 1;
+MATCH  ()-[]->()<-[]-() RETURN 1;
+
+EXPLAIN MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
+EXPLAIN ANALYZE MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
+MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
 
 SELECT * FROM cypher_create._adj__ag_label_vertex;
 MATCH (a) RETURN a;
