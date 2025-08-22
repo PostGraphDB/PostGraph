@@ -196,6 +196,7 @@ typedef struct cypher_node
     bool has_variable;
     bool is_default_label;
     bool in_join_tree;
+    bool declared_in_previous_clause;
 } cypher_node;
 
 typedef enum

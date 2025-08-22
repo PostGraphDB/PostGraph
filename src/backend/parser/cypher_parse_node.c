@@ -30,8 +30,6 @@
 
 #include "parser/cypher_parse_node.h"
 
-static void errpos_ecb(void *arg);
-
 // NOTE: sync the logic with make_parsestate()
 cypher_parsestate *make_cypher_parsestate(cypher_parsestate *parent_cpstate)
 {
@@ -69,41 +67,6 @@ cypher_parsestate *make_cypher_parsestate(cypher_parsestate *parent_cpstate)
 void free_cypher_parsestate(cypher_parsestate *cpstate)
 {
     free_parsestate((ParseState *)cpstate);
-}
-
-void setup_errpos_ecb(errpos_ecb_state *ecb_state, ParseState *pstate,
-                      int query_loc)
-{
-    ecb_state->ecb.previous = error_context_stack;
-    ecb_state->ecb.callback = errpos_ecb;
-    ecb_state->ecb.arg = ecb_state;
-    ecb_state->pstate = pstate;
-    ecb_state->query_loc = query_loc;
-
-    error_context_stack = &ecb_state->ecb;
-}
-
-void cancel_errpos_ecb(errpos_ecb_state *ecb_state)
-{
-    error_context_stack = ecb_state->ecb.previous;
-}
-
-/*
- * adjust the current error position by adding the position of the current
- * query which is a subquery of a parent query
- */
-static void errpos_ecb(void *arg)
-{
-    errpos_ecb_state *ecb_state = arg;
-    int query_pos;
-
-    if (geterrcode() == ERRCODE_QUERY_CANCELED)
-        return;
-
-    Assert(ecb_state->query_loc > -1);
-    query_pos = pg_mbstrlen_with_len(ecb_state->pstate->p_sourcetext,
-                                     ecb_state->query_loc);
-    errposition(query_pos + geterrposition());
 }
 
 /*

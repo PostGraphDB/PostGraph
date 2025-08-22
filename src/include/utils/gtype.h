@@ -117,7 +117,6 @@ typedef enum
 #define GT_GIN_FLAG_HASHED 0x10 // OR'd into flag if value was hashed
 #define GT_GIN_MAX_LENGTH   125 // max length of text part before hashing
 
-/* Convenience macros */
 #define DATUM_GET_GTYPE_P(d) ((gtype *)PG_DETOAST_DATUM(d))
 #define GTYPE_P_GET_DATUM(p) PointerGetDatum(p)
 #define AG_GET_ARG_GTYPE_P(x) DATUM_GET_GTYPE_P(PG_GETARG_DATUM(x))

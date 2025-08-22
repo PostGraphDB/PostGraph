@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023-2024 PostGraphDB
+ * Copyright (C) 2023-2025 PostGraphDB
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -77,8 +77,49 @@ CREATE ();
 CREATE () RETURN 1 as a;
 
 CREATE ()-[]->()-[]->();
+CREATE ()-[]->()-[]->();
 MATCH  ()<-[]-()<-[]-() RETURN 1;
 MATCH  ()-[]->()-[]->() RETURN 1;
+
+
+EXPLAIN ANALYZE MATCH  (q)-[]->(q)-[]->() RETURN 1;
+MATCH  (q)-[]->(q)-[]->() RETURN 1;
+
+
+
+EXPLAIN ANALYZE
+MATCH (q)
+MATCH (q)-[]->()
+RETURN q;
+
+MATCH (q)
+MATCH (q)-[]->()
+RETURN q;
+
+EXPLAIN ANALYZE
+MATCH (q)
+MATCH ()-[]->(q)
+RETURN q;
+
+MATCH (q)
+MATCH ()-[]->(q)
+RETURN q;
+
+EXPLAIN ANALYZE
+MATCH (q)
+MATCH (b)-[]->()
+RETURN q;
+
+MATCH (q)
+MATCH (b)-[]->()
+RETURN q;
+
+EXPLAIN MATCH  (q)-[]->()<-[]-(q) RETURN 1;
+MATCH  (q)-[]->()<-[]-(q) RETURN 1;
+
+EXPLAIN ANALYZE MATCH  (q)<-[]-(q) RETURN 1;
+MATCH  (q)<-[]-(q) RETURN 1;
+
 EXPLAIN MATCH  ()-[]->()<-[]-() RETURN 1;
 EXPLAIN ANALYZE MATCH  ()-[]->()<-[]-() RETURN 1;
 MATCH  ()-[]->()<-[]-() RETURN 1;
@@ -86,6 +127,10 @@ MATCH  ()-[]->()<-[]-() RETURN 1;
 EXPLAIN MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
 EXPLAIN ANALYZE MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
 MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
+
+
+MATCH  ()-[*1]->()-[]->() RETURN 1;
+EXPLAIN ANALYZE MATCH  ()-[*1]->()-[]->() RETURN 1;
 
 SELECT * FROM cypher_create._adj__ag_label_vertex;
 MATCH (a) RETURN a;

@@ -55,6 +55,7 @@ OBJS = src/backend/postgraph.o \
        src/backend/utils/adt/gtype_funcs.o \
        src/backend/utils/adt/gtype_typecasting.o \
        src/backend/utils/adt/gtype_util.o \
+       src/backend/utils/adt/hashset.o \
        src/backend/utils/adt/cypher_funcs.o \
        src/backend/utils/adt/edge.o \
        src/backend/utils/adt/graphid.o \

@@ -49,6 +49,8 @@
 
 #include "access/vertex.h"
 #include "utils/ag_cache.h"
+#include "utils/hashset.h"
+
 
 #include "ltree.h"
 
@@ -111,6 +113,8 @@ typedef struct edge_search_cxt
 PG_FUNCTION_INFO_V1(edge_search);
 Datum edge_search(PG_FUNCTION_ARGS)
 { 
+	//ereport(WARNING, (errmsg("edge_search called with graphid %lu", AG_GETARG_GRAPHID(1))));
+	
 	FuncCallContext *funcctx;
 	if (SRF_IS_FIRSTCALL()) {
 		MemoryContext oldcontext;
@@ -175,9 +179,10 @@ Datum edge_search(PG_FUNCTION_ARGS)
 	values[1] = heap_getattr(heap_tuple, 2, RelationGetDescr(rel), &nulls[1]);
 	values[2] = heap_getattr(heap_tuple, 3, RelationGetDescr(rel), &nulls[2]);
 	values[3] = heap_getattr(heap_tuple, 4, RelationGetDescr(rel), &nulls[3]);
-
+	//ereport(WARNING, (errmsg("edge_search sending graphid %lu", DATUM_GET_GRAPHID(values[2]))));
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
 }
+/*
 // Node for the linked list to handle collisions (chaining)
 typedef struct HashSetNode {
     graphid key;
@@ -185,148 +190,14 @@ typedef struct HashSetNode {
 } HashSetNode;
 
 // The main Hash Set structure
-typedef struct HashSet {
+typedef struct HashSetValue {
     HashSetNode** buckets; // Array of pointers to HashSetNodes (the buckets)
     int capacity;          // The total number of buckets
     int size;              // The current number of elements in the set
-} HashSet;
+} HashSetValue;
+*/
 
 
-
-/**
- * @brief Creates a new HashSetNode.
- * @param key The graphid key for the new node.
- * @return A pointer to the newly created HashSetNode.
- */
-HashSetNode* createHashSetNode(graphid key) {
-    HashSetNode* newNode = (HashSetNode*)palloc(sizeof(HashSetNode));
-    newNode->key = key;
-    newNode->next = NULL;
-    return newNode;
-}
-
-/**
- * @brief Creates and initializes a new HashSet.
- * @param capacity The initial number of buckets for the hash set.
- * @return A pointer to the newly created HashSet, or NULL if capacity is invalid.
- */
-HashSet* createHashSet(int capacity) {
-    HashSet* set = (HashSet*)palloc(sizeof(HashSet));
-
-    set->capacity = capacity;
-    set->size = 0;
-    set->buckets = (HashSetNode**)palloc0(capacity * sizeof(HashSetNode*));
-
-    return set;
-}
-
-/**
- * @brief A simple hash function to map a key to a bucket index.
- * @param key The key to hash.
- * @param capacity The capacity of the hash set.
- * @return The calculated index for the key.
- */
-int hashFunction(graphid key, int capacity) {
-    return key % capacity;
-}
-
-/**
- * @brief Inserts a key into the hash set.
- * @param set A pointer to the HashSet.
- * @param key The key to insert.
- */
-void insert(HashSet* set, graphid key) {
-    if (set == NULL) return;
-
-    int index = hashFunction(key, set->capacity);
-    HashSetNode* currentNode = set->buckets[index];
-
-    while (currentNode != NULL) {
-        if (currentNode->key == key) {
-            return; 
-        }
-        currentNode = currentNode->next;
-    }
-
-    HashSetNode* newNode = createHashSetNode(key);
-    newNode->next = set->buckets[index];
-    set->buckets[index] = newNode;
-    set->size++;
-}
-
-/**
- * @brief Checks if a key exists in the hash set.
- * @param set A pointer to the HashSet.
- * @param key The key to search for.
- * @return true if the key is found, false otherwise.
- */
-bool contains(HashSet* set, graphid key) {
-    if (set == NULL) return false;
-
-    int index = hashFunction(key, set->capacity);
-    HashSetNode* currentNode = set->buckets[index];
-
-    while (currentNode != NULL) {
-        if (currentNode->key == key) {
-            return true;
-        }
-        currentNode = currentNode->next;
-    }
-
-    return false;
-}
-
-/**
- * @brief Removes a key from the hash set.
- * @param set A pointer to the HashSet.
- * @param key The key to remove.
- * @return true if the key was found and removed, false otherwise.
- */
-bool removeElement(HashSet* set, graphid key) {
-    if (set == NULL) return false;
-
-    int index = hashFunction(key, set->capacity);
-    HashSetNode* currentNode = set->buckets[index];
-    HashSetNode* prevNode = NULL;
-
-    while (currentNode != NULL) {
-        if (currentNode->key == key) {
-            if (prevNode == NULL) {
-                set->buckets[index] = currentNode->next;
-            } else {
-                prevNode->next = currentNode->next;
-            }
-            // Use the environment-specific free function
-            pfree(currentNode);
-            set->size--;
-            return true;
-        }
-        prevNode = currentNode;
-        currentNode = currentNode->next;
-    }
-
-    return false;
-}
-
-/**
- * @brief Frees all memory associated with the hash set.
- * @param set A pointer to the HashSet to destroy.
- */
-void destroyHashSet(HashSet* set) {
-    if (set == NULL) return;
-
-    for (int i = 0; i < set->capacity; i++) {
-        HashSetNode* currentNode = set->buckets[i];
-        while (currentNode != NULL) {
-            HashSetNode* temp = currentNode;
-            currentNode = currentNode->next;
-            // Use the environment-specific free function
-            pfree(temp);
-        }
-    }
-    pfree(set->buckets);
-    pfree(set);
-}
 
 
 typedef struct variable_edge_stack
@@ -349,9 +220,10 @@ typedef struct variable_edge_search_cxt
 	TupleTableSlot *slot;
 	int min;
 	Oid graph_oid;
-	HashSet *hashSet;
+	HashSetValue *hashSet;
 	variable_edge_stack *stack;
 	graph_stack_count *current_path;
+	variable_edge_stack *edge_stack;
 	int current_path_length;
 } variable_edge_search_cxt;
 
@@ -396,6 +268,12 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
         cxt->slot->tts_ops->materialize(cxt->slot);
 
 		bool isnull;
+		graphid edge_id = DATUM_GET_GRAPHID(
+			heap_getattr(
+				cxt->slot->tts_ops->get_heap_tuple(cxt->slot),
+				1,
+				RelationGetDescr(cxt->scan_desc->rs_rd),
+				&isnull));	
 		graphid new_id = DATUM_GET_GRAPHID(
 			heap_getattr(
 				cxt->slot->tts_ops->get_heap_tuple(cxt->slot),
@@ -403,9 +281,13 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
 				RelationGetDescr(cxt->scan_desc->rs_rd),
 				&isnull));
 
-        if (!contains(cxt->hashSet, new_id)) {
+		//ereport(WARNING, errmsg("trying to push %lu with edge id %lu", new_id, edge_id));
+        if (!contains(cxt->hashSet, edge_id)) {
+
+			//ereport(WARNING, errmsg("pushing %lu", new_id));
             cxt->current_path[cxt->current_path_length].count++;
 			variable_edge_stack_push(cxt->stack, new_id);
+			variable_edge_stack_push(cxt->edge_stack, edge_id);
         }
     }
     ReleaseTupleDesc(RelationGetDescr(cxt->rel));
@@ -416,6 +298,7 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
 PG_FUNCTION_INFO_V1(variable_edge_search);
 Datum variable_edge_search(PG_FUNCTION_ARGS)
 {
+	//ereport(WARNING, (errmsg("variable_edge_search called with graphid %lu and min %d", AG_GETARG_GRAPHID(1), GT_ARG_TO_INT4_DATUM(2))));
 	FuncCallContext *funcctx;
 	if (SRF_IS_FIRSTCALL()) {
 		MemoryContext oldcontext;
@@ -425,9 +308,10 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		tupdesc = CreateTemplateTupleDesc(2);
+		tupdesc = CreateTemplateTupleDesc(3);
 		TupleDescInitEntry(tupdesc, 1, "edges", VARIABLEEDGEOID, -1, 0);
 		TupleDescInitEntry(tupdesc, 2, "endid", GRAPHIDOID, -1, 0);
+		TupleDescInitEntry(tupdesc, 3, "hset", HASHSETOID, -1, 0);
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
@@ -440,11 +324,17 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 		cxt->stack->top = 0;
 		cxt->stack->capacity = 1024;
 
+		cxt->edge_stack = palloc0(sizeof(variable_edge_stack));
+		cxt->edge_stack->array = palloc0(sizeof(graphid) * (1024));
+		cxt->edge_stack->top = 0;
+		cxt->edge_stack->capacity = 1024;
+
+
 		cxt->current_path = palloc(sizeof(graph_stack_count) * (cxt->min + 1));
 		cxt->current_path_length = 0;
 
 		cxt->hashSet = createHashSet(1024);
-		insert(cxt->hashSet, GRAPHID_GET_DATUM(id));
+		//insert(cxt->hashSet, GRAPHID_GET_DATUM(id));
 		scan_and_push_neighbors(cxt, id);
 		funcctx->user_fctx = cxt;
 
@@ -455,29 +345,37 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 	
 	variable_edge_search_cxt *cxt = (variable_edge_search_cxt *) funcctx->user_fctx;
 
-	while (cxt->hashSet->size > 0) {
+	//while (cxt->hashSet->size > 0) {
+	while (cxt->stack->top > 0) {
 		graphid id;
+		graphid edge_id;
 
-
-		if(!variable_edge_stack_pop(cxt->stack, &id)){
-			//destroyHashSet(cxt->hashSet);
+		if(!variable_edge_stack_pop(cxt->stack, &id) || !variable_edge_stack_pop(cxt->edge_stack, &edge_id))
 			SRF_RETURN_DONE(funcctx);
-		}
 
 		cxt->current_path[++cxt->current_path_length].count = 0;
 		cxt->current_path[cxt->current_path_length].count = id;
 
 		
-		insert(cxt->hashSet, GRAPHID_GET_DATUM(id));
-	
-		if (cxt->hashSet->size == cxt->min + 1) {
-			Datum values[2];
-			bool nulls[2];
+		insert(cxt->hashSet, edge_id);
+		//ereport(WARNING, errmsg("cxt->hashSet->size %i, %lu", cxt->hashSet->size, id));
+		if (cxt->hashSet->size == cxt->min) {
+			Datum values[3];
+			bool nulls[3];
 			values[0] = NULL;
 			nulls[0] = true;
 			values[1] = GRAPHID_GET_DATUM(id);
 			nulls[1] = false;
-			removeElement(cxt->hashSet, id);
+
+			hashset *hset = palloc(sizeof(hashset) + getHashSetSize(cxt->hashSet));
+			hset->data_size = getHashSetSize(cxt->hashSet);
+			serializeHashSetToBuffer(cxt->hashSet, hset->data, getHashSetSize(cxt->hashSet));
+			SET_VARSIZE(hset, VARHDRSZ + sizeof(size_t) + hset->data_size);
+
+			values[2] = HASHSET_P_GET_DATUM(hset);
+			nulls[2] = false;
+			removeElement(cxt->hashSet, edge_id);
+		    //ereport(WARNING, errmsg("sending %lu", id));
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
 		} else {
 			scan_and_push_neighbors(cxt, id);
@@ -485,10 +383,11 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 
 		if (cxt->current_path[++cxt->current_path_length].count == 0) {
 			variable_edge_stack_pop(cxt->stack, &cxt->current_path[cxt->current_path_length--]);
-			removeElement(cxt->hashSet, id);
+			variable_edge_stack_pop(cxt->edge_stack, &edge_id);
+		 	removeElement(cxt->hashSet, edge_id);
 		}
 	}
-	//destroyHashSet(cxt->hashSet);
+	//destroyHashSetValue(cxt->hashSet);
 	SRF_RETURN_DONE(funcctx);
 
 

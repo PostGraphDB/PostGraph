@@ -6818,10 +6818,71 @@ CREATE AGGREGATE regr_r2(gtype, gtype) (
     parallel = SAFE
 );
 
+CREATE TYPE hashset;
 
+CREATE FUNCTION hashset_in(cstring) 
+RETURNS hashset 
+LANGUAGE c 
+IMMUTABLE 
+RETURNS NULL ON NULL INPUT 
+PARALLEL SAFE 
+AS 'MODULE_PATHNAME';
+
+CREATE FUNCTION hashset_out(hashset) 
+RETURNS cstring 
+LANGUAGE c 
+IMMUTABLE 
+RETURNS NULL ON NULL INPUT 
+PARALLEL SAFE 
+AS 'MODULE_PATHNAME';
+
+-- binary I/O functions
+CREATE FUNCTION hashset_send(hashset) 
+RETURNS bytea 
+LANGUAGE c 
+IMMUTABLE 
+RETURNS NULL ON NULL INPUT 
+PARALLEL SAFE 
+AS 'MODULE_PATHNAME';
+
+CREATE FUNCTION hashset_recv(internal) 
+RETURNS hashset 
+LANGUAGE c 
+IMMUTABLE 
+RETURNS NULL ON NULL INPUT 
+PARALLEL SAFE 
+AS 'MODULE_PATHNAME';
+
+CREATE TYPE hashset (
+    INPUT = hashset_in, 
+    OUTPUT = hashset_out, 
+    SEND = hashset_send, 
+    RECEIVE = hashset_recv, 
+    LIKE = jsonb,
+    STORAGE = extended
+);
+
+
+CREATE FUNCTION hashset_contains(hashset, graphid) 
+RETURNS boolean
+LANGUAGE c 
+IMMUTABLE 
+RETURNS NULL ON NULL INPUT 
+PARALLEL SAFE 
+AS 'MODULE_PATHNAME';
+
+CREATE OPERATOR @> (
+    FUNCTION = hashset_contains,
+    LEFTARG = hashset,
+    RIGHTARG = graphid--,
+    --COMMUTATOR = <@,
+    --NEGATOR = <> ,
+    --RESTRICT = edge_contains_restrict,
+    --JOIN = neqjoinsel
+);
 
 CREATE FUNCTION variable_edge_search(graph_oid gtype, id graphid, min gtype, max gtype)
-RETURNS TABLE  (edges variable_edge, endid graphid)
+RETURNS TABLE  (edges variable_edge, endid graphid, hset hashset)
 CALLED ON NULL INPUT
 STABLE
 PARALLEL SAFE

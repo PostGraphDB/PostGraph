@@ -35,7 +35,6 @@ typedef struct cypher_parsestate
     uint32 graph_oid;
     Param *params;
     int default_alias_num;
-    List *entities;
     List *property_constraint_quals;
     /*
      * To flag when an aggregate has been found in an expression during an
@@ -50,20 +49,12 @@ typedef struct cypher_parsestate
     Node *prop_name;
 } cypher_parsestate;
 
-typedef struct errpos_ecb_state
-{
-    ErrorContextCallback ecb;
-    ParseState *pstate; // ParseState of query that has subquery being parsed
-    int query_loc; // location of subquery starting from p_sourcetext
-} errpos_ecb_state;
+
 
 cypher_parsestate *make_cypher_parsestate(cypher_parsestate *parent_cpstate);
 void free_cypher_parsestate(cypher_parsestate *cpstate);
 #define get_parse_state(cpstate) ((ParseState *)(cpstate))
 
-void setup_errpos_ecb(errpos_ecb_state *ecb_state, ParseState *pstate,
-                      int query_loc);
-void cancel_errpos_ecb(errpos_ecb_state *ecb_state);
 char *get_next_default_alias(cypher_parsestate *cpstate);
 
 #endif

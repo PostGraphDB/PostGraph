@@ -1340,7 +1340,6 @@ analyze_cypher(List *stmt, ParseState *parent_pstate, const char *query_str, int
     // we don't want functions that go up the pstate parent chain to access the * original SQL query pstate.
     pstate->parentParseState = NULL;
     
-    // override p_sourcetext with query_str to make parser_errposition() work correctly with errpos_ecb()
     pstate->p_sourcetext = query_str;
 
     cpstate->graph_name = graph_name;
