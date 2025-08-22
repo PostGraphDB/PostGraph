@@ -45,7 +45,6 @@ OBJS = src/backend/postgraph.o \
        src/backend/parser/cypher_parse_agg.o \
        src/backend/parser/cypher_parse_node.o \
        src/backend/parser/cypher_parser.o \
-       src/backend/parser/cypher_transform_entity.o \
        src/backend/utils/adt/gtype.o \
        src/backend/utils/adt/gtype_ext.o \
        src/backend/utils/adt/gtype_gin.o \

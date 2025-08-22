@@ -1346,7 +1346,6 @@ analyze_cypher(List *stmt, ParseState *parent_pstate, const char *query_str, int
     cpstate->graph_oid = graph_oid;
     cpstate->params = params;
     cpstate->default_alias_num = 0;
-    cpstate->entities = NIL;
 
     Query *query = transform_cypher_clause(cpstate, clause);
 

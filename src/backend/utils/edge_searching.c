@@ -389,6 +389,4 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 	}
 	//destroyHashSetValue(cxt->hashSet);
 	SRF_RETURN_DONE(funcctx);
-
-
 }

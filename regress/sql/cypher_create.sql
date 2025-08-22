@@ -86,7 +86,6 @@ EXPLAIN ANALYZE MATCH  (q)-[]->(q)-[]->() RETURN 1;
 MATCH  (q)-[]->(q)-[]->() RETURN 1;
 
 
-
 EXPLAIN ANALYZE
 MATCH (q)
 MATCH (q)-[]->()

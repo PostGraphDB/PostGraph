@@ -38,7 +38,6 @@
 #include "parser/cypher_item.h"
 #include "parser/cypher_parse_node.h"
 
-static List *ExpandAllTables(ParseState *pstate, int location);
 static List *expand_rel_attrs(ParseState *pstate, RangeTblEntry *rte,
                               int rtindex, int sublevels_up, int location);
 
@@ -206,7 +205,7 @@ List *transform_cypher_item_list(cypher_parsestate *cpstate, List *item_list,
         /* clear the exprHasAgg flag to check transform for an aggregate */
         cpstate->exprHasAgg = false;
 
-       // if (item->name[0] == '_' && item->name[1] == '_')
+        //if (item->name[0] == '_' && item->name[1] == '_')
         //    continue;
         /* transform the item */
         te = transform_cypher_item(cpstate, item->val, NULL, expr_kind, item->name, false);
@@ -234,42 +233,6 @@ List *transform_cypher_item_list(cypher_parsestate *cpstate, List *item_list,
         *groupClause = group_clause;
 
     return target_list;
-}
-
-/*
- * From PG's ExpandAllTables()
- *     Transforms '*' (in the target list) into a list of targetlist entries.
- */
-static List *ExpandAllTables(ParseState *pstate, int location)
-{
-    List *target = NIL;
-    bool found_table = false;
-    ListCell *l;
-
-    foreach(l, pstate->p_namespace)
-    {
-        ParseNamespaceItem *nsitem = (ParseNamespaceItem *) lfirst(l);
-
-        /* Ignore table-only items */
-        if (!nsitem->p_cols_visible)
-            continue;
-        /* Should not have any lateral-only items when parsing targetlist */
-        Assert(!nsitem->p_lateral_only);
-        /* Remember we found a p_cols_visible item */
-        found_table = true;
-
-        target = list_concat(target, expand_rel_attrs(pstate, nsitem->p_rte,
-                                                      nsitem->p_rtindex,
-                                                      0, location));
-    }
-
-    /* Check for "RETURN *;" */
-    if (!found_table)
-        ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-                        errmsg("RETURN * without a pattern is not valid"),
-                        parser_errposition(pstate, location)));
-
-    return target;
 }
 
 /*

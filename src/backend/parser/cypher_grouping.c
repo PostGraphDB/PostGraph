@@ -41,7 +41,6 @@
 #include "parser/cypher_item.h"
 #include "parser/cypher_parse_agg.h"
 #include "parser/cypher_parse_node.h"
-#include "parser/cypher_transform_entity.h"
 #include "utils/ag_cache.h"
 #include "utils/ag_func.h"
 #include "utils/gtype.h"

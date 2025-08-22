@@ -57,7 +57,6 @@
 #include "parser/cypher_expr.h"
 #include "parser/cypher_item.h"
 #include "parser/cypher_parse_node.h"
-#include "parser/cypher_transform_entity.h"
 #include "utils/ag_func.h"
 #include "utils/gtype.h"
 #include "utils/gtype_typecasting.h"
@@ -1953,7 +1952,7 @@ transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
     ParseNamespaceItem *pnsi;
 
    if (list_length(cref->fields) == 1) {
-        transform_entity *te;
+        
         field1 = (Node*)linitial(cref->fields);
 
         Assert(IsA(field1, String));
@@ -1963,11 +1962,7 @@ transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
         if (node != NULL)
             return node;
 
-        te = find_variable(cpstate, colname) ;
-        if (te != NULL && te->expr != NULL) {
-            node = (Node *)te->expr;
-            return node;
-        } else {
+     {
             ParseNamespaceItem *nsitem = refnameNamespaceItem(pstate, NULL, colname, cref->location, &levels_up);
 
             if (nsitem) {
@@ -1988,7 +1983,7 @@ transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
    }
 
     Node *last_srf = pstate->p_last_srf;
-        transform_entity *te;
+       
         field1 = (Node*)linitial(cref->fields);
 
         Assert(IsA(field1, String));
@@ -1996,10 +1991,7 @@ transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
 
         node = colNameToVar(pstate, colname, false, cref->location);
         if (node == NULL){
-            te = find_variable(cpstate, colname) ;
-            if (te != NULL && te->expr != NULL) {
-                node = (Node *)te->expr;
-            } else {
+
                 ParseNamespaceItem *nsitem = refnameNamespaceItem(pstate, NULL, colname, cref->location, &levels_up);
 
                 if (nsitem) {
@@ -2009,7 +2001,7 @@ transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
                 ereport(ERROR, (errcode(ERRCODE_UNDEFINED_COLUMN),
                                 errmsg("could not find rte for %s", colname),
                                 parser_errposition(pstate, cref->location)));
-            }
+            
 
         }
         if (!node)
