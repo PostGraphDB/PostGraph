@@ -40,18 +40,11 @@
 #include "utils/ag_cache.h"
 #include "utils/traversal.h"
 
-/*
- * When executing the children of the CREATE, SET, REMOVE, and
- * DELETE clasues, we need to alter the command id in the estate
- * and the snapshot. That way we can hide the modified tuples from
- * the sub clauses that should not know what their parent clauses are
- * doing.
- */
-#define Increment_Estate_CommandId(estate) \
+#define AdvanceCmdId(estate) \
     estate->es_output_cid++; \
     estate->es_snapshot->curcid++;
 
-#define Decrement_Estate_CommandId(estate) \
+#define RollbackCmdId(estate) \
     estate->es_output_cid--; \
     estate->es_snapshot->curcid--;
 
@@ -71,22 +64,11 @@ typedef struct cypher_create_custom_scan_state
 
 static HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
                               TupleTableSlot *elemTupleSlot,
-                              EState *estate);
-static bool entity_exists(EState *estate, Oid graph_oid, graphid id);
+                              EState *estate);\
 static void begin_cypher_create(CustomScanState *node, EState *estate, int eflags);
 static TupleTableSlot *exec_cypher_create(CustomScanState *node);
 static void end_cypher_create(CustomScanState *node);
 static void rescan_cypher_create(CustomScanState *node);
-
-static void insert_edge(cypher_create_custom_scan_state *css,
-                        cypher_target_node *node, Datum prev_vertex_id,
-                        ListCell *next, List *list);
-
-static void insert_vertex(cypher_create_custom_scan_state *css,
-                           cypher_target_node *node, ListCell *next, List *list);
-
-static void process_pattern(cypher_create_custom_scan_state *css);
-
 
 const CustomExecMethods cypher_create_exec_methods = {CREATE_SCAN_STATE_NAME,
                                                       begin_cypher_create,
@@ -164,15 +146,13 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
 
     cypher_create_path *path = linitial(css->pattern);
 
-
-
     css->vertex_ids = palloc(sizeof(graphid *) * list_length(css->pattern));
     css->vertex_ids[0] = palloc(sizeof(graphid) * ((list_length(path->target_nodes)/ 2) + 1) );
 
     if (path->target_nodes) {
         css->edge_ids = palloc(sizeof(graphid *) * list_length(css->pattern));
-        css->edge_ids[0] = palloc(sizeof(graphid) * ((list_length(path->target_nodes)/ 2) ) );
-    }   
+        css->edge_ids[0] = palloc(sizeof(graphid) * ((list_length(path->target_nodes) / 2) ) );
+    }
 
     ListCell *lc1;
     int i = 0;
@@ -201,10 +181,8 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
         cypher_node->adj_resultRelInfo = makeNode(ResultRelInfo);
         InitResultRelInfo(cypher_node->adj_resultRelInfo, adj_rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
         
-        // Open all indexes for the relation
         ExecOpenIndices(cypher_node->adj_resultRelInfo, false);
     
-
         // Setup the relation's tuple slot
         cypher_node->adj_elemTupleSlot = table_slot_create(adj_rel, &estate->es_tupleTable); 
 
@@ -215,49 +193,7 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
     if (estate->es_output_cid == 0)
         estate->es_output_cid = estate->es_snapshot->curcid;
 
-    Increment_Estate_CommandId(estate);
-}
-
-/*
- * CREATE the vertices and edges for a CREATE clause pattern.
- */
-static void process_pattern(cypher_create_custom_scan_state *css)
-{
-    ListCell *lc2;
-
-    foreach (lc2, css->pattern)
-    {
-        cypher_create_path *path = lfirst(lc2);
-
-        ListCell *lc = list_head(path->target_nodes);
-
-        /*
-         * Create the first vertex. The create_vertex function will
-         * create the rest of the path, if necessary.
-         */
-        insert_vertex(css, lfirst(lc), lnext(path->target_nodes, lc), path->target_nodes);
-
-        /*
-         * If this path is a variable, take the list that was accumulated
-         * in the vertex/edge creation, create a path datum, and add to the
-         * scantuple slot.
-         */
-        if (path->path_attr_num != InvalidAttrNumber)
-        {
-            TupleTableSlot *scantuple;
-            PlanState *ps;
-            Datum result;
-
-            ps = css->css.ss.ps.lefttree;
-            scantuple = ps->ps_ExprContext->ecxt_scantuple;
-
-            result = create_traversal(css->path_values);
-            scantuple->tts_values[path->path_attr_num - 1] = result;
-            scantuple->tts_isnull[path->path_attr_num - 1] = false;
-        }
-
-        css->path_values = NIL;
-    }
+    AdvanceCmdId(estate);
 }
 
 static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
@@ -267,10 +203,11 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
     EState *estate = css->css.ss.ps.state;
     ExprContext *econtext = css->css.ss.ps.ps_ExprContext;
 
-    //TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
-    //econtext->ecxt_scantuple =
-      //      csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
+
+    RollbackCmdId(estate);
     TupleTableSlot *slot = ExecProcNode(csnode->ss.ps.lefttree);
+    AdvanceCmdId(estate);
+
     slot = csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
     slot->tts_ops->materialize(slot);
     if (list_length(css->pattern) != 1)
@@ -311,16 +248,25 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
         // get the next graphid for this vertex.
         elemTupleSlot->tts_values[0] = css->vertex_ids[0][i];
         elemTupleSlot->tts_isnull[0] = false;
+        if (node->id_attr_num != InvalidAttrNumber) {
+            slot->tts_values[node->id_attr_num - 1] = GRAPHID_GET_DATUM(css->vertex_ids[0][i]);
+            slot->tts_isnull[node->id_attr_num - 1] = false;
+        }
 
         // get the properties for this vertex
         if (node->prop_attr_num == InvalidAttrNumber) {
             elemTupleSlot->tts_values[1] = NULL;
             elemTupleSlot->tts_isnull[1] = true;
         } else {
-            //TupleTableSlot *scanTupleSlot = csnode->ss.ss_ScanTupleSlot;
-            //ereport(WARNING, errmsg("adsf %i", scanTupleSlot->tts_values[node->prop_attr_num]));
-            elemTupleSlot->tts_values[1] = slot->tts_values[node->prop_attr_num -  1];
+            elemTupleSlot->tts_values[1] = slot->tts_values[node->prop_attr_num - 1];
             elemTupleSlot->tts_isnull[1] = slot->tts_isnull[node->prop_attr_num - 1];
+        }
+
+        if (node->tuple_position != InvalidAttrNumber) {
+            create_vertex(
+                GRAPHID_GET_DATUM(slot->tts_values[node->id_attr_num - 1]),
+                css->graph_oid,
+                node->prop_attr_num == InvalidAttrNumber?  NULL: DATUM_GET_GTYPE_P(slot->tts_values[node->prop_attr_num -  1]));
         }
 
         // Insert the new vertex
@@ -341,7 +287,7 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
             elemTupleSlot->tts_values[1] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i : i + 1];
             elemTupleSlot->tts_isnull[1] = false;
             
-            elemTupleSlot->tts_values[2] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i+1 : i];
+            elemTupleSlot->tts_values[2] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i + 1 : i];
             elemTupleSlot->tts_isnull[2] = false;
 
 
@@ -350,8 +296,8 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
                 elemTupleSlot->tts_isnull[3] = true;
             } else {
                 //TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
-                elemTupleSlot->tts_values[3] = slot->tts_values[node->prop_attr_num];
-                elemTupleSlot->tts_isnull[3] = slot->tts_isnull[node->prop_attr_num];
+                elemTupleSlot->tts_values[3] = slot->tts_values[node->prop_attr_num - 1];
+                elemTupleSlot->tts_isnull[3] = slot->tts_isnull[node->prop_attr_num - 1];
             }
 
             // Insert the new vertex
@@ -430,52 +376,6 @@ Node *create_cypher_create_plan_state(CustomScan *cscan)
     return (Node *)cypher_css;
 }
 
-
-/*
- * Creates the vertex entity, returns the vertex's id in case the caller is
- * the create_edge function.
- */
-static void insert_vertex(cypher_create_custom_scan_state *css,
-                           cypher_target_node *node, ListCell *next, List *list)
-{
-    bool isNull;
-    Datum id;
-    EState *estate = css->css.ss.ps.state;
-    ExprContext *econtext = css->css.ss.ps.ps_ExprContext;
-    ResultRelInfo *resultRelInfo = node->resultRelInfo;
-    TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
-    TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
-
-    /*
-     * Vertices in a path might already exists. If they do get the id
-     * to pass to the edges before and after it. Otherwise, insert the
-     * new vertex into it's table and then pass the id along.
-     */
-    ResultRelInfo **old_estate_es_result_relations_info = NULL;
-
-    old_estate_es_result_relations_info = estate->es_result_relations;
-
-    estate->es_result_relations = &resultRelInfo;
-
-    ExecClearTuple(elemTupleSlot);
-
-    // get the next graphid for this vertex.
-    id = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
-    elemTupleSlot->tts_values[0] = id;
-    elemTupleSlot->tts_isnull[0] = isNull;
-
-    // get the properties for this vertex
-    elemTupleSlot->tts_values[1] = NULL;
-    elemTupleSlot->tts_isnull[1] = true;
-        
-    // Insert the new vertex
-    insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
-
-    /* restore the old result relation info */
-    estate->es_result_relations = old_estate_es_result_relations_info;
-}
-
-
 /*
  * Insert the edge/vertex tuple into the table and indices. Check that the
  * table's constraints have not been violated.
@@ -511,48 +411,3 @@ HeapTuple insert_entity_tuple(ResultRelInfo *resultRelInfo,
 
     return NULL;
 }
-
-
-/*
- * Find out if the entity still exists. This is for 'implicit' deletion
- * of an entity.
- */
-bool entity_exists(EState *estate, Oid graph_oid, graphid id)
-{
-    label_cache_data *label;
-    ScanKeyData scan_keys[1];
-    TableScanDesc scan_desc;
-    HeapTuple tuple;
-    Relation rel;
-    bool result = true;
-
-    /*
-     * Extract the label id from the graph id and get the table name
-     * the entity is part of.
-     */
-    label = search_label_graph_oid_cache(graph_oid, GET_LABEL_ID(id));
-
-    // Setup the scan key to be the graphid
-    ScanKeyInit(&scan_keys[0], 1, BTEqualStrategyNumber,
-                F_GRAPHIDEQ, GRAPHID_GET_DATUM(id));
-
-    rel = table_open(label->relation, RowExclusiveLock);
-    scan_desc = table_beginscan(rel, estate->es_snapshot, 1, scan_keys);
-
-    tuple = heap_getnext(scan_desc, ForwardScanDirection);
-
-    /*
-     * If a single tuple was returned, the tuple is still valid, otherwise'
-     * set to false.
-     */
-    if (!HeapTupleIsValid(tuple))
-    {
-        result = false;
-    }
-
-    table_endscan(scan_desc);
-    table_close(rel, RowExclusiveLock);
-
-    return result;
-}
-

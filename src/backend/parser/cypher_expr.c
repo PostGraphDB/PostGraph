@@ -85,44 +85,6 @@ static Node *transform_func_call(cypher_parsestate *cpstate, FuncCall *fn);
 static Node *transform_column_ref_for_indirection(cypher_parsestate *cpstate, ColumnRef *cr);
 static Node *transformSQLValueFunction(cypher_parsestate *cpstate, SQLValueFunction *svf);
 static List *make_qualified_function_name(cypher_parsestate *cpstate, List *lst, List *targs);
-static void unify_hypothetical_args(ParseState *pstate, List *fargs, int numAggregatedArgs,
-                                    Oid *actual_arg_types, Oid *declared_arg_types);
-
-
-typedef struct
-{
-        ParseState *pstate;
-        int                     min_varlevel;
-        int                     min_agglevel;
-        int                     sublevels_up;
-} check_agg_arguments_context;
-
-typedef struct
-{
-        ParseState *pstate;
-        Query      *qry;
-        bool            hasJoinRTEs;
-        List       *groupClauses;
-        List       *groupClauseCommonVars;
-        bool            have_non_var_grouping;
-        List      **func_grouped_rels;
-        int                     sublevels_up;
-        bool            in_agg_direct_args;
-} check_ungrouped_columns_context;
-static int      check_agg_arguments(ParseState *pstate, List *directargs, List *args, Expr *filter);
-static bool check_agg_arguments_walker(Node *node, check_agg_arguments_context *context);
-static void check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
-                                    List *groupClauses, List *groupClauseCommonVars,
-                                    bool have_non_var_grouping, List **func_grouped_rels);
-static bool check_ungrouped_columns_walker(Node *node, check_ungrouped_columns_context *context);
-static void finalize_grouping_exprs(Node *node, ParseState *pstate, Query *qry,
-                                    List *groupClauses, bool hasJoinRTEs,
-                                    bool have_non_var_grouping);
-static bool finalize_grouping_exprs_walker(Node *node, check_ungrouped_columns_context *context);
-static void check_agglevels_and_constraints(ParseState *pstate, Node *expr);
-static List *expand_groupingset_node(GroupingSet *gs);
-static Node *make_agg_arg(Oid argtype, Oid argcollation);
-
 
 static char *make_property_alias(char *var_name) {
     char *str = palloc(strlen(var_name) + 8);
@@ -146,18 +108,12 @@ static char *make_property_alias(char *var_name) {
 
 Node *
 transform_cypher_expr(cypher_parsestate *cpstate, Node *expr, ParseExprKind expr_kind) {
-    ParseState *pstate = (ParseState *)cpstate;
-    ParseExprKind old_expr_kind;
-    Node *result;
+    ParseExprKind old_expr_kind = get_parse_state(cpstate)->p_expr_kind;
+    get_parse_state(cpstate)->p_expr_kind = expr_kind;
 
-    // save and restore identity of expression type we're parsing
-    Assert(expr_kind != EXPR_KIND_NONE);
-    old_expr_kind = pstate->p_expr_kind;
-    pstate->p_expr_kind = expr_kind;
+    Node *result = transform_cypher_expr_recurse(cpstate, expr);
 
-    result = transform_cypher_expr_recurse(cpstate, expr);
-
-    pstate->p_expr_kind = old_expr_kind;
+    get_parse_state(cpstate)->p_expr_kind = old_expr_kind;
 
     return result;
 }
@@ -211,7 +167,7 @@ transform_cypher_expr_recurse(cypher_parsestate *cpstate, Node *expr) {
             return transform_cypher_bool_const(cpstate, (cypher_bool_const *)expr);
         if (is_ag_node(expr, cypher_inet_const))
             return transform_cypher_inet_const(cpstate, (cypher_inet_const *)expr);
-    if (is_ag_node(expr, cypher_integer_const))
+        if (is_ag_node(expr, cypher_integer_const))
             return transform_cypher_integer_const(cpstate, (cypher_integer_const *)expr);
         if (is_ag_node(expr, cypher_param))
             return transform_cypher_param(cpstate, (cypher_param *)expr);
@@ -245,1593 +201,6 @@ transform_cypher_expr_recurse(cypher_parsestate *cpstate, Node *expr) {
 
     return NULL;
 }
-
-/*
- * Aggregate functions and grouping operations (which are combined in the spec
- * as <set function specification>) are very similar with regard to level and
- * nesting restrictions (though we allow a lot more things than the spec does).
- * Centralise those restrictions here.
- */
-static void
-check_agglevels_and_constraints(ParseState *pstate, Node *expr)
-{
-    List       *directargs = NIL;
-    List       *args = NIL;
-    Expr       *filter = NULL;
-    int            min_varlevel;
-    int            location = -1;
-    Index       *p_levelsup;
-    const char *err;
-    bool        errkind;
-    bool        isAgg = IsA(expr, Aggref);
-
-    if (isAgg)
-    {
-        Aggref       *agg = (Aggref *) expr;
-
-        directargs = agg->aggdirectargs;
-        args = agg->args;
-        filter = agg->aggfilter;
-        location = agg->location;
-        p_levelsup = &agg->agglevelsup;
-    }
-    else
-    {
-        GroupingFunc *grp = (GroupingFunc *) expr;
-
-        args = grp->args;
-        location = grp->location;
-        p_levelsup = &grp->agglevelsup;
-    }
-
-    /*
-     * Check the arguments to compute the aggregate's level and detect
-     * improper nesting.
-     */
-    min_varlevel = check_agg_arguments(pstate,
-                                       directargs,
-                                       args,
-                                       filter);
-
-    *p_levelsup = min_varlevel;
-
-    /* Mark the correct pstate level as having aggregates */
-    while (min_varlevel-- > 0)
-        pstate = pstate->parentParseState;
-    pstate->p_hasAggs = true;
-
-    /*
-     * Check to see if the aggregate function is in an invalid place within
-     * its aggregation query.
-     *
-     * For brevity we support two schemes for reporting an error here: set
-     * "err" to a custom message, or set "errkind" true if the error context
-     * is sufficiently identified by what ParseExprKindName will return, *and*
-     * what it will return is just a SQL keyword.  (Otherwise, use a custom
-     * message to avoid creating translation problems.)
-     */
-    err = NULL;
-    errkind = false;
-    switch (pstate->p_expr_kind)
-    {
-        case EXPR_KIND_NONE:
-            Assert(false);        /* can't happen */
-            break;
-        case EXPR_KIND_OTHER:
-
-            /*
-             * Accept aggregate/grouping here; caller must throw error if
-             * wanted
-             */
-            break;
-        case EXPR_KIND_JOIN_ON:
-        case EXPR_KIND_JOIN_USING:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in JOIN conditions");
-            else
-                err = _("grouping operations are not allowed in JOIN conditions");
-
-            break;
-        case EXPR_KIND_FROM_SUBSELECT:
-            /* Should only be possible in a LATERAL subquery */
-            Assert(pstate->p_lateral_active);
-
-            /*
-             * Aggregate/grouping scope rules make it worth being explicit
-             * here
-             */
-            if (isAgg)
-                err = _("aggregate functions are not allowed in FROM clause of their own query level");
-            else
-                err = _("grouping operations are not allowed in FROM clause of their own query level");
-
-            break;
-        case EXPR_KIND_FROM_FUNCTION:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in functions in FROM");
-            else
-                err = _("grouping operations are not allowed in functions in FROM");
-
-            break;
-        case EXPR_KIND_WHERE:
-            errkind = true;
-            break;
-        case EXPR_KIND_POLICY:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in policy expressions");
-            else
-                err = _("grouping operations are not allowed in policy expressions");
-
-            break;
-        case EXPR_KIND_HAVING:
-            /* okay */
-            break;
-        case EXPR_KIND_FILTER:
-            errkind = true;
-            break;
-        case EXPR_KIND_WINDOW_PARTITION:
-            /* okay */
-            break;
-        case EXPR_KIND_WINDOW_ORDER:
-            /* okay */
-            break;
-        case EXPR_KIND_WINDOW_FRAME_RANGE:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in window RANGE");
-            else
-                err = _("grouping operations are not allowed in window RANGE");
-
-            break;
-        case EXPR_KIND_WINDOW_FRAME_ROWS:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in window ROWS");
-            else
-                err = _("grouping operations are not allowed in window ROWS");
-
-            break;
-        case EXPR_KIND_WINDOW_FRAME_GROUPS:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in window GROUPS");
-            else
-                err = _("grouping operations are not allowed in window GROUPS");
-
-            break;
-        case EXPR_KIND_SELECT_TARGET:
-            /* okay */
-            break;
-        case EXPR_KIND_INSERT_TARGET:
-        case EXPR_KIND_UPDATE_SOURCE:
-        case EXPR_KIND_UPDATE_TARGET:
-            errkind = true;
-            break;
-        case EXPR_KIND_GROUP_BY:
-            errkind = true;
-            break;
-        case EXPR_KIND_ORDER_BY:
-            /* okay */
-            break;
-        case EXPR_KIND_DISTINCT_ON:
-            /* okay */
-            break;
-        case EXPR_KIND_LIMIT:
-        case EXPR_KIND_OFFSET:
-            errkind = true;
-            break;
-        case EXPR_KIND_RETURNING:
-            errkind = true;
-            break;
-        case EXPR_KIND_VALUES:
-        case EXPR_KIND_VALUES_SINGLE:
-            errkind = true;
-            break;
-        case EXPR_KIND_CHECK_CONSTRAINT:
-        case EXPR_KIND_DOMAIN_CHECK:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in check constraints");
-            else
-                err = _("grouping operations are not allowed in check constraints");
-
-            break;
-        case EXPR_KIND_COLUMN_DEFAULT:
-        case EXPR_KIND_FUNCTION_DEFAULT:
-
-            if (isAgg)
-                err = _("aggregate functions are not allowed in DEFAULT expressions");
-            else
-                err = _("grouping operations are not allowed in DEFAULT expressions");
-
-            break;
-        case EXPR_KIND_INDEX_EXPRESSION:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in index expressions");
-            else
-                err = _("grouping operations are not allowed in index expressions");
-
-            break;
-        case EXPR_KIND_INDEX_PREDICATE:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in index predicates");
-            else
-                err = _("grouping operations are not allowed in index predicates");
-
-            break;
-        case EXPR_KIND_STATS_EXPRESSION:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in statistics expressions");
-            else
-                err = _("grouping operations are not allowed in statistics expressions");
-
-            break;
-        case EXPR_KIND_ALTER_COL_TRANSFORM:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in transform expressions");
-            else
-                err = _("grouping operations are not allowed in transform expressions");
-
-            break;
-        case EXPR_KIND_EXECUTE_PARAMETER:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in EXECUTE parameters");
-            else
-                err = _("grouping operations are not allowed in EXECUTE parameters");
-
-            break;
-        case EXPR_KIND_TRIGGER_WHEN:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in trigger WHEN conditions");
-            else
-                err = _("grouping operations are not allowed in trigger WHEN conditions");
-
-            break;
-        case EXPR_KIND_PARTITION_BOUND:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in partition bound");
-            else
-                err = _("grouping operations are not allowed in partition bound");
-
-            break;
-        case EXPR_KIND_PARTITION_EXPRESSION:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in partition key expressions");
-            else
-                err = _("grouping operations are not allowed in partition key expressions");
-
-            break;
-        case EXPR_KIND_GENERATED_COLUMN:
-
-            if (isAgg)
-                err = _("aggregate functions are not allowed in column generation expressions");
-            else
-                err = _("grouping operations are not allowed in column generation expressions");
-
-            break;
-
-        case EXPR_KIND_CALL_ARGUMENT:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in CALL arguments");
-            else
-                err = _("grouping operations are not allowed in CALL arguments");
-
-            break;
-
-        case EXPR_KIND_COPY_WHERE:
-            if (isAgg)
-                err = _("aggregate functions are not allowed in COPY FROM WHERE conditions");
-            else
-                err = _("grouping operations are not allowed in COPY FROM WHERE conditions");
-
-            break;
-
-        case EXPR_KIND_CYCLE_MARK:
-            errkind = true;
-            break;
-
-            /*
-             * There is intentionally no default: case here, so that the
-             * compiler will warn if we add a new ParseExprKind without
-             * extending this switch.  If we do see an unrecognized value at
-             * runtime, the behavior will be the same as for EXPR_KIND_OTHER,
-             * which is sane anyway.
-             */
-    }
-
-    if (err)
-        ereport(ERROR,
-                (errcode(ERRCODE_GROUPING_ERROR),
-                 errmsg_internal("%s", err),
-                 parser_errposition(pstate, location)));
-
-    if (errkind)
-    {
-        if (isAgg)
-            /* translator: %s is name of a SQL construct, eg GROUP BY */
-            err = _("aggregate functions are not allowed in %s");
-        else
-            /* translator: %s is name of a SQL construct, eg GROUP BY */
-            err = _("grouping operations are not allowed in %s");
-
-        ereport(ERROR,
-                (errcode(ERRCODE_GROUPING_ERROR),
-                 errmsg_internal(err,
-                                 ParseExprKindName(pstate->p_expr_kind)),
-                 parser_errposition(pstate, location)));
-    }
-}
-
-
-
-/*
- * check_agg_arguments
- *      Scan the arguments of an aggregate function to determine the
- *      aggregate's semantic level (zero is the current select's level,
- *      one is its parent, etc).
- *
- * The aggregate's level is the same as the level of the lowest-level variable
- * or aggregate in its aggregated arguments (including any ORDER BY columns)
- * or filter expression; or if it contains no variables at all, we presume it
- * to be local.
- *
- * Vars/Aggs in direct arguments are *not* counted towards determining the
- * agg's level, as those arguments aren't evaluated per-row but only
- * per-group, and so in some sense aren't really agg arguments.  However,
- * this can mean that we decide an agg is upper-level even when its direct
- * args contain lower-level Vars/Aggs, and that case has to be disallowed.
- * (This is a little strange, but the SQL standard seems pretty definite that
- * direct args are not to be considered when setting the agg's level.)
- *
- * We also take this opportunity to detect any aggregates or window functions
- * nested within the arguments.  We can throw error immediately if we find
- * a window function.  Aggregates are a bit trickier because it's only an
- * error if the inner aggregate is of the same semantic level as the outer,
- * which we can't know until we finish scanning the arguments.
- */
-static int
-check_agg_arguments(ParseState *pstate,
-                    List *directargs,
-                    List *args,
-                    Expr *filter)
-{
-    int            agglevel;
-    check_agg_arguments_context context;
-
-    context.pstate = pstate;
-    context.min_varlevel = -1;    /* signifies nothing found yet */
-    context.min_agglevel = -1;
-    context.sublevels_up = 0;
-
-    (void) check_agg_arguments_walker((Node *) args, &context);
-    (void) check_agg_arguments_walker((Node *) filter, &context);
-
-    /*
-     * If we found no vars nor aggs at all, it's a level-zero aggregate;
-     * otherwise, its level is the minimum of vars or aggs.
-     */
-    if (context.min_varlevel < 0)
-    {
-        if (context.min_agglevel < 0)
-            agglevel = 0;
-        else
-            agglevel = context.min_agglevel;
-    }
-    else if (context.min_agglevel < 0)
-        agglevel = context.min_varlevel;
-    else
-        agglevel = Min(context.min_varlevel, context.min_agglevel);
-
-    /*
-     * If there's a nested aggregate of the same semantic level, complain.
-     */
-    if (agglevel == context.min_agglevel)
-    {
-        int            aggloc;
-
-        aggloc = locate_agg_of_level((Node *) args, agglevel);
-        if (aggloc < 0)
-            aggloc = locate_agg_of_level((Node *) filter, agglevel);
-        ereport(ERROR,
-                (errcode(ERRCODE_GROUPING_ERROR),
-                 errmsg("aggregate function calls cannot be nested"),
-                 parser_errposition(pstate, aggloc)));
-    }
-
-    /*
-     * Now check for vars/aggs in the direct arguments, and throw error if
-     * needed.  Note that we allow a Var of the agg's semantic level, but not
-     * an Agg of that level.  In principle such Aggs could probably be
-     * supported, but it would create an ordering dependency among the
-     * aggregates at execution time.  Since the case appears neither to be
-     * required by spec nor particularly useful, we just treat it as a
-     * nested-aggregate situation.
-     */
-    if (directargs)
-    {
-        context.min_varlevel = -1;
-        context.min_agglevel = -1;
-        (void) check_agg_arguments_walker((Node *) directargs, &context);
-        if (context.min_varlevel >= 0 && context.min_varlevel < agglevel)
-            ereport(ERROR,
-                    (errcode(ERRCODE_GROUPING_ERROR),
-                     errmsg("outer-level aggregate cannot contain a lower-level variable in its direct arguments"),
-                     parser_errposition(pstate,
-                                        locate_var_of_level((Node *) directargs,
-                                                            context.min_varlevel))));
-        if (context.min_agglevel >= 0 && context.min_agglevel <= agglevel)
-            ereport(ERROR,
-                    (errcode(ERRCODE_GROUPING_ERROR),
-                     errmsg("aggregate function calls cannot be nested"),
-                     parser_errposition(pstate,
-                                        locate_agg_of_level((Node *) directargs,
-                                                            context.min_agglevel))));
-    }
-    return agglevel;
-}
-
-static bool
-check_agg_arguments_walker(Node *node,
-                           check_agg_arguments_context *context)
-{
-    if (node == NULL)
-        return false;
-    if (IsA(node, Var))
-    {
-        int            varlevelsup = ((Var *) node)->varlevelsup;
-
-        /* convert levelsup to frame of reference of original query */
-        varlevelsup -= context->sublevels_up;
-        /* ignore local vars of subqueries */
-        if (varlevelsup >= 0)
-        {
-            if (context->min_varlevel < 0 ||
-                context->min_varlevel > varlevelsup)
-                context->min_varlevel = varlevelsup;
-        }
-        return false;
-    }
-    if (IsA(node, Aggref))
-    {
-        int            agglevelsup = ((Aggref *) node)->agglevelsup;
-
-        /* convert levelsup to frame of reference of original query */
-        agglevelsup -= context->sublevels_up;
-        /* ignore local aggs of subqueries */
-        if (agglevelsup >= 0)
-        {
-            if (context->min_agglevel < 0 ||
-                context->min_agglevel > agglevelsup)
-                context->min_agglevel = agglevelsup;
-        }
-        /* Continue and descend into subtree */
-    }
-    if (IsA(node, GroupingFunc))
-    {
-        int            agglevelsup = ((GroupingFunc *) node)->agglevelsup;
-
-        /* convert levelsup to frame of reference of original query */
-        agglevelsup -= context->sublevels_up;
-        /* ignore local aggs of subqueries */
-        if (agglevelsup >= 0)
-        {
-            if (context->min_agglevel < 0 ||
-                context->min_agglevel > agglevelsup)
-                context->min_agglevel = agglevelsup;
-        }
-        /* Continue and descend into subtree */
-    }
-
-    /*
-     * SRFs and window functions can be rejected immediately, unless we are
-     * within a sub-select within the aggregate's arguments; in that case
-     * they're OK.
-     */
-    if (context->sublevels_up == 0)
-    {
-        if ((IsA(node, FuncExpr) && ((FuncExpr *) node)->funcretset) ||
-            (IsA(node, OpExpr) && ((OpExpr *) node)->opretset))
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("aggregate function calls cannot contain set-returning function calls"),
-                     errhint("You might be able to move the set-returning function into a LATERAL FROM item."),
-                     parser_errposition(context->pstate, exprLocation(node))));
-        if (IsA(node, WindowFunc))
-            ereport(ERROR,
-                    (errcode(ERRCODE_GROUPING_ERROR),
-                     errmsg("aggregate function calls cannot contain window function calls"),
-                     parser_errposition(context->pstate,
-                                        ((WindowFunc *) node)->location)));
-    }
-    if (IsA(node, Query))
-    {
-        /* Recurse into subselects */
-        bool        result;
-
-        context->sublevels_up++;
-        result = query_tree_walker((Query *) node,
-                                   check_agg_arguments_walker,
-                                   (void *) context,
-                                   0);
-        context->sublevels_up--;
-        return result;
-    }
-
-    return expression_tree_walker(node,
-                                  check_agg_arguments_walker,
-                                  (void *) context);
-}
-
-/*
- * transformAggregateCall -
- *        Finish initial transformation of an aggregate call
- *
- * parse_func.c has recognized the function as an aggregate, and has set up
- * all the fields of the Aggref except aggargtypes, aggdirectargs, args,
- * aggorder, aggdistinct and agglevelsup.  The passed-in args list has been
- * through standard expression transformation and type coercion to match the
- * agg's declared arg types, while the passed-in aggorder list hasn't been
- * transformed at all.
- *
- * Here we separate the args list into direct and aggregated args, storing the
- * former in agg->aggdirectargs and the latter in agg->args.  The regular
- * args, but not the direct args, are converted into a targetlist by inserting
- * TargetEntry nodes.  We then transform the aggorder and agg_distinct
- * specifications to produce lists of SortGroupClause nodes for agg->aggorder
- * and agg->aggdistinct.  (For a regular aggregate, this might result in
- * adding resjunk expressions to the targetlist; but for ordered-set
- * aggregates the aggorder list will always be one-to-one with the aggregated
- * args.)
- *
- * We must also determine which query level the aggregate actually belongs to,
- * set agglevelsup accordingly, and mark p_hasAggs true in the corresponding
- * pstate level.
- */
-void
-transform_aggregate_call(ParseState *pstate, Aggref *agg,
-                       List *args, List *aggorder, bool agg_distinct)
-{
-    List       *argtypes = NIL;
-    List       *tlist = NIL;
-    List       *torder = NIL;
-    List       *tdistinct = NIL;
-    AttrNumber    attno = 1;
-    int            save_next_resno;
-    ListCell   *lc;
-
-    if (AGGKIND_IS_ORDERED_SET(agg->aggkind))
-    {
-        /*
-         * For an ordered-set agg, the args list includes direct args and
-         * aggregated args; we must split them apart.
-         */
-        int            numDirectArgs = list_length(args) - list_length(aggorder);
-        List       *aargs;
-        ListCell   *lc2;
-
-        Assert(numDirectArgs >= 0);
-
-        aargs = list_copy_tail(args, numDirectArgs);
-        agg->aggdirectargs = list_truncate(args, numDirectArgs);
-
-        /*
-         * Build a tlist from the aggregated args, and make a sortlist entry
-         * for each one.  Note that the expressions in the SortBy nodes are
-         * ignored (they are the raw versions of the transformed args); we are
-         * just looking at the sort information in the SortBy nodes.
-         */
-        forboth(lc, aargs, lc2, aggorder)
-        {
-            Expr       *arg = (Expr *) lfirst(lc);
-            SortBy       *sortby = (SortBy *) lfirst(lc2);
-            TargetEntry *tle;
-
-            /* We don't bother to assign column names to the entries */
-            tle = makeTargetEntry(arg, attno++, NULL, false);
-            tlist = lappend(tlist, tle);
-
-            torder = addTargetToSortList(pstate, tle,
-                                         torder, tlist, sortby);
-        }
-
-        /* Never any DISTINCT in an ordered-set agg */
-        Assert(!agg_distinct);
-    }
-    else
-    {
-        /* Regular aggregate, so it has no direct args */
-        agg->aggdirectargs = NIL;
-
-        /*
-         * Transform the plain list of Exprs into a targetlist.
-         */
-        foreach(lc, args)
-        {
-            Expr       *arg = (Expr *) lfirst(lc);
-            TargetEntry *tle;
-
-            /* We don't bother to assign column names to the entries */
-            tle = makeTargetEntry(arg, attno++, NULL, false);
-            tlist = lappend(tlist, tle);
-        }
-
-        /*
-         * If we have an ORDER BY, transform it.  This will add columns to the
-         * tlist if they appear in ORDER BY but weren't already in the arg
-         * list.  They will be marked resjunk = true so we can tell them apart
-         * from regular aggregate arguments later.
-         *
-         * We need to mess with p_next_resno since it will be used to number
-         * any new targetlist entries.
-         */
-        save_next_resno = pstate->p_next_resno;
-        pstate->p_next_resno = attno;
-
-        torder = transform_cypher_order_by(pstate,
-                                     aggorder,
-                                     &tlist,
-                                     EXPR_KIND_ORDER_BY,
-                                     true /* force SQL99 rules */ );
-
-        /*
-         * If we have DISTINCT, transform that to produce a distinctList.
-         */
-        if (agg_distinct)
-        {
-            tdistinct = transformDistinctClause(pstate, &tlist, torder, true);
-
-            /*
-             * Remove this check if executor support for hashed distinct for
-             * aggregates is ever added.
-             */
-            foreach(lc, tdistinct)
-            {
-                SortGroupClause *sortcl = (SortGroupClause *) lfirst(lc);
-
-                if (!OidIsValid(sortcl->sortop))
-                {
-                    Node       *expr = get_sortgroupclause_expr(sortcl, tlist);
-
-                    ereport(ERROR,
-                            (errcode(ERRCODE_UNDEFINED_FUNCTION),
-                             errmsg("could not identify an ordering operator for type %s",
-                                    format_type_be(exprType(expr))),
-                             errdetail("Aggregates with DISTINCT must be able to sort their inputs."),
-                             parser_errposition(pstate, exprLocation(expr))));
-                }
-            }
-        }
-
-        pstate->p_next_resno = save_next_resno;
-    }
-
-    /* Update the Aggref with the transformation results */
-    agg->args = tlist;
-    agg->aggorder = torder;
-    agg->aggdistinct = tdistinct;
-
-    /*
-     * Now build the aggargtypes list with the type OIDs of the direct and
-     * aggregated args, ignoring any resjunk entries that might have been
-     * added by ORDER BY/DISTINCT processing.  We can't do this earlier
-     * because said processing can modify some args' data types, in particular
-     * by resolving previously-unresolved "unknown" literals.
-     */
-    foreach(lc, agg->aggdirectargs)
-    {
-        Expr       *arg = (Expr *) lfirst(lc);
-
-        argtypes = lappend_oid(argtypes, exprType((Node *) arg));
-    }
-    foreach(lc, tlist)
-    {
-        TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-        if (tle->resjunk)
-            continue;            /* ignore junk */
-        argtypes = lappend_oid(argtypes, exprType((Node *) tle->expr));
-    }
-    agg->aggargtypes = argtypes;
-
-    check_agglevels_and_constraints(pstate, (Node *) agg);
-}
-
-/*
- * transformGroupingFunc
- *        Transform a GROUPING expression
- *
- * GROUPING() behaves very like an aggregate.  Processing of levels and nesting
- * is done as for aggregates.  We set p_hasAggs for these expressions too.
- */
-Node *
-transformGroupingFunc(ParseState *pstate, GroupingFunc *p)
-{
-    ListCell   *lc;
-    List       *args = p->args;
-    List       *result_list = NIL;
-    GroupingFunc *result = makeNode(GroupingFunc);
-
-    if (list_length(args) > 31)
-        ereport(ERROR,
-                (errcode(ERRCODE_TOO_MANY_ARGUMENTS),
-                 errmsg("GROUPING must have fewer than 32 arguments"),
-                 parser_errposition(pstate, p->location)));
-
-    foreach(lc, args)
-    {
-        Node       *current_result;
-
-        current_result = sql_transform_expr(pstate, (Node *) lfirst(lc), pstate->p_expr_kind);
-
-        /* acceptability of expressions is checked later */
-
-        result_list = lappend(result_list, current_result);
-    }
-
-    result->args = result_list;
-    result->location = p->location;
-
-    check_agglevels_and_constraints(pstate, (Node *) result);
-
-    return (Node *) result;
-}
-
-/*
- *    Parse a function call
- *
- *    For historical reasons, Postgres tries to treat the notations tab.col
- *    and col(tab) as equivalent: if a single-argument function call has an
- *    argument of complex type and the (unqualified) function name matches
- *    any attribute of the type, we can interpret it as a column projection.
- *    Conversely a function of a single complex-type argument can be written
- *    like a column reference, allowing functions to act like computed columns.
- *
- *    If both interpretations are possible, we prefer the one matching the
- *    syntactic form, but otherwise the form does not matter.
- *
- *    Hence, both cases come through here.  If fn is null, we're dealing with
- *    column syntax not function syntax.  In the function-syntax case,
- *    the FuncCall struct is needed to carry various decoration that applies
- *    to aggregate and window functions.
- *
- *    Also, when fn is null, we return NULL on failure rather than
- *    reporting a no-such-function error.
- *
- *    The argument expressions (in fargs) must have been transformed
- *    already.  However, nothing in *fn has been transformed.
- *
- *    last_srf should be a copy of pstate->p_last_srf from just before we
- *    started transforming fargs.  If the caller knows that fargs couldn't
- *    contain any SRF calls, last_srf can just be pstate->p_last_srf.
- *
- *    proc_call is true if we are considering a CALL statement, so that the
- *    name must resolve to a procedure name, not anything else.  This flag
- *    also specifies that the argument list includes any OUT-mode arguments.
- */
-Node *
-parse_func_or_column(ParseState *pstate, List *funcname, List *fargs,
-                     Node *last_srf, FuncCall *fn, bool proc_call, int location)
-{
-    bool        is_column = (fn == NULL);
-    List       *agg_order = (fn ? fn->agg_order : NIL);
-    Expr       *agg_filter = NULL;
-    WindowDef  *over = (fn ? fn->over : NULL);
-    bool        agg_within_group = (fn ? fn->agg_within_group : false);
-    bool        agg_star = (fn ? fn->agg_star : false);
-    bool        agg_distinct = (fn ? fn->agg_distinct : false);
-    bool        func_variadic = (fn ? fn->func_variadic : false);
-    CoercionForm funcformat = (fn ? fn->funcformat : COERCE_EXPLICIT_CALL);
-    bool        could_be_projection;
-    Oid            rettype;
-    Oid            funcid;
-    ListCell   *l;
-    Node       *first_arg = NULL;
-    int            nargs;
-    int            nargsplusdefs;
-    Oid            actual_arg_types[FUNC_MAX_ARGS];
-    Oid           *declared_arg_types;
-    List       *argnames;
-    List       *argdefaults;
-    Node       *retval;
-    bool        retset;
-    int            nvargs;
-    Oid            vatype;
-    FuncDetailCode fdresult;
-    char        aggkind = 0;
-    ParseCallbackState pcbstate;
-
-    /*
-     * If there's an aggregate filter, transform it using sql_transform_where_clause
-     */
-    if (fn && fn->agg_filter != NULL)
-        agg_filter = (Expr *) transform_cypher_expr(pstate, fn->agg_filter, EXPR_KIND_FILTER);
-//        agg_filter = (Expr *) sql_transform_where_clause(pstate, fn->agg_filter, EXPR_KIND_FILTER, "FILTER");
-
-    /*
-     * Most of the rest of the parser just assumes that functions do not have
-     * more than FUNC_MAX_ARGS parameters.  We have to test here to protect
-     * against array overruns, etc.  Of course, this may not be a function,
-     * but the test doesn't hurt.
-     */
-    if (list_length(fargs) > FUNC_MAX_ARGS)
-        ereport(ERROR,
-                (errcode(ERRCODE_TOO_MANY_ARGUMENTS),
-                 errmsg_plural("cannot pass more than %d argument to a function",
-                               "cannot pass more than %d arguments to a function",
-                               FUNC_MAX_ARGS,
-                               FUNC_MAX_ARGS),
-                 parser_errposition(pstate, location)));
-
-    /*
-     * Extract arg type info in preparation for function lookup.
-     *
-     * If any arguments are Param markers of type VOID, we discard them from
-     * the parameter list. This is a hack to allow the JDBC driver to not have
-     * to distinguish "input" and "output" parameter symbols while parsing
-     * function-call constructs.  Don't do this if dealing with column syntax,
-     * nor if we had WITHIN GROUP (because in that case it's critical to keep
-     * the argument count unchanged).
-     */
-    nargs = 0;
-    foreach(l, fargs)
-    {
-        Node       *arg = lfirst(l);
-        Oid            argtype = exprType(arg);
-
-        if (argtype == VOIDOID && IsA(arg, Param) &&
-            !is_column && !agg_within_group)
-        {
-            fargs = foreach_delete_current(fargs, l);
-            continue;
-        }
-
-        actual_arg_types[nargs++] = argtype;
-    }
-
-    /*
-     * Check for named arguments; if there are any, build a list of names.
-     *
-     * We allow mixed notation (some named and some not), but only with all
-     * the named parameters after all the unnamed ones.  So the name list
-     * corresponds to the last N actual parameters and we don't need any extra
-     * bookkeeping to match things up.
-     */
-    argnames = NIL;
-    foreach(l, fargs)
-    {
-        Node       *arg = lfirst(l);
-
-        if (IsA(arg, NamedArgExpr))
-        {
-            NamedArgExpr *na = (NamedArgExpr *) arg;
-            ListCell   *lc;
-
-            /* Reject duplicate arg names */
-            foreach(lc, argnames)
-            {
-                if (strcmp(na->name, (char *) lfirst(lc)) == 0)
-                    ereport(ERROR,
-                            (errcode(ERRCODE_SYNTAX_ERROR),
-                             errmsg("argument name \"%s\" used more than once",
-                                    na->name),
-                             parser_errposition(pstate, na->location)));
-            }
-            argnames = lappend(argnames, na->name);
-        }
-        else
-        {
-            if (argnames != NIL)
-                ereport(ERROR,
-                        (errcode(ERRCODE_SYNTAX_ERROR),
-                         errmsg("positional argument cannot follow named argument"),
-                         parser_errposition(pstate, exprLocation(arg))));
-        }
-    }
-
-    if (fargs)
-    {
-        first_arg = linitial(fargs);
-        Assert(first_arg != NULL);
-    }
-
-    /*
-     * Decide whether it's legitimate to consider the construct to be a column
-     * projection.  For that, there has to be a single argument of complex
-     * type, the function name must not be qualified, and there cannot be any
-     * syntactic decoration that'd require it to be a function (such as
-     * aggregate or variadic decoration, or named arguments).
-     */
-    could_be_projection = (nargs == 1 && !proc_call &&
-                           agg_order == NIL && agg_filter == NULL &&
-                           !agg_star && !agg_distinct && over == NULL &&
-                           !func_variadic && argnames == NIL &&
-                           list_length(funcname) == 1 &&
-                           (actual_arg_types[0] == RECORDOID ||
-                            ISCOMPLEX(actual_arg_types[0])));
-
-    /*
-     * If it's column syntax, check for column projection case first.
-     */
-    if (could_be_projection && is_column)
-    {
-                ereport(ERROR,
-                        (errcode(ERRCODE_SYNTAX_ERROR),
-                         errmsg("ParseComplexProjection not Implemented")));
-/*
-        retval = ParseComplexProjection(pstate,
-                                        strVal(linitial(funcname)),
-                                        first_arg,
-                                        location);
-        if (retval)
-            return retval;
-*/
-        /*
-         * If ParseComplexProjection doesn't recognize it as a projection,
-         * just press on.
-         */
-    }
-
-    /*
-     * func_get_detail looks up the function in the catalogs, does
-     * disambiguation for polymorphic functions, handles inheritance, and
-     * returns the funcid and type and set or singleton status of the
-     * function's return value.  It also returns the true argument types to
-     * the function.
-     *
-     * Note: for a named-notation or variadic function call, the reported
-     * "true" types aren't really what is in pg_proc: the types are reordered
-     * to match the given argument order of named arguments, and a variadic
-     * argument is replaced by a suitable number of copies of its element
-     * type.  We'll fix up the variadic case below.  We may also have to deal
-     * with default arguments.
-     */
-
-    setup_parser_errposition_callback(&pcbstate, pstate, location);
-
-    fdresult = func_get_detail(funcname, fargs, argnames, nargs,
-                               actual_arg_types,
-                               !func_variadic, true, proc_call,
-                               &funcid, &rettype, &retset,
-                               &nvargs, &vatype,
-                               &declared_arg_types, &argdefaults);
-
-    cancel_parser_errposition_callback(&pcbstate);
-
-    /*
-     * Check for various wrong-kind-of-routine cases.
-     */
-
-    /* If this is a CALL, reject things that aren't procedures */
-    if (proc_call &&
-        (fdresult == FUNCDETAIL_NORMAL ||
-         fdresult == FUNCDETAIL_AGGREGATE ||
-         fdresult == FUNCDETAIL_WINDOWFUNC ||
-         fdresult == FUNCDETAIL_COERCION))
-        ereport(ERROR,
-                (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                 errmsg("%s is not a procedure",
-                        func_signature_string(funcname, nargs,
-                                              argnames,
-                                              actual_arg_types)),
-                 errhint("To call a function, use SELECT."),
-                 parser_errposition(pstate, location)));
-    /* Conversely, if not a CALL, reject procedures */
-    if (fdresult == FUNCDETAIL_PROCEDURE && !proc_call)
-        ereport(ERROR,
-                (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                 errmsg("%s is a procedure",
-                        func_signature_string(funcname, nargs,
-                                              argnames,
-                                              actual_arg_types)),
-                 errhint("To call a procedure, use CALL."),
-                 parser_errposition(pstate, location)));
-
-    if (fdresult == FUNCDETAIL_NORMAL ||
-        fdresult == FUNCDETAIL_PROCEDURE ||
-        fdresult == FUNCDETAIL_COERCION)
-    {
-        /*
-         * In these cases, complain if there was anything indicating it must
-         * be an aggregate or window function.
-         */
-        if (agg_star)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("%s(*) specified, but %s is not an aggregate function",
-                            NameListToString(funcname),
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-        if (agg_distinct)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("DISTINCT specified, but %s is not an aggregate function",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-        if (agg_within_group)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("WITHIN GROUP specified, but %s is not an aggregate function",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-        if (agg_order != NIL)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("ORDER BY specified, but %s is not an aggregate function",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-        if (agg_filter)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("FILTER specified, but %s is not an aggregate function",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-        if (over)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("OVER specified, but %s is not a window function nor an aggregate function",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-    }
-
-    /*
-     * So far so good, so do some fdresult-type-specific processing.
-     */
-    if (fdresult == FUNCDETAIL_NORMAL || fdresult == FUNCDETAIL_PROCEDURE)
-    {
-        /* Nothing special to do for these cases. */
-    }
-    else if (fdresult == FUNCDETAIL_AGGREGATE)
-    {
-        /*
-         * It's an aggregate; fetch needed info from the pg_aggregate entry.
-         */
-        HeapTuple    tup;
-        Form_pg_aggregate classForm;
-        int            catDirectArgs;
-
-        tup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
-        if (!HeapTupleIsValid(tup)) /* should not happen */
-            elog(ERROR, "cache lookup failed for aggregate %u", funcid);
-        classForm = (Form_pg_aggregate) GETSTRUCT(tup);
-        aggkind = classForm->aggkind;
-        catDirectArgs = classForm->aggnumdirectargs;
-        ReleaseSysCache(tup);
-
-        /* Now check various disallowed cases. */
-        if (AGGKIND_IS_ORDERED_SET(aggkind))
-        {
-            int            numAggregatedArgs;
-            int            numDirectArgs;
-
-            if (!agg_within_group)
-                ereport(ERROR,
-                        (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                         errmsg("WITHIN GROUP is required for ordered-set aggregate %s",
-                                NameListToString(funcname)),
-                         parser_errposition(pstate, location)));
-            if (over)
-                ereport(ERROR,
-                        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                         errmsg("OVER is not supported for ordered-set aggregate %s",
-                                NameListToString(funcname)),
-                         parser_errposition(pstate, location)));
-            /* gram.y rejects DISTINCT + WITHIN GROUP */
-            Assert(!agg_distinct);
-            /* gram.y rejects VARIADIC + WITHIN GROUP */
-            Assert(!func_variadic);
-
-            /*
-             * Since func_get_detail was working with an undifferentiated list
-             * of arguments, it might have selected an aggregate that doesn't
-             * really match because it requires a different division of direct
-             * and aggregated arguments.  Check that the number of direct
-             * arguments is actually OK; if not, throw an "undefined function"
-             * error, similarly to the case where a misplaced ORDER BY is used
-             * in a regular aggregate call.
-             */
-            numAggregatedArgs = list_length(agg_order);
-            numDirectArgs = nargs - numAggregatedArgs;
-            Assert(numDirectArgs >= 0);
-
-            if (!OidIsValid(vatype))
-            {
-                /* Test is simple if aggregate isn't variadic */
-                if (numDirectArgs != catDirectArgs)
-                    ereport(ERROR,
-                            (errcode(ERRCODE_UNDEFINED_FUNCTION),
-                             errmsg("function %s does not exist",
-                                    func_signature_string(funcname, nargs,
-                                                          argnames,
-                                                          actual_arg_types)),
-                             errhint_plural("There is an ordered-set aggregate %s, but it requires %d direct argument, not %d.",
-                                            "There is an ordered-set aggregate %s, but it requires %d direct arguments, not %d.",
-                                            catDirectArgs,
-                                            NameListToString(funcname),
-                                            catDirectArgs, numDirectArgs),
-                             parser_errposition(pstate, location)));
-            }
-            else
-            {
-                /*
-                 * If it's variadic, we have two cases depending on whether
-                 * the agg was "... ORDER BY VARIADIC" or "..., VARIADIC ORDER
-                 * BY VARIADIC".  It's the latter if catDirectArgs equals
-                 * pronargs; to save a catalog lookup, we reverse-engineer
-                 * pronargs from the info we got from func_get_detail.
-                 */
-                int            pronargs;
-
-                pronargs = nargs;
-                if (nvargs > 1)
-                    pronargs -= nvargs - 1;
-                if (catDirectArgs < pronargs)
-                {
-                    /* VARIADIC isn't part of direct args, so still easy */
-                    if (numDirectArgs != catDirectArgs)
-                        ereport(ERROR,
-                                (errcode(ERRCODE_UNDEFINED_FUNCTION),
-                                 errmsg("function %s does not exist",
-                                        func_signature_string(funcname, nargs,
-                                                              argnames,
-                                                              actual_arg_types)),
-                                 errhint_plural("There is an ordered-set aggregate %s, but it requires %d direct argument, not %d.",
-                                                "There is an ordered-set aggregate %s, but it requires %d direct arguments, not %d.",
-                                                catDirectArgs,
-                                                NameListToString(funcname),
-                                                catDirectArgs, numDirectArgs),
-                                 parser_errposition(pstate, location)));
-                }
-                else
-                {
-                    /*
-                     * Both direct and aggregated args were declared variadic.
-                     * For a standard ordered-set aggregate, it's okay as long
-                     * as there aren't too few direct args.  For a
-                     * hypothetical-set aggregate, we assume that the
-                     * hypothetical arguments are those that matched the
-                     * variadic parameter; there must be just as many of them
-                     * as there are aggregated arguments.
-                     */
-                    if (aggkind == AGGKIND_HYPOTHETICAL)
-                    {
-                        if (nvargs != 2 * numAggregatedArgs)
-                            ereport(ERROR,
-                                    (errcode(ERRCODE_UNDEFINED_FUNCTION),
-                                     errmsg("function %s does not exist",
-                                            func_signature_string(funcname, nargs,
-                                                                  argnames,
-                                                                  actual_arg_types)),
-                                     errhint("To use the hypothetical-set aggregate %s, the number of hypothetical direct arguments (here %d) must match the number of ordering columns (here %d).",
-                                             NameListToString(funcname),
-                                             nvargs - numAggregatedArgs, numAggregatedArgs),
-                                     parser_errposition(pstate, location)));
-                    }
-                    else
-                    {
-                        if (nvargs <= numAggregatedArgs)
-                            ereport(ERROR,
-                                    (errcode(ERRCODE_UNDEFINED_FUNCTION),
-                                     errmsg("function %s does not exist",
-                                            func_signature_string(funcname, nargs,
-                                                                  argnames,
-                                                                  actual_arg_types)),
-                                     errhint_plural("There is an ordered-set aggregate %s, but it requires at least %d direct argument.",
-                                                    "There is an ordered-set aggregate %s, but it requires at least %d direct arguments.",
-                                                    catDirectArgs,
-                                                    NameListToString(funcname),
-                                                    catDirectArgs),
-                                     parser_errposition(pstate, location)));
-                    }
-                }
-            }
-
-            /* Check type matching of hypothetical arguments */
-            if (aggkind == AGGKIND_HYPOTHETICAL)
-/*            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("unify_hypothetical_args not implemented")));*/
-                unify_hypothetical_args(pstate, fargs, numAggregatedArgs,
-                                        actual_arg_types, declared_arg_types);
-        }
-        else
-        {
-            /* Normal aggregate, so it can't have WITHIN GROUP */
-            if (agg_within_group)
-                ereport(ERROR,
-                        (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                         errmsg("%s is not an ordered-set aggregate, so it cannot have WITHIN GROUP",
-                                NameListToString(funcname)),
-                         parser_errposition(pstate, location)));
-        }
-    }
-    else if (fdresult == FUNCDETAIL_WINDOWFUNC)
-    {
-        /*
-         * True window functions must be called with a window definition.
-         */
-        if (!over)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("window function %s requires an OVER clause",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-        /* And, per spec, WITHIN GROUP isn't allowed */
-        if (agg_within_group)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("window function %s cannot have WITHIN GROUP",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-    }
-    else if (fdresult == FUNCDETAIL_COERCION)
-    {
-        /*
-         * We interpreted it as a type coercion. coerce_type can handle these
-         * cases, so why duplicate code...
-         */
-        return coerce_type(pstate, linitial(fargs),
-                           actual_arg_types[0], rettype, -1,
-                           COERCION_EXPLICIT, COERCE_EXPLICIT_CALL, location);
-    }
-    else if (fdresult == FUNCDETAIL_MULTIPLE)
-    {
-        /*
-         * We found multiple possible functional matches.  If we are dealing
-         * with attribute notation, return failure, letting the caller report
-         * "no such column" (we already determined there wasn't one).  If
-         * dealing with function notation, report "ambiguous function",
-         * regardless of whether there's also a column by this name.
-         */
-        if (is_column)
-            return NULL;
-
-        if (proc_call)
-            ereport(ERROR,
-                    (errcode(ERRCODE_AMBIGUOUS_FUNCTION),
-                     errmsg("procedure %s is not unique",
-                            func_signature_string(funcname, nargs, argnames,
-                                                  actual_arg_types)),
-                     errhint("Could not choose a best candidate procedure. "
-                             "You might need to add explicit type casts."),
-                     parser_errposition(pstate, location)));
-        else
-            ereport(ERROR,
-                    (errcode(ERRCODE_AMBIGUOUS_FUNCTION),
-                     errmsg("function %s is not unique",
-                            func_signature_string(funcname, nargs, argnames,
-                                                  actual_arg_types)),
-                     errhint("Could not choose a best candidate function. "
-                             "You might need to add explicit type casts."),
-                     parser_errposition(pstate, location)));
-    }
-    else
-    {
-        /*
-         * Not found as a function.  If we are dealing with attribute
-         * notation, return failure, letting the caller report "no such
-         * column" (we already determined there wasn't one).
-         */
-        if (is_column)
-            return NULL;
-
-        /*
-         * Check for column projection interpretation, since we didn't before.
-         */
-        if (could_be_projection)
-        {
-                ereport(ERROR,
-                        (errcode(ERRCODE_SYNTAX_ERROR),
-                         errmsg("ParseComplexProjection not Implemented")));
-/*
-            retval = ParseComplexProjection(pstate,
-                                            strVal(linitial(funcname)),
-                                            first_arg,
-                                            location);
-            if (retval)
-                return retval;
-*/
-        }
-
-        /*
-         * No function, and no column either.  Since we're dealing with
-         * function notation, report "function does not exist".
-         */
-        if (list_length(agg_order) > 1 && !agg_within_group)
-        {
-            /* It's agg(x, ORDER BY y,z) ... perhaps misplaced ORDER BY */
-            ereport(ERROR,
-                    (errcode(ERRCODE_UNDEFINED_FUNCTION),
-                     errmsg("function %s does not exist",
-                            func_signature_string(funcname, nargs, argnames,
-                                                  actual_arg_types)),
-                     errhint("No aggregate function matches the given name and argument types. "
-                             "Perhaps you misplaced ORDER BY; ORDER BY must appear "
-                             "after all regular arguments of the aggregate."),
-                     parser_errposition(pstate, location)));
-        }
-        else if (proc_call)
-            ereport(ERROR,
-                    (errcode(ERRCODE_UNDEFINED_FUNCTION),
-                     errmsg("procedure %s does not exist",
-                            func_signature_string(funcname, nargs, argnames,
-                                                  actual_arg_types)),
-                     errhint("No procedure matches the given name and argument types. "
-                             "You might need to add explicit type casts."),
-                     parser_errposition(pstate, location)));
-        else
-            ereport(ERROR,
-                    (errcode(ERRCODE_UNDEFINED_FUNCTION),
-                     errmsg("function %s does not exist",
-                            func_signature_string(funcname, nargs, argnames,
-                                                  actual_arg_types)),
-                     errhint("No function matches the given name and argument types. "
-                             "You might need to add explicit type casts."),
-                     parser_errposition(pstate, location)));
-    }
-
-    /*
-     * If there are default arguments, we have to include their types in
-     * actual_arg_types for the purpose of checking generic type consistency.
-     * However, we do NOT put them into the generated parse node, because
-     * their actual values might change before the query gets run.  The
-     * planner has to insert the up-to-date values at plan time.
-     */
-    nargsplusdefs = nargs;
-    foreach(l, argdefaults)
-    {
-        Node       *expr = (Node *) lfirst(l);
-
-        /* probably shouldn't happen ... */
-        if (nargsplusdefs >= FUNC_MAX_ARGS)
-            ereport(ERROR,
-                    (errcode(ERRCODE_TOO_MANY_ARGUMENTS),
-                     errmsg_plural("cannot pass more than %d argument to a function",
-                                   "cannot pass more than %d arguments to a function",
-                                   FUNC_MAX_ARGS,
-                                   FUNC_MAX_ARGS),
-                     parser_errposition(pstate, location)));
-
-        actual_arg_types[nargsplusdefs++] = exprType(expr);
-    }
-
-    /*
-     * enforce consistency with polymorphic argument and return types,
-     * possibly adjusting return type or declared_arg_types (which will be
-     * used as the cast destination by make_fn_arguments)
-     */
-    rettype = enforce_generic_type_consistency(actual_arg_types,
-                                               declared_arg_types,
-                                               nargsplusdefs,
-                                               rettype,
-                                               false);
-
-    /* perform the necessary typecasting of arguments */
-    make_fn_arguments(pstate, fargs, actual_arg_types, declared_arg_types);
-
-    /*
-     * If the function isn't actually variadic, forget any VARIADIC decoration
-     * on the call.  (Perhaps we should throw an error instead, but
-     * historically we've allowed people to write that.)
-     */
-    if (!OidIsValid(vatype))
-    {
-        Assert(nvargs == 0);
-        func_variadic = false;
-    }
-
-    /*
-     * If it's a variadic function call, transform the last nvargs arguments
-     * into an array --- unless it's an "any" variadic.
-     */
-    if (nvargs > 0 && vatype != ANYOID)
-    {
-        ArrayExpr  *newa = makeNode(ArrayExpr);
-        int            non_var_args = nargs - nvargs;
-        List       *vargs;
-
-        Assert(non_var_args >= 0);
-        vargs = list_copy_tail(fargs, non_var_args);
-        fargs = list_truncate(fargs, non_var_args);
-
-        newa->elements = vargs;
-        /* assume all the variadic arguments were coerced to the same type */
-        newa->element_typeid = exprType((Node *) linitial(vargs));
-        newa->array_typeid = get_array_type(newa->element_typeid);
-        if (!OidIsValid(newa->array_typeid))
-            ereport(ERROR,
-                    (errcode(ERRCODE_UNDEFINED_OBJECT),
-                     errmsg("could not find array type for data type %s",
-                            format_type_be(newa->element_typeid)),
-                     parser_errposition(pstate, exprLocation((Node *) vargs))));
-        /* array_collid will be set by parse_collate.c */
-        newa->multidims = false;
-        newa->location = exprLocation((Node *) vargs);
-
-        fargs = lappend(fargs, newa);
-
-        /* We could not have had VARIADIC marking before ... */
-        Assert(!func_variadic);
-        /* ... but now, it's a VARIADIC call */
-        func_variadic = true;
-    }
-
-    /*
-     * If an "any" variadic is called with explicit VARIADIC marking, insist
-     * that the variadic parameter be of some array type.
-     */
-    if (nargs > 0 && vatype == ANYOID && func_variadic)
-    {
-        Oid            va_arr_typid = actual_arg_types[nargs - 1];
-
-        if (!OidIsValid(get_base_element_type(va_arr_typid)))
-            ereport(ERROR,
-                    (errcode(ERRCODE_DATATYPE_MISMATCH),
-                     errmsg("VARIADIC argument must be an array"),
-                     parser_errposition(pstate,
-                                        exprLocation((Node *) llast(fargs)))));
-    }
-
-    /* if it returns a set, check that's OK */
-    if (retset)
-        check_srf_call_placement(pstate, last_srf, location);
-
-    /* build the appropriate output structure */
-    if (fdresult == FUNCDETAIL_NORMAL || fdresult == FUNCDETAIL_PROCEDURE)
-    {
-        FuncExpr   *funcexpr = makeNode(FuncExpr);
-
-        funcexpr->funcid = funcid;
-        funcexpr->funcresulttype = rettype;
-        funcexpr->funcretset = retset;
-        funcexpr->funcvariadic = func_variadic;
-        funcexpr->funcformat = funcformat;
-        /* funccollid and inputcollid will be set by parse_collate.c */
-        funcexpr->args = fargs;
-        funcexpr->location = location;
-
-        retval = (Node *) funcexpr;
-    }
-    else if (fdresult == FUNCDETAIL_AGGREGATE && !over)
-    {
-        /* aggregate function */
-        Aggref       *aggref = makeNode(Aggref);
-
-        aggref->aggfnoid = funcid;
-        aggref->aggtype = rettype;
-        /* aggcollid and inputcollid will be set by parse_collate.c */
-        aggref->aggtranstype = InvalidOid;    /* will be set by planner */
-        /* aggargtypes will be set by transformAggregateCall */
-        /* aggdirectargs and args will be set by transformAggregateCall */
-        /* aggorder and aggdistinct will be set by transformAggregateCall */
-        aggref->aggfilter = agg_filter;
-        aggref->aggstar = agg_star;
-        aggref->aggvariadic = func_variadic;
-        aggref->aggkind = aggkind;
-        /* agglevelsup will be set by transformAggregateCall */
-        aggref->aggsplit = AGGSPLIT_SIMPLE; /* planner might change this */
-        aggref->aggno = -1;        /* planner will set aggno and aggtransno */
-        aggref->aggtransno = -1;
-        aggref->location = location;
-
-        /*
-         * Reject attempt to call a parameterless aggregate without (*)
-         * syntax.  This is mere pedantry but some folks insisted ...
-         */
-        if (fargs == NIL && !agg_star && !agg_within_group)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("%s(*) must be used to call a parameterless aggregate function",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-
-        if (retset)
-            ereport(ERROR,
-                    (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-                     errmsg("aggregates cannot return sets"),
-                     parser_errposition(pstate, location)));
-
-        /*
-         * We might want to support named arguments later, but disallow it for
-         * now.  We'd need to figure out the parsed representation (should the
-         * NamedArgExprs go above or below the TargetEntry nodes?) and then
-         * teach the planner to reorder the list properly.  Or maybe we could
-         * make transformAggregateCall do that?  However, if you'd also like
-         * to allow default arguments for aggregates, we'd need to do it in
-         * planning to avoid semantic problems.
-         */
-        if (argnames != NIL)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("aggregates cannot use named arguments"),
-                     parser_errposition(pstate, location)));
-
-        /* parse_agg.c does additional aggregate-specific processing */
-        transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct);
-
-        retval = (Node *) aggref;
-    }
-    else
-    {
-        /* window function */
-        WindowFunc *wfunc = makeNode(WindowFunc);
-
-        Assert(over);            /* lack of this was checked above */
-        Assert(!agg_within_group);    /* also checked above */
-
-        wfunc->winfnoid = funcid;
-        wfunc->wintype = rettype;
-        /* wincollid and inputcollid will be set by parse_collate.c */
-        wfunc->args = fargs;
-        /* winref will be set by transformWindowFuncCall */
-        wfunc->winstar = agg_star;
-        wfunc->winagg = (fdresult == FUNCDETAIL_AGGREGATE);
-        wfunc->aggfilter = agg_filter;
-        wfunc->location = location;
-
-        /*
-         * agg_star is allowed for aggregate functions but distinct isn't
-         */
-        if (agg_distinct)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("DISTINCT is not implemented for window functions"),
-                     parser_errposition(pstate, location)));
-
-        /*
-         * Reject attempt to call a parameterless aggregate without (*)
-         * syntax.  This is mere pedantry but some folks insisted ...
-         */
-        if (wfunc->winagg && fargs == NIL && !agg_star)
-            ereport(ERROR,
-                    (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                     errmsg("%s(*) must be used to call a parameterless aggregate function",
-                            NameListToString(funcname)),
-                     parser_errposition(pstate, location)));
-
-        /*
-         * ordered aggs not allowed in windows yet
-         */
-        if (agg_order != NIL)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("aggregate ORDER BY is not implemented for window functions"),
-                     parser_errposition(pstate, location)));
-
-        /*
-         * FILTER is not yet supported with true window functions
-         */
-        if (!wfunc->winagg && agg_filter)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("FILTER is not implemented for non-aggregate window functions"),
-                     parser_errposition(pstate, location)));
-
-        /*
-         * Window functions can't either take or return sets
-         */
-        if (pstate->p_last_srf != last_srf)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("window function calls cannot contain set-returning function calls"),
-                     errhint("You might be able to move the set-returning function into a LATERAL FROM item."),
-                     parser_errposition(pstate,
-                                        exprLocation(pstate->p_last_srf))));
-
-        if (retset)
-            ereport(ERROR,
-                    (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-                     errmsg("window functions cannot return sets"),
-                     parser_errposition(pstate, location)));
-
-        /* parse_agg.c does additional window-func-specific processing */
-        transformWindowFuncCall(pstate, wfunc, over);
-
-        retval = (Node *) wfunc;
-    }
-
-    /* if it returns a set, remember it for error checks at higher levels */
-    if (retset)
-        pstate->p_last_srf = retval;
-
-    return retval;
-}
-
 
 static Node *
 transform_a_const(cypher_parsestate *cpstate, A_Const *ac) {
@@ -1877,67 +246,6 @@ transform_a_const(cypher_parsestate *cpstate, A_Const *ac) {
     return (Node *)c;
 }
 
-static Node *
-transformWholeRowRef(ParseState *pstate, ParseNamespaceItem *nsitem,
-                                         int sublevels_up, int location)
-{
-        /*
-         * Build the appropriate referencing node.  Normally this can be a
-         * whole-row Var, but if the nsitem is a JOIN USING alias then it contains
-         * only a subset of the columns of the underlying join RTE, so that will
-         * not work.  Instead we immediately expand the reference into a RowExpr.
-         * Since the JOIN USING's common columns are fully determined at this
-         * point, there seems no harm in expanding it now rather than during
-         * planning.
-         *
-         * Note that if the RTE is a function returning scalar, we create just a
-         * plain reference to the function value, not a composite containing a
-         * single column.  This is pretty inconsistent at first sight, but it's
-         * what we've done historically.  One argument for it is that "rel" and
-         * "rel.*" mean the same thing for composite relations, so why not for
-         * scalar functions...
-         */
-        if (nsitem->p_names == nsitem->p_rte->eref)
-        {
-                Var                *result;
-
-                result = makeWholeRowVar(nsitem->p_rte, nsitem->p_rtindex,
-                                                                 sublevels_up, true);
-
-                /* location is not filled in by makeWholeRowVar */
-                result->location = location;
-
-                /* mark relation as requiring whole-row SELECT access */
-                markVarForSelectPriv(pstate, result);
-
-                return (Node *) result;
-        }
-        else
-        {
-                RowExpr    *rowexpr;
-                List       *fields;
-
-                /*
-                 * We want only as many columns as are listed in p_names->colnames,
-                 * and we should use those names not whatever possibly-aliased names
-                 * are in the RTE.  We needn't worry about marking the RTE for SELECT
-                 * access, as the common columns are surely so marked already.
-                 */
-                expandRTE(nsitem->p_rte, nsitem->p_rtindex,
-                                  sublevels_up, location, false,
-                                  NULL, &fields);
-                rowexpr = makeNode(RowExpr);
-                rowexpr->args = list_truncate(fields,
-                                                                          list_length(nsitem->p_names->colnames));
-                rowexpr->row_typeid = RECORDOID;
-                rowexpr->row_format = COERCE_IMPLICIT_CAST;
-                rowexpr->colnames = copyObject(nsitem->p_names->colnames);
-                rowexpr->location = location;
-
-                return (Node *) rowexpr;
-        }
-}
-
 
 static Node *
 transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
@@ -1959,25 +267,20 @@ transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
         colname = strVal(field1);
 
         node = colNameToVar(pstate, colname, false, cref->location);
+
         if (node != NULL)
             return node;
 
-     {
-            ParseNamespaceItem *nsitem = refnameNamespaceItem(pstate, NULL, colname, cref->location, &levels_up);
-
-            if (nsitem) {
-                return transformWholeRowRef(pstate, nsitem, levels_up, cref->location);
-            }
-
-            ereport(ERROR, (errcode(ERRCODE_UNDEFINED_COLUMN),
-                            errmsg("could not find rte for %s", colname),
-                            parser_errposition(pstate, cref->location)));
+        {
+          //  ereport(ERROR, (errcode(ERRCODE_UNDEFINED_COLUMN),
+         //                   errmsg("could not find rte for %s", colname),
+         //                   parser_errposition(pstate, cref->location)));
         }
-        if (!node)
-        ereport(ERROR,
-                (errcode(ERRCODE_UNDEFINED_COLUMN),
-                 errmsg("variable `%s` does not exist", colname),
-                 parser_errposition(pstate, cref->location)));
+        //if (!node)
+            ereport(ERROR,
+                    (errcode(ERRCODE_UNDEFINED_COLUMN),
+                    errmsg("variable `%s` does not exist", colname),
+                    parser_errposition(pstate, cref->location)));
 
         return node;
    }
@@ -1990,20 +293,7 @@ transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
         colname = strVal(field1);
 
         node = colNameToVar(pstate, colname, false, cref->location);
-        if (node == NULL){
-
-                ParseNamespaceItem *nsitem = refnameNamespaceItem(pstate, NULL, colname, cref->location, &levels_up);
-
-                if (nsitem) {
-                    return transformWholeRowRef(pstate, nsitem, levels_up, cref->location);
-                }
-
-                ereport(ERROR, (errcode(ERRCODE_UNDEFINED_COLUMN),
-                                errmsg("could not find rte for %s", colname),
-                                parser_errposition(pstate, cref->location)));
-            
-
-        }
+  
         if (!node)
         ereport(ERROR,
                 (errcode(ERRCODE_UNDEFINED_COLUMN),
@@ -2064,15 +354,12 @@ transform_column_ref(cypher_parsestate *cpstate, ColumnRef *cref) {
  */
 static bool
 is_a_valid_operator(List *lst) {
-    if (list_length(lst) != 1)
+    if (list_length(lst) != 1 || !IsA(linitial(lst), String))
         return false;
 
-    if (!IsA(linitial(lst), String))
-        return false;
+    char *str = strVal(linitial(lst));
 
-    Value *str = linitial(lst);
-
-    if (!strcmp(str->val.str, "?") || !strcmp(str->val.str, "?|") || !strcmp(str->val.str, "?&"))
+    if (!strcmp(str, "?") || !strcmp(str, "?|") || !strcmp(str, "?&"))
         return true;
 
     return false;
@@ -2115,7 +402,6 @@ transform_bool_expr(cypher_parsestate *cpstate, BoolExpr *expr) {
     ParseState *pstate = (ParseState *)cpstate;
     List *args = NIL;
     const char *opname;
-    ListCell *la;
 
     switch (expr->boolop)
     {
@@ -2134,6 +420,7 @@ transform_bool_expr(cypher_parsestate *cpstate, BoolExpr *expr) {
         return NULL;
     }
 
+    ListCell *la;
     foreach (la, expr->args)
     {
         Node *arg = lfirst(la);
@@ -2149,55 +436,34 @@ transform_bool_expr(cypher_parsestate *cpstate, BoolExpr *expr) {
 
 static Node *
 transform_cypher_bool_const(cypher_parsestate *cpstate, cypher_bool_const *b) {
-
-    Datum agt = boolean_to_gtype(b->boolean);
-
-    // typtypmod, typcollation, typlen, and typbyval of gtype are hard-coded.
-    Const *c = makeConst(GTYPEOID, -1, InvalidOid, -1, agt, false, false);
-    c->location = b->location;
-
-    return (Node *)c;
+    return (Node *)makeConst(GTYPEOID, -1, InvalidOid, -1, boolean_to_gtype(b->boolean), false, false);
 }
-
 
 static Node *
 transform_cypher_inet_const(cypher_parsestate *cpstate, cypher_inet_const *inet) {
-
-    Datum agt = _gtype_toinet(GTYPE_P_GET_DATUM(string_to_gtype(inet->inet)));
-
-    // typtypmod, typcollation, typlen, and typbyval of gtype are hard-coded.
-    Const *c = makeConst(GTYPEOID, -1, InvalidOid, -1, agt, false, false);
-    c->location = inet->location;
-
-    return (Node *)c;
+    return makeConst(GTYPEOID, -1, InvalidOid, -1, _gtype_toinet(GTYPE_P_GET_DATUM(string_to_gtype(inet->inet))), false, false);    
 }
 
 static Node *
 transform_cypher_integer_const(cypher_parsestate *cpstate, cypher_integer_const *i) {
-
-    Datum agt = integer_to_gtype(i->integer);
-
-    // typtypmod, typcollation, typlen, and typbyval of gtype are hard-coded.
-    Const *c = makeConst(GTYPEOID, -1, InvalidOid, -1, agt, false, false);
-    c->location = i->location;
-
-    return (Node *)c;
+    return makeConst(GTYPEOID, -1, InvalidOid, -1, integer_to_gtype(i->integer), false, false);
 }
 
 static Node *
 transform_cypher_param(cypher_parsestate *cpstate, cypher_param *p) {
-    ParseState *pstate = (ParseState *)cpstate;
-    Const *const_str;
-
     if (!cpstate->params)
         ereport( ERROR,
             (errcode(ERRCODE_UNDEFINED_PARAMETER),
              errmsg("parameters argument is missing from cypher() function call"),
-             parser_errposition(pstate, p->location)));
+             parser_errposition(cpstate, p->location)));
 
-    const_str = makeConst(GTYPEOID, -1, InvalidOid, -1, string_to_gtype(p->name), false, false);
-
-    return (Node *)make_op(pstate, list_make1(makeString("->")), (Node *)cpstate->params, (Node *)const_str, pstate->p_last_srf,  -1);
+    return (Node *)make_op(
+        cpstate, 
+        list_make1(makeString("->")), 
+        (Node *)cpstate->params, 
+        (Node *)makeConst(GTYPEOID, -1, InvalidOid, -1, string_to_gtype(p->name), false, false), 
+        get_parse_state(cpstate)->p_last_srf, 
+         -1);
 }
 
 static Node *
@@ -2244,16 +510,11 @@ transform_cypher_list(cypher_parsestate *cpstate, cypher_list *cl) {
         args = lappend(args, transform_cypher_expr_recurse(cpstate, lfirst(lc)));
     }
 
-    Oid oid;
-    if (list_length(args) == 0)
-        oid = get_ag_func_oid("gtype_build_list", 0);
-    else
-        oid = get_ag_func_oid("gtype_build_list", 1, ANYOID);
-
-    FuncExpr *expr = makeFuncExpr(oid, GTYPEOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
-    expr->location = cl->location;
-
-    return (Node *)expr;
+    return makeFuncExpr(
+        list_length(args) == 0 ?
+            get_ag_func_oid("gtype_build_list", 0) :
+            get_ag_func_oid("gtype_build_list", 1, ANYOID),
+        GTYPEOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
 }
 
 /*
@@ -2277,11 +538,9 @@ transform_column_ref_for_indirection(cypher_parsestate *cpstate, ColumnRef *cr) 
     // locate the referenced RTE
     pnsi = refnameNamespaceItem(pstate, NULL, relname, cr->location, &levels_up);
 
-    // This column ref is referencing something that was created in a previous query and is a variable.
     if (!pnsi)
         return transform_cypher_expr_recurse(cpstate, (Node *)cr);
 
-    // try to identify the properties column of the RTE
     node = scanNSItemForColumn(pstate, pnsi, 0, "properties", cr->location);
 
     if (!node)
@@ -2312,7 +571,6 @@ transform_a_indirection(cypher_parsestate *cpstate, A_Indirection *a_ind) {
     else
         cur = transform_cypher_expr_recurse(cpstate, a_ind->arg);
 
-    // iterate through each indirection value
     ListCell *lc;
     foreach (lc, a_ind->indirection)
     {
@@ -2321,50 +579,47 @@ transform_a_indirection(cypher_parsestate *cpstate, A_Indirection *a_ind) {
         if (is_a_slice(node)) {
             A_Indices *indices = (A_Indices *)node;
 
-            List *args = list_make1(cur);
-
-            // lower bound
-            if (!indices->lidx)
-                args = lappend(args, makeConst(GTYPEOID, -1, InvalidOid, -1, (Datum)NULL, true, false));
-            else
-                args = lappend(args, transform_cypher_expr_recurse(cpstate, indices->lidx));
-
-            // upper bound
-            if (!indices->uidx)
-                args = lappend(args, makeConst(GTYPEOID, -1, InvalidOid, -1, (Datum)NULL, true, false));
-            else
-                args = lappend(args, transform_cypher_expr_recurse(cpstate, indices->uidx));
-
-            Oid oid = get_ag_func_oid("gtype_access_slice", 3, GTYPEOID, GTYPEOID, GTYPEOID);
-            FuncExpr *func_expr = makeFuncExpr(oid, GTYPEOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
-            func_expr->location = exprLocation(cur);
-
-            cur = (Node *)func_expr;
+            cur =  makeFuncExpr(
+                get_ag_func_oid("gtype_access_slice", 3, GTYPEOID, GTYPEOID, GTYPEOID),
+                GTYPEOID,
+                list_make3(
+                    cur,
+                    indices->lidx ? transform_cypher_expr_recurse(cpstate, indices->lidx) : makeConst(GTYPEOID, -1, InvalidOid, -1, (Datum)NULL, true, false),
+                    indices->uidx ? transform_cypher_expr_recurse(cpstate, indices->uidx) : makeConst(GTYPEOID, -1, InvalidOid, -1, (Datum)NULL, true, false)
+                ),
+                InvalidOid,
+                InvalidOid,
+                COERCE_EXPLICIT_CALL);
         } else if (IsA(node, A_Indices)) {
             // a[i]
             A_Indices *indices = (A_Indices *)node;
 
-            node = transform_cypher_expr_recurse(cpstate, indices->uidx);
-            cur = (Node *)make_op(pstate, list_make1(makeString("->")), cur, node, pstate->p_last_srf,  -1);
+            cur = (Node *)make_op(
+                pstate,
+                list_make1(makeString("->")),
+                cur,
+                transform_cypher_expr_recurse(cpstate, indices->uidx), pstate->p_last_srf,  -1);
         } else if (IsA(node, ColumnRef)) {
             // a.i
-            ColumnRef *cr = (ColumnRef*)node;
-            List *fields = cr->fields;
-            Value *string = linitial(fields);
-
-            Const *const_str = makeConst(GTYPEOID, -1, InvalidOid, -1, string_to_gtype(strVal(string)), false, false);
-
-            cur = (Node *)make_op(pstate, list_make1(makeString("->")), cur, (Node *)const_str, pstate->p_last_srf,  -1);
+            ColumnRef *cr = (ColumnRef *)node;
+            cur = (Node *)make_op(
+                pstate,
+                list_make1(makeString("->")),
+                cur,
+                makeConst(GTYPEOID, -1, InvalidOid, -1, string_to_gtype(strVal(linitial(cr->fields))), false, false),
+                pstate->p_last_srf,
+                -1
+            );
 
         } else {
             ereport(ERROR, (errmsg("invalid indirection node %d", nodeTag(node))));
         }
 
-        // TODO: Add Regression Tests
         if (pstate->p_last_srf != last_srf)
             ereport(ERROR,
                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                errmsg("set-returning functions are not allowed in indirection"),
+                errmsg("set-returning functions are not allowed in -> operator"),
+                errhint("Use UNWIND to expand the result set of the function first"),
                 parser_errposition(pstate, exprLocation(pstate->p_last_srf))));
 
     }
@@ -2390,15 +645,14 @@ transform_cypher_string_match(cypher_parsestate *cpstate, cypher_string_match *c
         ereport(ERROR, (errmsg_internal("unknown Cypher string match operation")));
     }
 
-    Oid oid = get_ag_func_oid(func_name, 2, GTYPEOID, GTYPEOID);
-
-    List *args = list_make2(transform_cypher_expr_recurse(cpstate, csm_node->lhs),
-                            transform_cypher_expr_recurse(cpstate, csm_node->rhs));
-
-    FuncExpr *expr = makeFuncExpr(oid, GTYPEOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
-    expr->location = csm_node->location;
-
-    return (Node *)expr;
+    return makeFuncExpr(
+        get_ag_func_oid(func_name, 2, GTYPEOID, GTYPEOID), 
+        GTYPEOID,
+        list_make2(transform_cypher_expr_recurse(cpstate, csm_node->lhs),
+                   transform_cypher_expr_recurse(cpstate, csm_node->rhs)),
+        InvalidOid,
+        InvalidOid,
+        COERCE_EXPLICIT_CALL);
 }
 
 /*
@@ -2407,7 +661,6 @@ transform_cypher_string_match(cypher_parsestate *cpstate, cypher_string_match *c
 static Node *
 transform_cypher_typecast(cypher_parsestate *cpstate, cypher_typecast *ctypecast) {
     List *fname;
-    FuncCall *fnode;
 
     /* verify input parameter */
     Assert (cpstate != NULL);
@@ -2474,96 +727,10 @@ transform_cypher_typecast(cypher_parsestate *cpstate, cypher_typecast *ctypecast
     else
         ereport(ERROR, (errmsg_internal("typecast \'%s\' not supported", ctypecast->typecast)));
 
-    // make a function call node
-    fnode = makeFuncCall(fname, list_make1(ctypecast->expr), COERCE_SQL_SYNTAX, ctypecast->location);
 
-    return transform_func_call(cpstate, fnode);
+    return transform_func_call(cpstate, makeFuncCall(fname, list_make1(ctypecast->expr), COERCE_SQL_SYNTAX, ctypecast->location));
 }
 
-
-/*
- * unify_hypothetical_args()
- *
- * Ensure that each hypothetical direct argument of a hypothetical-set
- * aggregate has the same type as the corresponding aggregated argument.
- * Modify the expressions in the fargs list, if necessary, and update
- * actual_arg_types[].
- *
- * If the agg declared its args non-ANY (even ANYELEMENT), we need only a
- * sanity check that the declared types match; make_fn_arguments will coerce
- * the actual arguments to match the declared ones.  But if the declaration
- * is ANY, nothing will happen in make_fn_arguments, so we need to fix any
- * mismatch here.  We use the same type resolution logic as UNION etc.
- */
-static void
-unify_hypothetical_args(ParseState *pstate,
-                        List *fargs,
-                        int numAggregatedArgs,
-                        Oid *actual_arg_types,
-                        Oid *declared_arg_types)
-{
-    int            numDirectArgs,
-                numNonHypotheticalArgs;
-    int            hargpos;
-
-    numDirectArgs = list_length(fargs) - numAggregatedArgs;
-    numNonHypotheticalArgs = numDirectArgs - numAggregatedArgs;
-    /* safety check (should only trigger with a misdeclared agg) */
-    if (numNonHypotheticalArgs < 0)
-        elog(ERROR, "incorrect number of arguments to hypothetical-set aggregate");
-
-    /* Check each hypothetical arg and corresponding aggregated arg */
-    for (hargpos = numNonHypotheticalArgs; hargpos < numDirectArgs; hargpos++)
-    {
-        int            aargpos = numDirectArgs + (hargpos - numNonHypotheticalArgs);
-        ListCell   *harg = list_nth_cell(fargs, hargpos);
-        ListCell   *aarg = list_nth_cell(fargs, aargpos);
-        Oid            commontype;
-        int32        commontypmod;
-
-        /* A mismatch means AggregateCreate didn't check properly ... */
-        if (declared_arg_types[hargpos] != declared_arg_types[aargpos])
-            elog(ERROR, "hypothetical-set aggregate has inconsistent declared argument types");
-
-        /* No need to unify if make_fn_arguments will coerce */
-        if (declared_arg_types[hargpos] != ANYOID)
-            continue;
-
-        /*
-         * Select common type, giving preference to the aggregated argument's
-         * type (we'd rather coerce the direct argument once than coerce all
-         * the aggregated values).
-         */
-        commontype = select_common_type(pstate,
-                                        list_make2(lfirst(aarg), lfirst(harg)),
-                                        "WITHIN GROUP",
-                                        NULL);
-        commontypmod = select_common_typmod(pstate,
-                                            list_make2(lfirst(aarg), lfirst(harg)),
-                                            commontype);
-
-        /*
-         * Perform the coercions.  We don't need to worry about NamedArgExprs
-         * here because they aren't supported with aggregates.
-         */
-        lfirst(harg) = coerce_type(pstate,
-                                   (Node *) lfirst(harg),
-                                   actual_arg_types[hargpos],
-                                   commontype, commontypmod,
-                                   COERCION_IMPLICIT,
-                                   COERCE_IMPLICIT_CAST,
-                                   -1);
-        actual_arg_types[hargpos] = commontype;
-        lfirst(aarg) = coerce_type(pstate,
-                                   (Node *) lfirst(aarg),
-                                   actual_arg_types[aargpos],
-                                   commontype, commontypmod,
-                                   COERCION_IMPLICIT,
-                                   COERCE_IMPLICIT_CAST,
-                                   -1);
-        actual_arg_types[aargpos] = commontype;
-    }
-}
 
 static List *
 make_qualified_function_name(cypher_parsestate *cpstate, List *lst, List *targs) {
@@ -2630,7 +797,7 @@ transform_func_call(cypher_parsestate *cpstate, FuncCall *fn) {
         fname = fn->funcname;
 
     // Passed our new fname to the normal function transform logic
-    Node *retval = parse_func_or_column(pstate, fname, args, last_srf, fn, false, fn->location);
+    Node *retval = ParseFuncOrColumn(pstate, fname, args, last_srf, fn, false, fn->location);
 
 
     if (list_length(fn->funcname) == 1) {
@@ -3005,28 +1172,6 @@ make_row_comparison_op(ParseState *pstate, List *opname, List *largs, List *rarg
 }
 
 /*
- * sql_transform_where_clause -
- *	  Transform the qualification and make sure it is of type boolean.
- *	  Used for WHERE and allied clauses.
- *
- * constructName does not affect the semantics, but is used in error messages
- */
-Node *
-sql_transform_where_clause(ParseState *pstate, Node *clause,
-					 ParseExprKind exprKind, const char *constructName)
-{
-	Node	   *qual;
-
-	if (clause == NULL)
-		return NULL;
-
-	qual = sql_transform_expr(pstate, clause, exprKind);
-
-	qual = coerce_to_boolean(pstate, qual, constructName);
-
-	return qual;
-}
-/*
  * Transform a FOR [KEY] UPDATE/SHARE clause
  *
  * This basically involves replacing names by integer relids.
@@ -3236,147 +1381,6 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 		}
 	}
 }
-/*
- * sql_transform_select_stmt -
- *	  transforms a Select Statement
- *
- * Note: this covers only cases with no set operations and no VALUES lists;
- * see below for the other cases.
- */
-static Query *
-sql_transform_select_stmt(ParseState *pstate, SelectStmt *stmt)
-{
-	Query	   *qry = makeNode(Query);
-	Node	   *qual;
-	ListCell   *l;
-
-	qry->commandType = CMD_SELECT;
-
-	/* process the WITH clause independently of all else */
-	if (stmt->withClause)
-	{
-		qry->hasRecursive = stmt->withClause->recursive;
-		qry->cteList = transformWithClause(pstate, stmt->withClause);
-		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
-	}
-
-	/* Complain if we get called from someplace where INTO is not allowed */
-	if (stmt->intoClause)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("SELECT ... INTO is not allowed here"),
-				 parser_errposition(pstate,
-									exprLocation((Node *) stmt->intoClause))));
-
-	/* make FOR UPDATE/FOR SHARE info available to addRangeTableEntry */
-	pstate->p_locking_clause = stmt->lockingClause;
-
-	/* make WINDOW info available for window functions, too */
-	pstate->p_windowdefs = stmt->windowClause;
-
-	/* process the FROM clause */
-	transformFromClause(pstate, stmt->fromClause);
-
-	/* transform targetlist */
-	qry->targetList = transformTargetList(pstate, stmt->targetList,
-										  EXPR_KIND_SELECT_TARGET);
-
-	/* mark column origins */
-	markTargetListOrigins(pstate, qry->targetList);
-
-	/* transform WHERE */
-	qual = sql_transform_where_clause(pstate, stmt->whereClause,
-								EXPR_KIND_WHERE, "WHERE");
-
-	/* initial processing of HAVING clause is much like WHERE clause */
-	qry->havingQual = sql_transform_where_clause(pstate, stmt->havingClause,
-										   EXPR_KIND_HAVING, "HAVING");
-
-	/*
-	 * Transform sorting/grouping stuff.  Do ORDER BY first because both
-	 * transformGroupClause and transformDistinctClause need the results. Note
-	 * that these functions can also change the targetList, so it's passed to
-	 * them by reference.
-	 */
-	qry->sortClause = transformSortClause(pstate,
-										  stmt->sortClause,
-										  &qry->targetList,
-										  EXPR_KIND_ORDER_BY,
-										  false /* allow SQL92 rules */ );
-
-	qry->groupClause = transformGroupClause(pstate,
-											stmt->groupClause,
-											&qry->groupingSets,
-											&qry->targetList,
-											qry->sortClause,
-											EXPR_KIND_GROUP_BY,
-											false /* allow SQL92 rules */ );
-	qry->groupDistinct = stmt->groupDistinct;
-
-	if (stmt->distinctClause == NIL)
-	{
-		qry->distinctClause = NIL;
-		qry->hasDistinctOn = false;
-	}
-	else if (linitial(stmt->distinctClause) == NULL)
-	{
-		/* We had SELECT DISTINCT */
-		qry->distinctClause = transformDistinctClause(pstate,
-													  &qry->targetList,
-													  qry->sortClause,
-													  false);
-		qry->hasDistinctOn = false;
-	}
-	else
-	{
-		/* We had SELECT DISTINCT ON */
-		qry->distinctClause = transformDistinctOnClause(pstate,
-														stmt->distinctClause,
-														&qry->targetList,
-														qry->sortClause);
-		qry->hasDistinctOn = true;
-	}
-
-	/* transform LIMIT */
-	qry->limitOffset = transformLimitClause(pstate, stmt->limitOffset,
-											EXPR_KIND_OFFSET, "OFFSET",
-											stmt->limitOption);
-	qry->limitCount = transformLimitClause(pstate, stmt->limitCount,
-										   EXPR_KIND_LIMIT, "LIMIT",
-										   stmt->limitOption);
-	qry->limitOption = stmt->limitOption;
-
-	/* transform window clauses after we have seen all window functions */
-	qry->windowClause = transformWindowDefinitions(pstate,
-												   pstate->p_windowdefs,
-												   &qry->targetList);
-
-	/* resolve any still-unresolved output columns as being type text */
-	if (pstate->p_resolve_unknowns)
-		resolveTargetListUnknowns(pstate, qry->targetList);
-
-	qry->rtable = pstate->p_rtable;
-	qry->jointree = makeFromExpr(pstate->p_joinlist, qual);
-
-	qry->hasSubLinks = pstate->p_hasSubLinks;
-	qry->hasWindowFuncs = pstate->p_hasWindowFuncs;
-	qry->hasTargetSRFs = pstate->p_hasTargetSRFs;
-	qry->hasAggs = pstate->p_hasAggs;
-
-	foreach(l, stmt->lockingClause)
-	{
-		transformLockingClause(pstate, qry,
-							   (LockingClause *) lfirst(l), false);
-	}
-
-	assign_query_collations(pstate, qry);
-
-	/* this must be done after collations, for reliable comparison of exprs */
-	if (pstate->p_hasAggs || qry->groupClause || qry->groupingSets || qry->havingQual)
-		parseCheckAggregates(pstate, qry);
-
-	return qry;
-}
 
 
 /*
@@ -3403,9 +1407,11 @@ sql_parse_sub_analyze(Node *parseTree, ParseState *parentParseState,
 				if (n->valuesLists)
                     elog(ERROR, "unexpected non-SELECT command in SubLink");
 					//query = transformValuesClause(pstate, n);
-				else if (n->op == SETOP_NONE)
-					query = sql_transform_select_stmt(pstate, n);
-				else
+				else if (n->op == SETOP_NONE) {
+                    parsing_cypher = false;
+                    query = transformSelectStmt(pstate, n);
+                    parsing_cypher = true;
+                } else
                     elog(ERROR, "unexpected non-SELECT command in SubLink");
 					//query = transformSetOperationStmt(pstate, n);
 			}
@@ -3507,9 +1513,11 @@ transform_sub_link(cypher_parsestate *cpstate, SubLink *sublink) {
 
 
     Query *query;
-    if (IsA(sublink->subselect, SelectStmt))
-	    query = sql_parse_sub_analyze(sublink->subselect, pstate, NULL, false, true);
-    else
+    if (IsA(sublink->subselect, SelectStmt)) {
+	    parsing_cypher = false;
+        query = sql_parse_sub_analyze(sublink->subselect, pstate, NULL, false, true);
+        parsing_cypher = true;
+    } else
         query = cypher_parse_sub_analyze(sublink->subselect, cpstate, NULL, false, true);
 
     if (!IsA(query, Query) || query->commandType != CMD_SELECT)
@@ -3683,3 +1691,6 @@ transformSQLValueFunction(cypher_parsestate *cpstate, SQLValueFunction *svf)
     return result;
 }
 
+Node *cypher_columnref_hook (ParseState *pstate, ColumnRef *cref) {
+    return NULL;
+}

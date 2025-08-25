@@ -1216,6 +1216,7 @@ cypher_parse_analyze(RawStmt *parseTree, const char *sourceText,
             cpstate->graph_name = gcd->name.data;
             cpstate->graph_oid = graph_oid;
 
+
             explainStmt->query = analyze_cypher(explainStmt->query, pstate, sourceText, 0, gcd->name.data, graph_oid, NULL);
             Query	   *result;
 
@@ -1347,7 +1348,9 @@ analyze_cypher(List *stmt, ParseState *parent_pstate, const char *query_str, int
     cpstate->params = params;
     cpstate->default_alias_num = 0;
 
+    parsing_cypher = true;
     Query *query = transform_cypher_clause(cpstate, clause);
+    parsing_cypher = false;
 
     free_cypher_parsestate(cpstate);
 

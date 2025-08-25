@@ -26,6 +26,7 @@
 
 #include "mb/pg_wchar.h"
 #include "nodes/primnodes.h"
+#include "parser/cypher_expr.h"
 #include "parser/parse_node.h"
 
 #include "parser/cypher_parse_node.h"
@@ -45,12 +46,13 @@ cypher_parsestate *make_cypher_parsestate(cypher_parsestate *parent_cpstate)
     pstate->parentParseState = parent_pstate;
     pstate->p_next_resno = 1;
     pstate->p_resolve_unknowns = true;
+    pstate->p_pre_columnref_hook = cypher_columnref_hook;
 
     if (parent_cpstate)
     {
         pstate->p_sourcetext = parent_pstate->p_sourcetext;
         pstate->p_queryEnv = parent_pstate->p_queryEnv;
-        pstate->p_pre_columnref_hook = parent_pstate->p_pre_columnref_hook;
+        //pstate->p_pre_columnref_hook = parent_pstate->p_pre_columnref_hook;
         pstate->p_post_columnref_hook = parent_pstate->p_post_columnref_hook;
         pstate->p_paramref_hook = parent_pstate->p_paramref_hook;
         pstate->p_coerce_param_hook = parent_pstate->p_coerce_param_hook;

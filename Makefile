@@ -36,13 +36,10 @@ OBJS = src/backend/postgraph.o \
        src/backend/parser/ag_scanner.o \
        src/backend/parser/cypher_analyze.o \
        src/backend/parser/cypher_clause.o \
-       src/backend/parser/sql_expr.o \
        src/backend/parser/cypher_expr.o \
        src/backend/parser/cypher_gram.o \
-       src/backend/parser/cypher_grouping.o \
        src/backend/parser/cypher_item.o \
        src/backend/parser/cypher_keywords.o \
-       src/backend/parser/cypher_parse_agg.o \
        src/backend/parser/cypher_parse_node.o \
        src/backend/parser/cypher_parser.o \
        src/backend/utils/adt/gtype.o \

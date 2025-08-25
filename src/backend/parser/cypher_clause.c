@@ -17,7 +17,6 @@
 #include "parser/cypher_clause.h"
 #include "parser/cypher_expr.h"
 #include "parser/cypher_item.h"
-#include "parser/cypher_parse_agg.h"
 #include "parser/cypher_parse_node.h"
 #include "utils/ag_cache.h"
 #include "utils/ag_func.h"
@@ -60,9 +59,6 @@ static char *make_id_alias(char *var_name);
 static char *make_property_alias(char *var_name);
 static char *make_startid_alias(char *var_name);
 static char *make_endid_alias(char *var_name);
-
-List *transform_window_definitions(ParseState *pstate, List *windowdefs, List **targetlist);
-
 
 static char *make_vertex_adjlist_alias(char *var_name) {
     char *str = palloc(strlen(var_name) + 8);
@@ -245,7 +241,7 @@ static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi
 
 static Node *
 make_graphid_placeholder(cypher_parsestate *cpstate) {
-    Const *c = makeConst(GRAPHIDOID, -1, InvalidOid, -1, 0, false, false);
+    Const *c = makeConst(GRAPHIDOID, -1, InvalidOid, sizeof(graphid), GRAPHID_GET_DATUM(0), false, true);
     c->location = -1;
     return (Node *)c;
 } 
@@ -269,22 +265,6 @@ transform_cypher_clause_as_subquery_2(cypher_parsestate *cpstate, Query *query) 
 
     ParseNamespaceItem *pnsi = addRangeTableEntryForSubquery(pstate, query, makeAlias(PREV_CYPHER_CLAUSE_ALIAS, NIL), lateral, true);
 
-    if (list_length(pstate->p_rtable) > 1) {
-        List *namespace = NULL;
-        int rtindex = 0;
-
-        rtindex = list_length(pstate->p_rtable);
-
-        if (pnsi->p_rte != rt_fetch(rtindex, pstate->p_rtable))
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("rte must be last entry in p_rtable")));
-
-        namespace = list_make1(pnsi);
-
-        checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
-    }
-
     addNSItemToQuery(pstate, pnsi, true, false, true);
 }
 
@@ -300,7 +280,9 @@ static void validate_or_create_elabel(cypher_parsestate *cpstate, cypher_relatio
                         errmsg("label %s is for vertices, not edges", edge->label),
                         parser_errposition(cpstate, edge->location)));
     else if (!lcd)  
-        create_label(cpstate->graph_name, edge->label, LABEL_TYPE_EDGE, list_make1(get_label_range_var(cpstate->graph_name, cpstate->graph_oid, AG_DEFAULT_LABEL_EDGE)), NULL);
+        create_label(cpstate->graph_name, edge->label, LABEL_TYPE_EDGE,
+            list_make1(get_label_range_var(cpstate->graph_name, cpstate->graph_oid, AG_DEFAULT_LABEL_EDGE)),
+            NULL);
     
 }
 
@@ -316,6 +298,133 @@ static void validate_or_create_vlabel(cypher_parsestate *cpstate, cypher_node *n
 }
 
 
+static void
+process_create_vertex(
+    cypher_parsestate *cpstate,
+    Query *query,
+    cypher_node *node,
+    cypher_create_path *ccp)
+{
+    ParseState *pstate = (ParseState *)cpstate;
+    cypher_target_node *target = make_ag_node(cypher_target_node);
+
+    if (node->label)
+        validate_or_create_vlabel(cpstate, node);
+    else
+        node->label = AG_DEFAULT_LABEL_VERTEX;
+
+    if (node->name) {
+        // /ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
+
+        if (colNameToVar(cpstate, node->name, false, -1))
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("CREATE vertex variable %s already exists", node->name)));
+
+        target->variable_name = node->name;
+        query->targetList = lappend(query->targetList,
+            makeTargetEntry(
+                make_graphid_placeholder(cpstate),
+                target->id_attr_num = pstate->p_next_resno++,
+                make_id_alias(node->name),
+                false));
+
+        if (node->props) {
+            query->targetList = lappend(query->targetList,
+                makeTargetEntry(
+                    transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET),
+                    target->prop_attr_num = pstate->p_next_resno++,
+                    make_property_alias(node->name),
+                    false));
+        } else {
+            target->prop_attr_num = InvalidAttrNumber;
+            /*query->targetList = lappend(query->targetList,
+                makeTargetEntry(
+                    make_int_placeholder(cpstate),
+                    target->prop_attr_num = pstate->p_next_resno++,
+                    make_property_alias(node->name),
+                    false));*/
+        }
+
+        query->targetList = lappend(query->targetList,
+                makeTargetEntry(
+                    make_int_placeholder(cpstate),
+                    target->tuple_position = pstate->p_next_resno++,
+                    node->name,
+                    false));
+
+    } else {
+        node->name = get_next_default_alias(cpstate);
+        target->id_attr_num = InvalidAttrNumber;
+        target->tuple_position = InvalidAttrNumber;
+
+        if (node->props) {
+            query->targetList = lappend(query->targetList,
+                makeTargetEntry(
+                    (Expr *)add_volatile_wrapper(
+                        transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
+                    target->prop_attr_num = pstate->p_next_resno++,
+                    make_property_alias(node->name),
+                    false));
+        } else {
+            target->prop_attr_num = InvalidAttrNumber;
+        }
+
+    }
+
+
+
+    label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
+
+    target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
+    target->relid = lcd->relation;
+    target->adj_relid = lcd->vertex_adjlist;
+
+    ccp->target_nodes = lappend(ccp->target_nodes, target);
+}
+
+static void
+process_create_edge(
+    cypher_parsestate *cpstate,
+    Query *query,
+    cypher_relationship *edge,
+    cypher_create_path *ccp)
+{
+    ParseState *pstate = (ParseState *)cpstate;
+    cypher_target_node *target = make_ag_node(cypher_target_node);
+
+    if (edge->label)
+        validate_or_create_elabel(cpstate, edge);
+    else
+        edge->label = AG_DEFAULT_LABEL_EDGE;
+
+    if (edge->name)
+        ereport(ERROR, (errmsg_internal("edges in CREATE cannot have variable names")));
+    else
+        edge->name = get_next_default_alias(cpstate);
+
+    if (edge->props)
+        query->targetList = lappend(query->targetList,
+            makeTargetEntry(
+                (Expr *)add_volatile_wrapper(
+                    transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET)),
+                target->prop_attr_num = pstate->p_next_resno++,
+                make_property_alias(edge->name),
+                false));
+    else
+        target->prop_attr_num = InvalidAttrNumber;
+
+    target->dir = edge->dir;
+    if (edge->dir == CYPHER_REL_DIR_NONE)
+        ereport(ERROR, (errmsg_internal("edges in CREATE must have a direction")));
+
+    label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
+    target->relid = lcd->relation;
+
+    target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(target->relid), 1);
+
+    ccp->target_nodes = lappend(ccp->target_nodes, target);
+}
+
 static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause *clause) {
     ParseState *pstate = (ParseState *)cpstate;
     cypher_create *self = (cypher_create *)clause->self;
@@ -327,8 +436,8 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
     if (clause->prev != NULL)
         ereport(ERROR, (errmsg_internal("CREATE doesn't work with previous clauses")));
 
-    if (clause->next)
-        ereport(ERROR, (errmsg_internal("CREATE doesn't work with next clauses")));
+    //if (clause->next)
+      //  ereport(ERROR, (errmsg_internal("CREATE doesn't work with next clauses")));
 
     if (list_length(self->pattern) != 1)
         ereport(ERROR, (errmsg_internal("CREATE doesn't work with patterns")));
@@ -352,97 +461,10 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
         foreach (lc2, path->path) {
             if (i % 2 == 1) {
                 cypher_node *node = (cypher_node *)lfirst(lc2);
-
-                cypher_target_node *target = make_ag_node(cypher_target_node);
-
-                if (node->label) 
-                    validate_or_create_vlabel(cpstate, node);
-                else
-                    node->label = AG_DEFAULT_LABEL_VERTEX;
-                    
-                if (node->name) {
-                           ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
-  
-                    target->variable_name = node->name;
-                    target->id_attr_num = pstate->p_next_resno;
-                    query->targetList = lappend(query->targetList,
-                        makeTargetEntry(
-                            make_graphid_placeholder(cpstate),
-                            pstate->p_next_resno++,
-                            make_id_alias(get_next_default_alias(cpstate)), 
-                            false));
-                        
-/*
-                    query->targetList = lappend(query->targetList,
-                        makeTargetEntry(
-                            make_int_placeholder(cpstate),
-                            pstate->p_next_resno++,
-                            make_id_alias(get_next_default_alias(cpstate)), 
-                            false));
-                        }
-
-                    target->props_attr_num = list_length(query->targetList);
-*/
-                } else
-                    node->name = get_next_default_alias(cpstate);
-
-                if (node->props) {
-                    target->prop_attr_num = pstate->p_next_resno;
-                    query->targetList = lappend(query->targetList,
-                        makeTargetEntry(
-                            (Expr *)add_volatile_wrapper(
-                                transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
-                            pstate->p_next_resno++,
-                            make_property_alias(node->name),
-                            false));
-    
-                } else {
-                    target->prop_attr_num = InvalidAttrNumber;
-                }
-        
-
-                label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
-
-                target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
-                target->relid = lcd->relation;
-                target->adj_relid = lcd->vertex_adjlist;
-
-                ccp->target_nodes = lappend(ccp->target_nodes, target);
-                
+                process_create_vertex(cpstate, query, node, ccp);
             } else {
                 cypher_relationship *edge = lfirst(lc2);
-                cypher_target_node *target = make_ag_node(cypher_target_node);
-                if (edge->label) 
-                    validate_or_create_elabel(cpstate, edge);
-                else
-                    edge->label = AG_DEFAULT_LABEL_EDGE;
-
-                if (edge->name)
-                    ereport(ERROR, (errmsg_internal("edges in CREATE cannot have variable names")));
-                else
-                    edge->name = get_next_default_alias(cpstate);
-                
-                if (edge->props)
-                    query->targetList = lappend(query->targetList,
-                        makeTargetEntry(
-                            (Expr *)add_volatile_wrapper(
-                                transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET)),
-                            target->prop_attr_num = pstate->p_next_resno++,
-                            make_property_alias(edge->name),
-                            false));
-                else 
-                    target->prop_attr_num = InvalidAttrNumber;
-
-                target->dir = edge->dir;
-                if (edge->dir == CYPHER_REL_DIR_NONE)
-                    ereport(ERROR, (errmsg_internal("edges in CREATE must have a direction")));
-
-                label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
-                target->relid = lcd->relation;
-
-                target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(target->relid), 1);
-
-                ccp->target_nodes = lappend(ccp->target_nodes, target);
+                process_create_edge(cpstate, query, edge, ccp);
             }
 
             i++;
@@ -502,11 +524,11 @@ Query *transform_cypher_return(cypher_parsestate *cpstate, cypher_clause *clause
     query->sortClause = transform_cypher_order_by(cpstate, self->order_by, &query->targetList, EXPR_KIND_ORDER_BY);
 
     if (self->real_group_clause != NIL)
-        query->groupClause = transform_group_clause(cpstate, self->real_group_clause, &query->groupingSets,
+        query->groupClause = transformGroupClause(cpstate, self->real_group_clause, &query->groupingSets,
                                                     &query->targetList,
                                                     query->sortClause, EXPR_KIND_GROUP_BY);
     else if (groupClause != NIL) // auto GROUP BY
-        query->groupClause = transform_group_clause(cpstate, groupClause, &query->groupingSets, &query->targetList,
+        query->groupClause = transformGroupClause(cpstate, groupClause, &query->groupingSets, &query->targetList,
                                                     query->sortClause, EXPR_KIND_GROUP_BY);
     else 
         query->groupClause = NULL;
@@ -528,7 +550,7 @@ Query *transform_cypher_return(cypher_parsestate *cpstate, cypher_clause *clause
     query->limitCount = transform_cypher_limit(cpstate, self->limit, EXPR_KIND_LIMIT, "LIMIT");
 
     if (pstate->p_windowdefs != NIL)
-        query->windowClause = transform_window_definitions(pstate, pstate->p_windowdefs, &query->targetList);
+        query->windowClause = transformWindowDefinitions(pstate, pstate->p_windowdefs, &query->targetList);
 
     query->rtable = pstate->p_rtable;
     query->jointree = makeFromExpr(pstate->p_joinlist, expr);
@@ -541,7 +563,7 @@ Query *transform_cypher_return(cypher_parsestate *cpstate, cypher_clause *clause
 
     // this must be done after collations, for reliable comparison of exprs 
     if (pstate->p_hasAggs || query->groupClause || query->groupingSets || query->havingQual)
-        parse_check_aggregates(pstate, query);
+        parseCheckAggregates(pstate, query);
 
     return query;
 }
@@ -581,7 +603,6 @@ List *transform_cypher_order_by(cypher_parsestate *cpstate, List *sort_items,Lis
 
     return sort_list;
 }
-
 
 // see transformLimitClause()
 static Node *transform_cypher_limit(cypher_parsestate *cpstate, Node *node, ParseExprKind expr_kind,
@@ -903,7 +924,6 @@ static Node *transform_srf_function(cypher_parsestate *cpstate, Node *n, List **
     return (Node *) rtr;
 }
 
-// setNamespaceLateralState - subroutine to update LATERAL flags in a namespace list.
 static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok) {
     ListCell *lc;
 
@@ -1009,17 +1029,7 @@ add_vertex_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node,
                                     true, 
                                     true);
     setNamespaceLateralState(pnsi, false, true);
-/*
-    RangeTblRef *rtr = transform_srf_function(
-        cpstate, 
-        make_range_function(n, make_alias(var_name, colnames), true, false, false),
-        &namespace);
 
-    setNamespaceLateralState(namespace, true, true);
-
-    get_parse_state(cpstate)->p_joinlist = lappend(get_parse_state(cpstate)->p_joinlist, rtr);
-    get_parse_state(cpstate)->p_namespace = list_concat(get_parse_state(cpstate)->p_namespace, namespace);
-*/
     addNSItemToQuery(cpstate, pnsi, true, true, true);
 
     return pnsi;
@@ -1034,8 +1044,8 @@ add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_n
 
         Var *var;
         if (var = colNameToVar(cpstate, make_id_alias(node->name), false, -1)) {
-            ereport(WARNING,(errcode(ERRCODE_UNDEFINED_SCHEMA),
-                errmsg("here")));
+//            ereport(WARNING,(errcode(ERRCODE_UNDEFINED_SCHEMA),
+//                errmsg("here")));
             node->declared_in_previous_clause = true;
 
             *quals = lappend(*quals,
@@ -1057,7 +1067,7 @@ add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_n
                             (Node *)scanNSItemForColumn(cpstate, pnsi, 0, "id", -1), -1));
 
             return pnsi;
-            }
+        }
     }
 
     else {
@@ -1096,10 +1106,13 @@ add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship 
 {
     edge->has_variable = false;
     if (edge->name) {
+        if (colNameToVar(cpstate, make_id_alias(edge->name), false, -1) || refnameNamespaceItem(cpstate, NULL, edge->name, -1, NULL)) 
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("MATCH edge variable %s already exists", edge->name)));
+
         edge->has_variable = true;
 
-    }
-    else
+    } else
         edge->name = get_next_default_alias(cpstate);
 
     bool is_default_label = true;
@@ -1110,32 +1123,33 @@ add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship 
     else
         edge->label = AG_DEFAULT_LABEL_EDGE;
 
-    Node *id_field;
-    if (!vertex->declared_in_previous_clause)
-        id_field = scanNSItemForColumn(cpstate, vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
-    else
-        id_field = colNameToVar(cpstate, make_id_alias(vertex->name), false, -1);
-    
-    //id_field = scanNSItemForColumn(cpstate, vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
-
-    //if (id_field == NULL)
-    //    id_field = colNameToVar(cpstate, make_id_alias(vertex->name), false, -1);
-
-    FuncCall *fc = makeFuncCall(
-        list_make2(makeString("postgraph"), makeString("edge_search")),
-        list_make4(make_int_const(cpstate->graph_oid, -1), id_field, make_null_const(-1), make_null_const(-1)),
-        COERCE_EXPLICIT_CALL, -1);
-
-    return add_srf_to_query(cpstate, fc, edge->name, list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
+    return add_srf_to_query(
+        cpstate, 
+        makeFuncCall(
+            list_make2(makeString("postgraph"), makeString("edge_search")),
+            list_make4(
+                make_int_const(cpstate->graph_oid, -1),
+                vertex->declared_in_previous_clause ? 
+                    colNameToVar(cpstate, make_id_alias(vertex->name), false, -1) : 
+                    scanNSItemForColumn(cpstate, vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1), 
+                make_null_const(-1), 
+                make_null_const(-1)),
+            COERCE_EXPLICIT_CALL, -1), 
+        edge->name, 
+        list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
 }
 
 static ParseNamespaceItem *
 add_edge_to_query_with_prev_edge(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, ParseNamespaceItem *prev_pnsi, char *prev_name)
 {
     edge->has_variable = false;
-    if (edge->name)
+    if (edge->name){
+        if (colNameToVar(cpstate, make_id_alias(edge->name), false, -1) || refnameNamespaceItem(cpstate, NULL, edge->name, -1, NULL)) 
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("MATCH edge variable %s already exists", edge->name)));
+
         edge->has_variable = true;
-    else
+    } else
         edge->name = get_next_default_alias(cpstate);
 
     bool is_default_label = true;
@@ -1146,28 +1160,22 @@ add_edge_to_query_with_prev_edge(cypher_parsestate *cpstate, Query *query, cyphe
     else
         edge->label = AG_DEFAULT_LABEL_EDGE;
 
-    Node *id_field;
-    if(edge->dir != CYPHER_REL_DIR_NONE) 
-        id_field = scanNSItemForColumn(cpstate, prev_pnsi, 0, "endid", -1);
-    else 
+    if(edge->dir == CYPHER_REL_DIR_NONE) 
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg("MATCH edge can't be bi directional")));
-            
 
-
-    FuncCall *fc = makeFuncCall(
-        list_make2(makeString("postgraph"), makeString("edge_search")),
-        list_make4(make_int_const(cpstate->graph_oid, -1), id_field, make_null_const(-1), make_null_const(-1)),
-        COERCE_EXPLICIT_CALL, -1);
-
-    return add_srf_to_query(cpstate, fc, edge->name, list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
+    return add_srf_to_query(
+        cpstate, 
+        makeFuncCall(
+            list_make2(makeString("postgraph"), makeString("edge_search")),
+            list_make4(make_int_const(cpstate->graph_oid, -1), scanNSItemForColumn(cpstate, prev_pnsi, 0, "endid", -1), make_null_const(-1), make_null_const(-1)),
+            COERCE_EXPLICIT_CALL, -1), 
+        edge->name, 
+        list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
 }
 
 static ParseNamespaceItem *
-add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, ParseNamespaceItem *vertex_pnsi)
-{
-    ParseState *pstate = (ParseState *)cpstate;
-
+add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, ParseNamespaceItem *vertex_pnsi) {
     edge->has_variable = false;
     if (edge->name)
         ereport(ERROR,
@@ -1184,16 +1192,18 @@ add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_rela
     else
         edge->label = AG_DEFAULT_LABEL_EDGE;
 
-    Node *id_field = scanNSItemForColumn(cpstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1);
-    
-    A_Indices *idx= edge->varlen;
-
-    FuncCall *fc = makeFuncCall(
-        list_make2(makeString("postgraph"), makeString("variable_edge_search")),
-        list_make4(make_int_const(cpstate->graph_oid, -1), id_field, idx->lidx, make_null_const(-1)),
-        COERCE_EXPLICIT_CALL, -1);
-
-    return add_srf_to_query(cpstate, fc, edge->name, list_make3(makeString("edges"), makeString("endid"), makeString("hashset")));
+    return add_srf_to_query(
+        cpstate, 
+        makeFuncCall(
+            list_make2(makeString("postgraph"), makeString("variable_edge_search")),
+            list_make4(
+                make_int_const(cpstate->graph_oid, -1), 
+                scanNSItemForColumn(cpstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1), 
+                ((A_Indices *)edge->varlen)->lidx, 
+                make_null_const(-1)),
+            COERCE_EXPLICIT_CALL, -1),
+        edge->name,
+        list_make3(makeString("edges"), makeString("endid"), makeString("hashset")));
 }
 
 static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *query,
@@ -1228,7 +1238,6 @@ static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *que
                                         pstate->p_next_resno++,
                                         left_vertex->name,
                                         false));
-
     }
 
     if (edge->varlen) {
@@ -1639,7 +1648,7 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
     // AND the quals for each path together
     Expr *expr = NULL;
     if (quals != NIL) 
-        expr = (Expr *)sql_transform_expr(cpstate, (Node *)makeBoolExpr(AND_EXPR, quals, -1), EXPR_KIND_WHERE);
+        expr = (Expr *)transformExpr(cpstate, (Node *)makeBoolExpr(AND_EXPR, quals, -1), EXPR_KIND_WHERE);
 
     // WHERE Clause
     /*

@@ -48,6 +48,10 @@ MATCH (a:test) RETURN a;
 
 CREATE ()-[]->();
 
+CREATE (a)-[]->();
+
+CREATE (a)-[]->() RETURN a;
+
 CREATE ()-[:elabel]->();
 
 MATCH ()-[]->() RETURN 1;
