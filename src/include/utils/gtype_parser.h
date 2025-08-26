@@ -152,6 +152,5 @@ gtype_lex_context *make_gtype_lex_context_cstring_len(char *str, int len,
  */
 extern bool is_valid_gtype_number(const char *str, int len);
 
-extern char *gtype_encode_date_time(char *buf, Datum value, Oid typid);
 
 #endif

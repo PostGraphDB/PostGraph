@@ -241,16 +241,22 @@ static Node *make_edge_expr(cypher_parsestate *cpstate, ParseNamespaceItem *pnsi
 
 static Node *
 make_graphid_placeholder(cypher_parsestate *cpstate) {
-    Const *c = makeConst(GRAPHIDOID, -1, InvalidOid, sizeof(graphid), GRAPHID_GET_DATUM(0), false, true);
-    c->location = -1;
-    return (Node *)c;
+    return makeConst(GRAPHIDOID, -1, InvalidOid, sizeof(graphid), GRAPHID_GET_DATUM(0), false, true);
 } 
 
 static Node *
-make_int_placeholder(cypher_parsestate *cpstate) {
-    Const *c = makeConst(GTYPEOID, -1, InvalidOid, -1, integer_to_gtype(0), false, false);
-    c->location = -1;
-    return (Node *)c;
+make_gtype_placeholder(cypher_parsestate *cpstate) {
+    return makeConst(GTYPEOID, -1, InvalidOid, -1, integer_to_gtype(0), false, false);
+} 
+
+static Node *
+make_edge_placeholder(cypher_parsestate *cpstate) {
+    return makeConst(EDGEOID, -1, InvalidOid, -1, create_edge(0, 0, 0, cpstate->graph_oid, NULL), false, false);
+} 
+
+static Node *
+make_vertex_placeholder(cypher_parsestate *cpstate) {
+    return makeConst(VERTEXOID, -1, InvalidOid, -1, create_vertex(0, cpstate->graph_oid, NULL), false, false);
 } 
 
 /*
@@ -266,6 +272,8 @@ transform_cypher_clause_as_subquery_2(cypher_parsestate *cpstate, Query *query) 
     ParseNamespaceItem *pnsi = addRangeTableEntryForSubquery(pstate, query, makeAlias(PREV_CYPHER_CLAUSE_ALIAS, NIL), lateral, true);
 
     addNSItemToQuery(pstate, pnsi, true, false, true);
+
+    //query->targetList = list_concat(query->targetList, expandNSItemAttrs(pstate, pnsi, 0, -1));
 }
 
 static Expr *add_volatile_wrapper(Expr *node) {
@@ -331,7 +339,7 @@ process_create_vertex(
         if (node->props) {
             query->targetList = lappend(query->targetList,
                 makeTargetEntry(
-                    transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET),
+                    add_volatile_wrapper(transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
                     target->prop_attr_num = pstate->p_next_resno++,
                     make_property_alias(node->name),
                     false));
@@ -339,7 +347,7 @@ process_create_vertex(
             target->prop_attr_num = InvalidAttrNumber;
             /*query->targetList = lappend(query->targetList,
                 makeTargetEntry(
-                    make_int_placeholder(cpstate),
+                    make_gtype_placeholder(cpstate),
                     target->prop_attr_num = pstate->p_next_resno++,
                     make_property_alias(node->name),
                     false));*/
@@ -347,7 +355,7 @@ process_create_vertex(
 
         query->targetList = lappend(query->targetList,
                 makeTargetEntry(
-                    make_int_placeholder(cpstate),
+                    make_vertex_placeholder(cpstate),
                     target->tuple_position = pstate->p_next_resno++,
                     node->name,
                     false));
@@ -370,8 +378,6 @@ process_create_vertex(
         }
 
     }
-
-
 
     label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
 
@@ -397,21 +403,63 @@ process_create_edge(
     else
         edge->label = AG_DEFAULT_LABEL_EDGE;
 
-    if (edge->name)
-        ereport(ERROR, (errmsg_internal("edges in CREATE cannot have variable names")));
-    else
-        edge->name = get_next_default_alias(cpstate);
 
-    if (edge->props)
+    if (edge->name) {
+        // /ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
+
+        if (colNameToVar(cpstate, edge->name, false, -1))
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("CREATE edge variable %s already exists", edge->name)));
+
+        target->variable_name = edge->name;
         query->targetList = lappend(query->targetList,
             makeTargetEntry(
-                (Expr *)add_volatile_wrapper(
-                    transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET)),
-                target->prop_attr_num = pstate->p_next_resno++,
-                make_property_alias(edge->name),
+                make_graphid_placeholder(cpstate),
+                target->id_attr_num = pstate->p_next_resno++,
+                make_id_alias(edge->name),
                 false));
-    else
-        target->prop_attr_num = InvalidAttrNumber;
+
+        if (edge->props) {
+            query->targetList = lappend(query->targetList,
+                makeTargetEntry(
+                    transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET),
+                    target->prop_attr_num = pstate->p_next_resno++,
+                    make_property_alias(edge->name),
+                    false));
+        } else {
+            target->prop_attr_num = InvalidAttrNumber;
+            /*query->targetList = lappend(query->targetList,
+                makeTargetEntry(
+                    make_gtype_placeholder(cpstate),
+                    target->prop_attr_num = pstate->p_next_resno++,
+                    make_property_alias(edge->name),
+                    false));*/
+        }
+
+        query->targetList = lappend(query->targetList,
+                makeTargetEntry(
+                    make_edge_placeholder(cpstate),
+                    target->tuple_position = pstate->p_next_resno++,
+                    edge->name,
+                    false));
+
+    } else {
+        edge->name = get_next_default_alias(cpstate);
+        target->id_attr_num = InvalidAttrNumber;
+        target->tuple_position = InvalidAttrNumber;
+
+        if (edge->props) {
+            query->targetList = lappend(query->targetList,
+                makeTargetEntry(
+                    (Expr *)add_volatile_wrapper(
+                        transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET)),
+                    target->prop_attr_num = pstate->p_next_resno++,
+                    make_property_alias(edge->name),
+                    false));
+        } else {
+            target->prop_attr_num = InvalidAttrNumber;
+        }
+    }
 
     target->dir = edge->dir;
     if (edge->dir == CYPHER_REL_DIR_NONE)
@@ -448,6 +496,9 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
     target_nodes->flags = CYPHER_CLAUSE_FLAG_NONE;
     target_nodes->graph_oid = cpstate->graph_oid;
 
+    if (!clause->next)
+        target_nodes->flags |= CYPHER_CLAUSE_FLAG_TERMINAL;
+
     ListCell *lc;
     foreach (lc, self->pattern) {
         cypher_path *path = lfirst(lc);
@@ -482,6 +533,10 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
 
     query->rtable = pstate->p_rtable;
     query->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+
+    if (clause->next)
+        return query;
+
 
     {
         cypher_parsestate *new_cpstate = make_cypher_parsestate(cpstate);

@@ -52,6 +52,23 @@ CREATE (a)-[]->();
 
 CREATE (a)-[]->() RETURN a;
 
+CREATE (a)-[]->(b) RETURN a;
+
+CREATE (a {msg: 'hello vertex out'}) RETURN a;
+
+CREATE (a {msg: 'hello vertex out'}) RETURN a.msg;
+
+CREATE (a {msg: 'hello vertex out'})-[]->(b) RETURN a;
+
+
+CREATE (a)-[e]->(b) RETURN e;
+
+CREATE (a)-[e {msg: 'hello edge'}]->(b) RETURN e;
+
+
+CREATE ()-[{msg: 'hello edge'}]->();
+SELECT * FROM cypher_create._adj__ag_label_vertex;
+
 CREATE ()-[:elabel]->();
 
 MATCH ()-[]->() RETURN 1;

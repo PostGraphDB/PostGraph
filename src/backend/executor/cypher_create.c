@@ -133,13 +133,13 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
                           ExecGetResultType(node->ss.ps.lefttree),
                           &TTSOpsHeapTuple);
 
-    /*
+    
     if (!CYPHER_CLAUSE_IS_TERMINAL(css->flags)) {
         TupleDesc tupdesc = node->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
 
         ExecAssignProjectionInfo(&node->ss.ps, tupdesc);
     }
-    */
+    
 
     if (list_length(css->pattern) != 1)
         ereport(ERROR, (errmsg_internal("executor create found a multi pattern")));
@@ -203,111 +203,141 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
     EState *estate = css->css.ss.ps.state;
     ExprContext *econtext = css->css.ss.ps.ps_ExprContext;
 
+    while (true) {
+        RollbackCmdId(estate);
+        TupleTableSlot *return_slot = ExecProcNode(csnode->ss.ps.lefttree);
+        AdvanceCmdId(estate);
 
-    RollbackCmdId(estate);
-    TupleTableSlot *slot = ExecProcNode(csnode->ss.ps.lefttree);
-    AdvanceCmdId(estate);
+        if (TupIsNull(return_slot))
+            return return_slot;
+    //  if ((return_slot->tts_flags = return_slot & TTS_FLAG_EMPTY))
+        //    return NULL;
+        econtext->ecxt_scantuple =
+                csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
+        TupleTableSlot *slot = econtext->ecxt_scantuple;//csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
+        //slot->tts_ops->materialize(slot);
 
-    slot = csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
-    slot->tts_ops->materialize(slot);
-    if (list_length(css->pattern) != 1)
-        ereport(ERROR, (errmsg_internal("executor create found a multi pattern")));
+        if (list_length(css->pattern) != 1)
+            ereport(ERROR, (errmsg_internal("executor create found a multi pattern")));
 
-    cypher_create_path *path = linitial(css->pattern);
+        cypher_create_path *path = linitial(css->pattern);
 
-    ListCell *lc;
-    int i = 1;
-    foreach(lc, path->target_nodes) {
-        cypher_target_node *node = (cypher_target_node *)lfirst(lc);
-        bool isNull;
-        if(i % 2 == 1)
-            css->vertex_ids[0][i/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
-        else {
-            css->edge_ids[0][(i-1)/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
+        ListCell *lc;
+        int i = 1;
+        foreach(lc, path->target_nodes) {
+            cypher_target_node *node = (cypher_target_node *)lfirst(lc);
+            bool isNull;
+            if(i % 2 == 1)
+                css->vertex_ids[0][i/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
+            else {
+                css->edge_ids[0][(i-1)/2] = ExecEvalExpr(node->id_expr_state, econtext, &isNull);
 
-        }  
-        i++;
-        
-    }
-
-    for (int i = 0; i < list_length(path->target_nodes)/2 + 1; i++) {
-        cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i * 2);
-                
-        ResultRelInfo *resultRelInfo = node->resultRelInfo;
-        TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
-
-        ResultRelInfo **old_estate_es_result_relations_info = NULL;
-
-        /* save the old result relation info */
-        old_estate_es_result_relations_info = estate->es_result_relations;
-
-        estate->es_result_relations = &resultRelInfo;
-
-        ExecClearTuple(elemTupleSlot);
-
-        // get the next graphid for this vertex.
-        elemTupleSlot->tts_values[0] = css->vertex_ids[0][i];
-        elemTupleSlot->tts_isnull[0] = false;
-        if (node->id_attr_num != InvalidAttrNumber) {
-            slot->tts_values[node->id_attr_num - 1] = GRAPHID_GET_DATUM(css->vertex_ids[0][i]);
-            slot->tts_isnull[node->id_attr_num - 1] = false;
+            }  
+            i++;
         }
 
-        // get the properties for this vertex
-        if (node->prop_attr_num == InvalidAttrNumber) {
-            elemTupleSlot->tts_values[1] = NULL;
-            elemTupleSlot->tts_isnull[1] = true;
-        } else {
-            elemTupleSlot->tts_values[1] = slot->tts_values[node->prop_attr_num - 1];
-            elemTupleSlot->tts_isnull[1] = slot->tts_isnull[node->prop_attr_num - 1];
-        }
+        for (int i = 0; i < list_length(path->target_nodes)/2 + 1; i++) {
+            cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i * 2);
+                    
+            ResultRelInfo *resultRelInfo = node->resultRelInfo;
+            TupleTableSlot *elemTupleSlot = node->elemTupleSlot;
 
-        if (node->tuple_position != InvalidAttrNumber) {
-            create_vertex(
-                GRAPHID_GET_DATUM(slot->tts_values[node->id_attr_num - 1]),
-                css->graph_oid,
-                node->prop_attr_num == InvalidAttrNumber?  NULL: DATUM_GET_GTYPE_P(slot->tts_values[node->prop_attr_num -  1]));
-        }
+            ResultRelInfo **old_estate_es_result_relations_info = NULL;
 
-        // Insert the new vertex
-        insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
-
-        if (list_length(path->target_nodes) > 1 && i < (list_length(path->target_nodes)/2)) {
-            resultRelInfo = node->adj_resultRelInfo;
-            elemTupleSlot = node->adj_elemTupleSlot;
+            /* save the old result relation info */
+            old_estate_es_result_relations_info = estate->es_result_relations;
 
             estate->es_result_relations = &resultRelInfo;
 
             ExecClearTuple(elemTupleSlot);
 
             // get the next graphid for this vertex.
-            elemTupleSlot->tts_values[0] = css->edge_ids[0][i];
+            elemTupleSlot->tts_values[0] = css->vertex_ids[0][i];
             elemTupleSlot->tts_isnull[0] = false;
-	
-            elemTupleSlot->tts_values[1] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i : i + 1];
-            elemTupleSlot->tts_isnull[1] = false;
-            
-            elemTupleSlot->tts_values[2] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i + 1 : i];
-            elemTupleSlot->tts_isnull[2] = false;
+            if (node->id_attr_num != InvalidAttrNumber) {
+                slot->tts_values[node->id_attr_num - 1] = GRAPHID_GET_DATUM(css->vertex_ids[0][i]);
+                slot->tts_isnull[node->id_attr_num - 1] = false;
+            }
 
-
+            // get the properties for this vertex
             if (node->prop_attr_num == InvalidAttrNumber) {
-                elemTupleSlot->tts_values[3] = NULL;
-                elemTupleSlot->tts_isnull[3] = true;
+                elemTupleSlot->tts_values[1] = NULL;
+                elemTupleSlot->tts_isnull[1] = true;
             } else {
-                //TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
-                elemTupleSlot->tts_values[3] = slot->tts_values[node->prop_attr_num - 1];
-                elemTupleSlot->tts_isnull[3] = slot->tts_isnull[node->prop_attr_num - 1];
+                elemTupleSlot->tts_values[1] = slot->tts_values[node->prop_attr_num - 1];
+                elemTupleSlot->tts_isnull[1] = slot->tts_isnull[node->prop_attr_num - 1];
+            }
+
+            if (node->tuple_position != InvalidAttrNumber) {
+                slot->tts_values[node->tuple_position - 1] = VERTEX_GET_DATUM(create_vertex(
+                    slot->tts_values[node->id_attr_num - 1],
+                    css->graph_oid,
+                    elemTupleSlot->tts_isnull[1] ?  NULL : DATUM_GET_GTYPE_P(elemTupleSlot->tts_values[1])));
+                slot->tts_isnull[node->tuple_position - 1] = false;
             }
 
             // Insert the new vertex
             insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
-        }
-        /* restore the old result relation info */
-        estate->es_result_relations = old_estate_es_result_relations_info;
-    }
 
-    return NULL;
+
+            if (list_length(path->target_nodes) > 1 && i < (list_length(path->target_nodes)/2)) {
+
+                    
+                resultRelInfo = node->adj_resultRelInfo;
+                elemTupleSlot = node->adj_elemTupleSlot;
+
+                estate->es_result_relations = &resultRelInfo;
+
+                ExecClearTuple(elemTupleSlot);
+                cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, (i * 2) + 1);
+                // get the next graphid for this vertex.
+                elemTupleSlot->tts_values[0] = css->edge_ids[0][i];
+                elemTupleSlot->tts_isnull[0] = false;
+        
+                elemTupleSlot->tts_values[1] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i : i + 1];
+                elemTupleSlot->tts_isnull[1] = false;
+                
+                elemTupleSlot->tts_values[2] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i + 1 : i];
+                elemTupleSlot->tts_isnull[2] = false;
+
+
+                if (node->prop_attr_num == InvalidAttrNumber) {
+                    elemTupleSlot->tts_values[3] = NULL;
+                    elemTupleSlot->tts_isnull[3] = true;
+                } else {
+                    //TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
+                    elemTupleSlot->tts_values[3] = slot->tts_values[node->prop_attr_num - 1];
+                    elemTupleSlot->tts_isnull[3] = slot->tts_isnull[node->prop_attr_num - 1];
+                }
+
+                // Insert the new vertex
+                insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
+
+
+                if (node->tuple_position != InvalidAttrNumber) {
+                    slot->tts_values[node->tuple_position - 1] = EDGE_GET_DATUM(create_edge(
+                        css->edge_ids[0][i],
+                        css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i : i + 1],
+                        css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i + 1 : i],
+                        css->graph_oid,
+                        elemTupleSlot->tts_isnull[3] ?  NULL : DATUM_GET_GTYPE_P(elemTupleSlot->tts_values[3])));
+                    slot->tts_isnull[node->tuple_position - 1] = false;
+                }
+
+            }
+            /* restore the old result relation info */
+            estate->es_result_relations = old_estate_es_result_relations_info;
+        }
+
+    // if(CYPHER_CLAUSE_IS_TERMINAL(css->flags))
+        //   return NULL;
+        if(!CYPHER_CLAUSE_IS_TERMINAL(css->flags)) {
+            econtext->ecxt_scantuple = ExecProject(csnode->ss.ps.lefttree->ps_ProjInfo);
+            return ExecProject(csnode->ss.ps.ps_ProjInfo);
+    //     return return_slot;
+        }
+
+    }
 }
 
 static void end_cypher_create(CustomScanState *node)

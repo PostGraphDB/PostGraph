@@ -610,13 +610,13 @@ static void gtype_in_scalar(void *pstate, char *token, gtype_token_type tokentyp
             tokentype = GTYPE_TOKEN_TIMESTAMP;
         else if (len == 11 && pg_strcasecmp(annotation, "timestamptz") == 0)
             tokentype = GTYPE_TOKEN_TIMESTAMPTZ;
-	else if (len == 4 && pg_strcasecmp(annotation, "date") == 0)
+	    else if (len == 4 && pg_strcasecmp(annotation, "date") == 0)
             tokentype = GTYPE_TOKEN_DATE;
         else if (len == 4 && pg_strcasecmp(annotation, "time") == 0)
             tokentype = GTYPE_TOKEN_TIME;
         else if (len == 6 && pg_strcasecmp(annotation, "timetz") == 0)
             tokentype = GTYPE_TOKEN_TIMETZ;
-	else if (len == 8 && pg_strcasecmp(annotation, "interval") == 0)
+	    else if (len == 8 && pg_strcasecmp(annotation, "interval") == 0)
             tokentype = GTYPE_TOKEN_INTERVAL;
         else if (len == 4 && pg_strcasecmp(annotation, "inet") == 0)
             tokentype = GTYPE_TOKEN_INET;
@@ -719,7 +719,7 @@ static void gtype_in_scalar(void *pstate, char *token, gtype_token_type tokentyp
         v.type = AGTV_INET;
         i = DatumGetInetPP(DirectFunctionCall1(inet_in, CStringGetDatum(token)));
 
-	memcpy(&v.val.inet, i, sizeof(char) * 22);
+	    memcpy(&v.val.inet, i, sizeof(char) * 22);
         break;
         }
     case GTYPE_TOKEN_CIDR:
@@ -1831,27 +1831,16 @@ Datum gtype_access_slice(PG_FUNCTION_ARGS)
 }
 
 PG_FUNCTION_INFO_V1(gtype_in_operator);
-/*
- * Execute function for IN operator
- */
-Datum gtype_in_operator(PG_FUNCTION_ARGS)
-{
-    gtype *agt_array, *agt_item;
-    gtype_iterator *it_array, *it_item;
+Datum gtype_in_operator(PG_FUNCTION_ARGS) {
     gtype_value agtv_item, agtv_elem;
-    uint32 array_size = 0;
-    bool result = false;
-    uint32 i = 0;
-
-    if (PG_ARGISNULL(1))
-        PG_RETURN_NULL();
-
-    agt_array = AG_GET_ARG_GTYPE_P(1);
-    if (!AGT_ROOT_IS_ARRAY(agt_array))
+    
+    
+    gtype *arr = AG_GET_ARG_GTYPE_P(1);
+    if (!AGT_ROOT_IS_ARRAY(arr))
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                         errmsg("object of IN must be a list")));
 
-    it_array = gtype_iterator_init(&agt_array->root);
+    gtype_iterator *it_array = gtype_iterator_init(&arr->root);
     gtype_iterator_next(&it_array, &agtv_elem, false);
     if (agtv_elem.type == AGTV_ARRAY && agtv_elem.val.array.raw_scalar) {
         gtype_iterator_next(&it_array, &agtv_elem, false);
@@ -1862,15 +1851,8 @@ Datum gtype_in_operator(PG_FUNCTION_ARGS)
                         errmsg("object of IN must be a list")));
     }
 
-    array_size = AGT_ROOT_COUNT(agt_array);
-
-    if (PG_ARGISNULL(0))
-        PG_RETURN_NULL();
-    
-    agt_item = AG_GET_ARG_GTYPE_P(0);
-
-    it_item = gtype_iterator_init(&agt_item->root);
-
+    gtype *agt_item = AG_GET_ARG_GTYPE_P(0);
+    gtype_iterator *it_item = gtype_iterator_init(&agt_item->root);
     gtype_iterator_next(&it_item, &agtv_item, false);
     if (agtv_item.type == AGTV_ARRAY && agtv_item.val.array.raw_scalar) {
         gtype_iterator_next(&it_item, &agtv_item, false);
@@ -1879,15 +1861,19 @@ Datum gtype_in_operator(PG_FUNCTION_ARGS)
             PG_RETURN_NULL();
     }
 
-    for (i = 0; i < array_size && !result; i++)
+    for (int i = 0; i < AGT_ROOT_COUNT(arr); i++)
     {
+        bool result = false;
         gtype_iterator_next(&it_array, &agtv_elem, true);
         if (!IS_A_GTYPE_SCALAR(&agtv_item) && !IS_A_GTYPE_SCALAR(&agtv_elem))
             result = (compare_gtype_containers_orderability( &agt_item->root, agtv_elem.val.binary.data) == 0);
         else if (IS_A_GTYPE_SCALAR(&agtv_item) && IS_A_GTYPE_SCALAR(&agtv_elem) && agtv_item.type == agtv_elem.type)
             result = (compare_gtype_scalar_values(&agtv_item, &agtv_elem) == 0);
+
+        if (result)
+            PG_RETURN_BOOL(true);
     }
-    return result;
+    PG_RETURN_BOOL(false);
 }
 
 PG_FUNCTION_INFO_V1(gtype_string_match_starts_with);
@@ -2117,150 +2103,6 @@ Datum gtype_reverse(PG_FUNCTION_ARGS)
    }
 }
 
-/*
- * For the given properties, update the property with the key equal
- * to var_name with the value defined in new_v. If the remove_property
- * flag is set, simply remove the property with the given property
- * name instead.
- */
-gtype_value *alter_property_value(gtype *properties, char *var_name,
-                                   gtype *new_v, bool remove_property)
-{
-    gtype_iterator *it;
-    gtype_iterator_token tok = WGT_DONE;
-    gtype_parse_state *parse_state = NULL;
-    gtype_value *r;
-    gtype *prop_gtype;
-    gtype_value *parsed_gtype_value = NULL;
-    bool found;
-
-    // if no properties, return NULL
-    if (properties == NULL)
-        return NULL;
-
-    // if properties is not an object, throw an error
-    if (!GTYPE_CONTAINER_IS_OBJECT(&properties->root))//->type != AGTV_OBJECT)
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("can only update objects")));
-
-    r = palloc0(sizeof(gtype_value));
-
-    prop_gtype = properties;
-    it = gtype_iterator_init(&prop_gtype->root);
-    tok = gtype_iterator_next(&it, r, true);
-
-    parsed_gtype_value = push_gtype_value(&parse_state, tok, tok < WGT_BEGIN_ARRAY ? r : NULL);
-
-    /*
-     * If the new value is NULL, this is equivalent to the remove_property
-     * flag set to true.
-     */
-    if (new_v == NULL)
-        remove_property = true;
-
-    found = false;
-    while (true) {
-        char *str;
-
-        tok = gtype_iterator_next(&it, r, true);
-
-        if (tok == WGT_DONE || tok == WGT_END_OBJECT)
-            break;
-
-        str = pnstrdup(r->val.string.val, r->val.string.len);
-
-        /*
-         * Check the key value, if it is equal to the passed in
-         * var_name, replace the value for this key with the passed
-         * in gtype. Otherwise pass the existing value to the
-         * new properties gtype_value.
-         */
-        if (strcmp(str, var_name)) {
-            // push the key
-            parsed_gtype_value = push_gtype_value(&parse_state, tok, tok < WGT_BEGIN_ARRAY ? r : NULL);
-
-            // get the value and push the value
-            tok = gtype_iterator_next(&it, r, true);
-            parsed_gtype_value = push_gtype_value(&parse_state, tok, r);
-        } else {
-            gtype_value *new_gtype_value_v;
-
-            // if the remove flag is set, don't push the key or any value
-            if(remove_property) {
-                // skip the value
-                tok = gtype_iterator_next(&it, r, true);
-                continue;
-            }
-
-            // push the key
-            parsed_gtype_value = push_gtype_value(&parse_state, tok, tok < WGT_BEGIN_ARRAY ? r : NULL);
-
-            // skip the existing value for the key
-            tok = gtype_iterator_next(&it, r, true);
-
-            /*
-             * If the the new gtype is scalar, push the gtype_value to the
-             * parse state. If the gtype is an object or array convert the
-             * gtype to a binary gtype_value to pass to the parse_state.
-             * This will save uncessary deserialization and serialization
-             * logic from running.
-             */
-            if (GTYPE_CONTAINER_IS_SCALAR(&new_v->root)) {
-                //get the scalar value and push as the value
-                new_gtype_value_v = get_ith_gtype_value_from_container(&new_v->root, 0);
-
-                parsed_gtype_value = push_gtype_value(&parse_state, WGT_VALUE, new_gtype_value_v);
-            } else {
-                gtype_value *result = palloc(sizeof(gtype_value)); 
-
-                result->type = AGTV_BINARY;
-                result->val.binary.len = GTYPE_CONTAINER_SIZE(&new_v->root);
-                result->val.binary.data = &new_v->root;
-                parsed_gtype_value = push_gtype_value(&parse_state, WGT_VALUE, result);
-            }
-
-            found = true;
-        }
-    }
-
-    /*
-     * If we have not found the property and we aren't trying to remove it,
-     * add the key/value pair now.
-     */
-    if (!found && !remove_property) {
-        gtype_value *new_gtype_value_v;
-        gtype_value *key = string_to_gtype_value(var_name);
-
-        // push the new key
-        parsed_gtype_value = push_gtype_value(&parse_state, WGT_KEY, key);
-
-        /*
-         * If the the new gtype is scalar, push the gtype_value to the
-         * parse state. If the gtype is an object or array convert the
-         * gtype to a binary gtype_value to pass to the parse_state.
-         * This will save uncessary deserialization and serialization
-         * logic from running.
-         */
-        if (GTYPE_CONTAINER_IS_SCALAR(&new_v->root)) {
-            new_gtype_value_v = get_ith_gtype_value_from_container(&new_v->root, 0);
-
-            // convert the gtype array or object to a binary gtype_value
-            parsed_gtype_value = push_gtype_value(&parse_state, WGT_VALUE, new_gtype_value_v);
-        } else {
-            gtype_value *result = palloc(sizeof(gtype_value)); 
-
-            result->type = AGTV_BINARY;
-            result->val.binary.len = GTYPE_CONTAINER_SIZE(&new_v->root);
-            result->val.binary.data = &new_v->root;
-            parsed_gtype_value = push_gtype_value(&parse_state, WGT_VALUE, result);
-        }
-    }
-
-    // push the end object token to parse state
-    parsed_gtype_value = push_gtype_value(&parse_state, WGT_END_OBJECT, NULL);
-
-    return parsed_gtype_value;
-}
 
 /*
  * Transfer function for age_sum(gtype, gtype).
