@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023-2024 PostGraphDB
+ * Copyright (C) 2023-2025 PostGraphDB
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -20,6 +20,7 @@
 LOAD 'postgraph';
 CREATE GRAPH cypher_create;
 NOTICE:  graph "cypher_create" has been created
+WARNING:  relcache reference leak: relation "_adj__adj__ag_label_vertex" not closed
  create_graph 
 --------------
  
@@ -48,84 +49,49 @@ MATCH () RETURN 1;
  1
 (1 row)
 
+SELECT '{}'::postgraph.gtype;
+ gtype 
+-------
+ {}
+(1 row)
+
+CREATE ({msg: 'Hello World'});
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+--
+(0 rows)
+
+MATCH (a) RETURN a;
+                                     a                                      
+----------------------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+(2 rows)
+
+SELECT * FROM cypher_create._ag_label_vertex;
+   id   |       properties       
+--------+------------------------
+ (1, 1) | 
+ (1, 2) | {"msg": "Hello World"}
+(2 rows)
+
 CREATE VLABEL test;
 NOTICE:  VLabel "test" has been created
+WARNING:  relcache reference leak: relation "_adj__adj_test" not closed
  create_vlabel 
 ---------------
  
 (1 row)
-
-SELECT * FROM postgraph.ag_label;
-            name            | graph | id | kind |                 relation                 |           vertex_adjlist            |                label_path                 
-----------------------------+-------+----+------+------------------------------------------+-------------------------------------+-------------------------------------------
- _adj__adj__ag_label_vertex | 18790 |  2 | e    | 18807                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18790 |  1 | v    | 18793                                    | 18802                               | _ag_label_vertex
- _ag_label_edge             | 18790 |  3 | e    | 18817                                    |                                     | _ag_label_edge
- _adj__adj__ag_label_vertex | 18826 |  2 | e    | 18843                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18826 |  1 | v    | 18829                                    | 18838                               | _ag_label_vertex
- _ag_label_edge             | 18826 |  3 | e    | 18853                                    |                                     | _ag_label_edge
- _adj__adj__ag_label_vertex | 18862 |  2 | e    | cypher_create._adj__adj__ag_label_vertex |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18862 |  1 | v    | cypher_create._ag_label_vertex           | cypher_create._adj__ag_label_vertex | _ag_label_vertex
- _ag_label_edge             | 18862 |  3 | e    | cypher_create._ag_label_edge             |                                     | _ag_label_edge
- _adj__adj_test             | 18862 |  5 | e    | cypher_create._adj__adj_test             |                                     | _ag_label_edge._adj__adj_test
- test                       | 18862 |  4 | v    | cypher_create.test                       | cypher_create._adj_test             | _ag_label_vertex.test
-(11 rows)
 
 CREATE (:test);
 WARNING:  relcache reference leak: relation "test" not closed
 --
 (0 rows)
 
-SELECT * FROM postgraph.ag_label;
-            name            | graph | id | kind |                 relation                 |           vertex_adjlist            |                label_path                 
-----------------------------+-------+----+------+------------------------------------------+-------------------------------------+-------------------------------------------
- _adj__adj__ag_label_vertex | 18790 |  2 | e    | 18807                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18790 |  1 | v    | 18793                                    | 18802                               | _ag_label_vertex
- _ag_label_edge             | 18790 |  3 | e    | 18817                                    |                                     | _ag_label_edge
- _adj__adj__ag_label_vertex | 18826 |  2 | e    | 18843                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18826 |  1 | v    | 18829                                    | 18838                               | _ag_label_vertex
- _ag_label_edge             | 18826 |  3 | e    | 18853                                    |                                     | _ag_label_edge
- _adj__adj__ag_label_vertex | 18862 |  2 | e    | cypher_create._adj__adj__ag_label_vertex |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18862 |  1 | v    | cypher_create._ag_label_vertex           | cypher_create._adj__ag_label_vertex | _ag_label_vertex
- _ag_label_edge             | 18862 |  3 | e    | cypher_create._ag_label_edge             |                                     | _ag_label_edge
- _adj__adj_test             | 18862 |  5 | e    | cypher_create._adj__adj_test             |                                     | _ag_label_edge._adj__adj_test
- test                       | 18862 |  4 | v    | cypher_create.test                       | cypher_create._adj_test             | _ag_label_vertex.test
-(11 rows)
-
-SELECT * FROM cypher_create.test;
-   id   | properties 
---------+------------
- (4, 1) | 
-(1 row)
-
 CREATE (:test2);
+WARNING:  relcache reference leak: relation "_adj__adj_test2" not closed
 WARNING:  relcache reference leak: relation "test2" not closed
 --
 (0 rows)
-
-SELECT * FROM postgraph.ag_label;
-            name            | graph | id | kind |                 relation                 |           vertex_adjlist            |                label_path                 
-----------------------------+-------+----+------+------------------------------------------+-------------------------------------+-------------------------------------------
- _adj__adj__ag_label_vertex | 18790 |  2 | e    | 18807                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18790 |  1 | v    | 18793                                    | 18802                               | _ag_label_vertex
- _ag_label_edge             | 18790 |  3 | e    | 18817                                    |                                     | _ag_label_edge
- _adj__adj__ag_label_vertex | 18826 |  2 | e    | 18843                                    |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18826 |  1 | v    | 18829                                    | 18838                               | _ag_label_vertex
- _ag_label_edge             | 18826 |  3 | e    | 18853                                    |                                     | _ag_label_edge
- _adj__adj__ag_label_vertex | 18862 |  2 | e    | cypher_create._adj__adj__ag_label_vertex |                                     | _ag_label_edge._adj__adj__ag_label_vertex
- _ag_label_vertex           | 18862 |  1 | v    | cypher_create._ag_label_vertex           | cypher_create._adj__ag_label_vertex | _ag_label_vertex
- _ag_label_edge             | 18862 |  3 | e    | cypher_create._ag_label_edge             |                                     | _ag_label_edge
- _adj__adj_test             | 18862 |  5 | e    | cypher_create._adj__adj_test             |                                     | _ag_label_edge._adj__adj_test
- test                       | 18862 |  4 | v    | cypher_create.test                       | cypher_create._adj_test             | _ag_label_vertex.test
- _adj__adj_test2            | 18862 |  7 | e    | cypher_create._adj__adj_test2            |                                     | _ag_label_edge._adj__adj_test2
- test2                      | 18862 |  6 | v    | cypher_create.test2                      | cypher_create._adj_test2            | _ag_label_vertex.test2
-(13 rows)
-
-SELECT * FROM cypher_create.test2;
-   id   | properties 
---------+------------
- (6, 1) | 
-(1 row)
 
 MATCH () RETURN 1;
  ?column? 
@@ -133,15 +99,17 @@ MATCH () RETURN 1;
  1
  1
  1
-(3 rows)
+ 1
+(4 rows)
 
 MATCH (a) RETURN a;
-                              a                               
---------------------------------------------------------------
+                                     a                                      
+----------------------------------------------------------------------------
  {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
  {"id": 1125899906842625, "label": "test", "properties": {}}
  {"id": 1688849860263937, "label": "test2", "properties": {}}
-(3 rows)
+(4 rows)
 
 MATCH (a:test) RETURN a;
                               a                              
@@ -156,6 +124,92 @@ WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
 --
 (0 rows)
 
+CREATE (a)-[]->();
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+--
+(0 rows)
+
+CREATE (a)-[]->() RETURN a;
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+                           a                            
+--------------------------------------------------------
+ {"id": 281474976710663, "label": "", "properties": {}}
+(1 row)
+
+CREATE (a)-[]->(b) RETURN a;
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+                           a                            
+--------------------------------------------------------
+ {"id": 281474976710665, "label": "", "properties": {}}
+(1 row)
+
+CREATE (a {msg: 'hello vertex out'}) RETURN a;
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+                                        a                                        
+---------------------------------------------------------------------------------
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+(1 row)
+
+CREATE (a {msg: 'hello vertex out'}) RETURN a.msg;
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+        msg         
+--------------------
+ "hello vertex out"
+(1 row)
+
+CREATE (a {msg: 'hello vertex out'})-[]->(b) RETURN a;
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+                                        a                                        
+---------------------------------------------------------------------------------
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+(1 row)
+
+CREATE (a)-[e]->(b) RETURN e;
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+                                                       e                                                        
+----------------------------------------------------------------------------------------------------------------
+ {"id": 844424930131974, "start_id": 281474976710671, "end_id": 281474976710672, "label": "", "properties": {}}
+(1 row)
+
+CREATE (a)-[e {msg: 'hello edge'}]->(b) RETURN e;
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+                                                       e                                                        
+----------------------------------------------------------------------------------------------------------------
+ {"id": 844424930131975, "start_id": 281474976710673, "end_id": 281474976710674, "label": "", "properties": {}}
+(1 row)
+
+CREATE ()-[{msg: 'hello edge'}]->();
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+--
+(0 rows)
+
+SELECT * FROM cypher_create._adj__ag_label_vertex;
+   id   | start_id | end_id  |      properties       
+--------+----------+---------+-----------------------
+ (3, 1) | (1, 3)   | (1, 4)  | 
+ (3, 2) | (1, 5)   | (1, 6)  | 
+ (3, 3) | (1, 7)   | (1, 8)  | 
+ (3, 4) | (1, 9)   | (1, 10) | 
+ (3, 5) | (1, 13)  | (1, 14) | 
+ (3, 6) | (1, 15)  | (1, 16) | 
+ (3, 7) | (1, 17)  | (1, 18) | 
+ (3, 8) | (1, 19)  | (1, 20) | {"msg": "hello edge"}
+(8 rows)
+
 CREATE ()-[:elabel]->();
 WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
 WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
@@ -163,64 +217,1134 @@ WARNING:  relcache reference leak: relation "elabel" not closed
 --
 (0 rows)
 
-EXPLAIN MATCH ()-[]->() RETURN 1;
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
- Nested Loop  (cost=12.50..50471.30 rows=2520000 width=32)
-   ->  Append  (cost=0.00..58.80 rows=2520 width=8)
-         ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8)
-         ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8)
-         ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8)
-   ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=0)
-(6 rows)
+MATCH ()-[]->() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+(9 rows)
 
-EXPLAIN ANALYZE MATCH ()-[]->() RETURN 1;
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
- Nested Loop  (cost=12.50..50471.30 rows=2520000 width=32) (actual time=0.057..0.302 rows=2 loops=1)
-   ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.009..0.018 rows=7 loops=1)
-         ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.008..0.010 rows=5 loops=1)
-         ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.002..0.003 rows=1 loops=1)
-         ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.002..0.003 rows=1 loops=1)
-   ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=0) (actual time=0.039..0.039 rows=0 loops=7)
- Planning Time: 0.126 ms
- Execution Time: 0.332 ms
+MATCH ()<-[]-() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+(9 rows)
+
+MATCH ()<-[q]-() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+(9 rows)
+
+MATCH (a)-[]->() RETURN a;
+                                        a                                        
+---------------------------------------------------------------------------------
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+(9 rows)
+
+MATCH (a)<-[]-() RETURN a;
+                           a                            
+--------------------------------------------------------
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+(9 rows)
+
+MATCH ()-[]->(a) RETURN a;
+                           a                            
+--------------------------------------------------------
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+(9 rows)
+
+MATCH ()<-[]-(a) RETURN a;
+                                        a                                        
+---------------------------------------------------------------------------------
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+(9 rows)
+
+CREATE ()<-[{msg: 'Hello edge'}]-();
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+--
+(0 rows)
+
+CREATE ()-[{msg: 'Hello edge'}]->();
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+--
+(0 rows)
+
+MATCH ()<-[a]-() RETURN a;
+                                                                 a                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------
+ {"id": 844424930131969, "start_id": 281474976710659, "end_id": 281474976710660, "label": "", "properties": {}}
+ {"id": 844424930131970, "start_id": 281474976710661, "end_id": 281474976710662, "label": "", "properties": {}}
+ {"id": 844424930131971, "start_id": 281474976710663, "end_id": 281474976710664, "label": "", "properties": {}}
+ {"id": 844424930131972, "start_id": 281474976710665, "end_id": 281474976710666, "label": "", "properties": {}}
+ {"id": 844424930131973, "start_id": 281474976710669, "end_id": 281474976710670, "label": "", "properties": {}}
+ {"id": 844424930131974, "start_id": 281474976710671, "end_id": 281474976710672, "label": "", "properties": {}}
+ {"id": 844424930131975, "start_id": 281474976710673, "end_id": 281474976710674, "label": "", "properties": {}}
+ {"id": 844424930131976, "start_id": 281474976710675, "end_id": 281474976710676, "label": "", "properties": {"msg": "hello edge"}}
+ {"id": 2251799813685249, "start_id": 281474976710677, "end_id": 281474976710678, "label": "elabel", "properties": {}}
+ {"id": 844424930131977, "start_id": 281474976710680, "end_id": 281474976710679, "label": "", "properties": {"msg": "Hello edge"}}
+ {"id": 844424930131978, "start_id": 281474976710681, "end_id": 281474976710682, "label": "", "properties": {"msg": "Hello edge"}}
+(11 rows)
+
+CYPHER WITH 1 as a
+CREATE ();
+ERROR:  CREATE doesn't work with previous clauses
+CREATE () RETURN 1 as a;
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+ a 
+---
+ 1
+(1 row)
+
+CREATE ()-[]->()-[]->();
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+--
+(0 rows)
+
+CREATE ()-[]->()-[]->();
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+WARNING:  relcache reference leak: relation "_ag_label_vertex" not closed
+WARNING:  relcache reference leak: relation "_ag_label_edge" not closed
+--
+(0 rows)
+
+MATCH  ()<-[]-()<-[]-() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+(2 rows)
+
+MATCH  ()-[]->()-[]->() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+(2 rows)
+
+EXPLAIN ANALYZE MATCH  (q)-[]->(q)-[]->() RETURN 1;
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=1025.00..298373.57 rows=12537000 width=32) (actual time=7.987..8.443 rows=0 loops=1)
+   ->  Gather  (cost=1012.50..15491.07 rows=12600 width=16) (actual time=7.987..8.442 rows=0 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Nested Loop  (cost=12.50..13231.07 rows=5250 width=16) (actual time=0.122..0.122 rows=0 loops=3)
+               ->  Parallel Append  (cost=0.00..41.07 rows=1050 width=8) (actual time=0.001..0.006 rows=12 loops=3)
+                     ->  Parallel Seq Scan on test q_2  (cost=0.00..17.06 rows=706 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                     ->  Parallel Seq Scan on test2 q_3  (cost=0.00..17.06 rows=706 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                     ->  Parallel Seq Scan on _ag_label_vertex q_1  (cost=0.00..1.71 rows=71 width=8) (actual time=0.003..0.009 rows=33 loops=1)
+               ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..25.00 rows=5 width=16) (actual time=0.009..0.009 rows=0 loops=35)
+                     Filter: (q.id OPERATOR(postgraph.=) endid)
+                     Rows Removed by Filter: 0
+   ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..25.00 rows=995 width=8) (never executed)
+         Filter: (_age_default_alias_0.id OPERATOR(postgraph.<>) id)
+ Planning Time: 0.125 ms
+ Execution Time: 8.479 ms
+(16 rows)
+
+MATCH  (q)-[]->(q)-[]->() RETURN 1;
+ ?column? 
+----------
+(0 rows)
+
+EXPLAIN ANALYZE
+MATCH (q)
+MATCH (q)-[]->()
+RETURN q;
+WARNING:  here
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=12.50..365471.30 rows=2520000 width=32) (actual time=0.035..0.283 rows=15 loops=1)
+   ->  Append  (cost=0.00..58.80 rows=2520 width=40) (actual time=0.002..0.009 rows=35 loops=1)
+         ->  Seq Scan on _ag_label_vertex q_1  (cost=0.00..2.20 rows=120 width=40) (actual time=0.002..0.005 rows=33 loops=1)
+         ->  Seq Scan on test q_2  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
+         ->  Seq Scan on test2 q_3  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
+   ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..22.50 rows=1000 width=0) (actual time=0.007..0.007 rows=0 loops=35)
+ Planning Time: 0.083 ms
+ Execution Time: 0.298 ms
 (8 rows)
+
+MATCH (q)
+MATCH (q)-[]->()
+RETURN q;
+WARNING:  here
+                                        q                                        
+---------------------------------------------------------------------------------
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+(15 rows)
+
+EXPLAIN ANALYZE
+MATCH (q)
+MATCH ()-[]->(q)
+RETURN q;
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Merge Join  (cost=387318.67..4839083.34 rows=31752000 width=32) (actual time=0.348..0.368 rows=15 loops=1)
+   Merge Cond: (q.id OPERATOR(postgraph.=) _age_default_alias_1.endid)
+   ->  Merge Append  (cost=0.47..178.84 rows=2520 width=40) (actual time=0.010..0.018 rows=34 loops=1)
+         Sort Key: q.id
+         ->  Index Scan using idx_hash__ag_label_vertex on _ag_label_vertex q_1  (cost=0.14..13.94 rows=120 width=40) (actual time=0.002..0.007 rows=33 loops=1)
+         ->  Index Scan using idx_hash_test on test q_2  (cost=0.15..66.15 rows=1200 width=40) (actual time=0.005..0.005 rows=1 loops=1)
+         ->  Index Scan using idx_hash_test2 on test2 q_3  (cost=0.15..66.15 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
+   ->  Materialize  (cost=387318.20..399918.20 rows=2520000 width=8) (actual time=0.334..0.337 rows=15 loops=1)
+         ->  Sort  (cost=387318.20..393618.20 rows=2520000 width=8) (actual time=0.333..0.334 rows=15 loops=1)
+               Sort Key: _age_default_alias_1.endid
+               Sort Method: quicksort  Memory: 25kB
+               ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=8) (actual time=0.045..0.327 rows=15 loops=1)
+                     ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.002..0.012 rows=35 loops=1)
+                           ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.002..0.007 rows=33 loops=1)
+                           ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                           ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                     ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=8) (actual time=0.008..0.009 rows=0 loops=35)
+ Planning Time: 0.183 ms
+ Execution Time: 0.412 ms
+(19 rows)
+
+MATCH (q)
+MATCH ()-[]->(q)
+RETURN q;
+                           q                            
+--------------------------------------------------------
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+(15 rows)
+
+EXPLAIN ANALYZE
+MATCH (q)
+MATCH (b)-[]->()
+RETURN q;
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=12.50..873230536.40 rows=6350400000 width=32) (actual time=0.036..0.436 rows=525 loops=1)
+   ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=0) (actual time=0.032..0.284 rows=15 loops=1)
+         ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.003..0.011 rows=35 loops=1)
+               ->  Seq Scan on _ag_label_vertex b_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.002..0.007 rows=33 loops=1)
+               ->  Seq Scan on test b_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+               ->  Seq Scan on test2 b_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+         ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..22.50 rows=1000 width=0) (actual time=0.007..0.007 rows=0 loops=35)
+   ->  Materialize  (cost=0.00..71.40 rows=2520 width=40) (actual time=0.000..0.002 rows=35 loops=15)
+         ->  Append  (cost=0.00..58.80 rows=2520 width=40) (actual time=0.001..0.006 rows=35 loops=1)
+               ->  Seq Scan on _ag_label_vertex q_1  (cost=0.00..2.20 rows=120 width=40) (actual time=0.001..0.003 rows=33 loops=1)
+               ->  Seq Scan on test q_2  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
+               ->  Seq Scan on test2 q_3  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
+ Planning Time: 0.125 ms
+ Execution Time: 0.467 ms
+(14 rows)
+
+MATCH (q)
+MATCH (b)-[]->()
+RETURN q;
+                                        q                                        
+---------------------------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+(525 rows)
+
+EXPLAIN MATCH  (q)-[]->()<-[]-(q) RETURN 1;
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=144.66..723066.56 rows=12537000 width=32)
+   ->  Append  (cost=0.00..58.80 rows=2520 width=8)
+         ->  Seq Scan on _ag_label_vertex q_1  (cost=0.00..2.20 rows=120 width=8)
+         ->  Seq Scan on test q_2  (cost=0.00..22.00 rows=1200 width=8)
+         ->  Seq Scan on test2 q_3  (cost=0.00..22.00 rows=1200 width=8)
+   ->  Merge Join  (cost=144.66..237.16 rows=4975 width=0)
+         Merge Cond: (_age_default_alias_0.endid OPERATOR(postgraph.=) _age_default_alias_1.endid)
+         Join Filter: (_age_default_alias_0.id OPERATOR(postgraph.<>) _age_default_alias_1.id)
+         ->  Sort  (cost=72.33..74.83 rows=1000 width=16)
+               Sort Key: _age_default_alias_0.endid
+               ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..22.50 rows=1000 width=16)
+         ->  Sort  (cost=72.33..74.83 rows=1000 width=16)
+               Sort Key: _age_default_alias_1.endid
+               ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=16)
+(14 rows)
+
+MATCH  (q)-[]->()<-[]-(q) RETURN 1;
+ ?column? 
+----------
+(0 rows)
+
+EXPLAIN ANALYZE MATCH  (q)<-[]-(q) RETURN 1;
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1012.50..15491.07 rows=12600 width=32) (actual time=6.755..7.246 rows=0 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   ->  Nested Loop  (cost=12.50..13231.07 rows=5250 width=32) (actual time=0.093..0.093 rows=0 loops=3)
+         ->  Parallel Append  (cost=0.00..41.07 rows=1050 width=8) (actual time=0.001..0.004 rows=12 loops=3)
+               ->  Parallel Seq Scan on test q_2  (cost=0.00..17.06 rows=706 width=8) (actual time=0.000..0.001 rows=1 loops=1)
+               ->  Parallel Seq Scan on test2 q_3  (cost=0.00..17.06 rows=706 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+               ->  Parallel Seq Scan on _ag_label_vertex q_1  (cost=0.00..1.71 rows=71 width=8) (actual time=0.003..0.007 rows=33 loops=1)
+         ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..25.00 rows=5 width=8) (actual time=0.007..0.007 rows=0 loops=35)
+               Filter: (q.id OPERATOR(postgraph.=) endid)
+               Rows Removed by Filter: 0
+ Planning Time: 0.093 ms
+ Execution Time: 7.267 ms
+(13 rows)
+
+MATCH  (q)<-[]-(q) RETURN 1;
+ ?column? 
+----------
+(0 rows)
+
+EXPLAIN MATCH  ()-[]->()<-[]-() RETURN 1;
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
+ Merge Join  (cost=809090.41..556487990.41 rows=31593240000 width=32)
+   Merge Cond: (_age_default_alias_1.endid OPERATOR(postgraph.=) _age_default_alias_3.endid)
+   Join Filter: (_age_default_alias_1.id OPERATOR(postgraph.<>) _age_default_alias_3.id)
+   ->  Sort  (cost=404545.20..410845.20 rows=2520000 width=16)
+         Sort Key: _age_default_alias_1.endid
+         ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=16)
+               ->  Append  (cost=0.00..58.80 rows=2520 width=8)
+                     ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8)
+                     ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8)
+                     ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8)
+               ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=16)
+   ->  Materialize  (cost=404545.20..417145.20 rows=2520000 width=16)
+         ->  Sort  (cost=404545.20..410845.20 rows=2520000 width=16)
+               Sort Key: _age_default_alias_3.endid
+               ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=16)
+                     ->  Append  (cost=0.00..58.80 rows=2520 width=8)
+                           ->  Seq Scan on _ag_label_vertex _age_default_alias_2_1  (cost=0.00..2.20 rows=120 width=8)
+                           ->  Seq Scan on test _age_default_alias_2_2  (cost=0.00..22.00 rows=1200 width=8)
+                           ->  Seq Scan on test2 _age_default_alias_2_3  (cost=0.00..22.00 rows=1200 width=8)
+                     ->  Function Scan on edge_search _age_default_alias_3  (cost=12.50..22.50 rows=1000 width=16)
+(20 rows)
+
+EXPLAIN ANALYZE MATCH  ()-[]->()<-[]-() RETURN 1;
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Merge Join  (cost=809090.41..556487990.41 rows=31593240000 width=32) (actual time=0.594..0.595 rows=0 loops=1)
+   Merge Cond: (_age_default_alias_1.endid OPERATOR(postgraph.=) _age_default_alias_3.endid)
+   Join Filter: (_age_default_alias_1.id OPERATOR(postgraph.<>) _age_default_alias_3.id)
+   Rows Removed by Join Filter: 15
+   ->  Sort  (cost=404545.20..410845.20 rows=2520000 width=16) (actual time=0.288..0.289 rows=15 loops=1)
+         Sort Key: _age_default_alias_1.endid
+         Sort Method: quicksort  Memory: 25kB
+         ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=16) (actual time=0.038..0.284 rows=15 loops=1)
+               ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.003..0.012 rows=35 loops=1)
+                     ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.003..0.008 rows=33 loops=1)
+                     ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                     ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+               ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=16) (actual time=0.007..0.007 rows=0 loops=35)
+   ->  Materialize  (cost=404545.20..417145.20 rows=2520000 width=16) (actual time=0.296..0.299 rows=15 loops=1)
+         ->  Sort  (cost=404545.20..410845.20 rows=2520000 width=16) (actual time=0.295..0.296 rows=15 loops=1)
+               Sort Key: _age_default_alias_3.endid
+               Sort Method: quicksort  Memory: 25kB
+               ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=16) (actual time=0.031..0.289 rows=15 loops=1)
+                     ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.001..0.010 rows=35 loops=1)
+                           ->  Seq Scan on _ag_label_vertex _age_default_alias_2_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.001..0.006 rows=33 loops=1)
+                           ->  Seq Scan on test _age_default_alias_2_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                           ->  Seq Scan on test2 _age_default_alias_2_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                     ->  Function Scan on edge_search _age_default_alias_3  (cost=12.50..22.50 rows=1000 width=16) (actual time=0.007..0.007 rows=0 loops=35)
+ Planning Time: 0.141 ms
+ Execution Time: 0.632 ms
+(25 rows)
+
+MATCH  ()-[]->()<-[]-() RETURN 1;
+ ?column? 
+----------
+(0 rows)
+
+EXPLAIN MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Merge Join  (cost=331424.24..126340424.24 rows=7164000000 width=32)
+   Merge Cond: (_age_default_alias_1.endid OPERATOR(postgraph.=) _age_default_alias_3.endid)
+   Join Filter: (_age_default_alias_1.id OPERATOR(postgraph.<>) _age_default_alias_3.id)
+   ->  Sort  (cost=165712.12..168712.12 rows=1200000 width=16)
+         Sort Key: _age_default_alias_1.endid
+         ->  Nested Loop  (cost=12.50..24034.50 rows=1200000 width=16)
+               ->  Seq Scan on test _age_default_alias_0  (cost=0.00..22.00 rows=1200 width=8)
+               ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=16)
+   ->  Materialize  (cost=165712.12..171712.12 rows=1200000 width=16)
+         ->  Sort  (cost=165712.12..168712.12 rows=1200000 width=16)
+               Sort Key: _age_default_alias_3.endid
+               ->  Nested Loop  (cost=12.50..24034.50 rows=1200000 width=16)
+                     ->  Seq Scan on test _age_default_alias_2  (cost=0.00..22.00 rows=1200 width=8)
+                     ->  Function Scan on edge_search _age_default_alias_3  (cost=12.50..22.50 rows=1000 width=16)
+(14 rows)
+
+EXPLAIN ANALYZE MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Merge Join  (cost=331424.24..126340424.24 rows=7164000000 width=32) (actual time=0.032..0.032 rows=0 loops=1)
+   Merge Cond: (_age_default_alias_1.endid OPERATOR(postgraph.=) _age_default_alias_3.endid)
+   Join Filter: (_age_default_alias_1.id OPERATOR(postgraph.<>) _age_default_alias_3.id)
+   ->  Sort  (cost=165712.12..168712.12 rows=1200000 width=16) (actual time=0.032..0.032 rows=0 loops=1)
+         Sort Key: _age_default_alias_1.endid
+         Sort Method: quicksort  Memory: 25kB
+         ->  Nested Loop  (cost=12.50..24034.50 rows=1200000 width=16) (actual time=0.030..0.031 rows=0 loops=1)
+               ->  Seq Scan on test _age_default_alias_0  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.017..0.017 rows=1 loops=1)
+               ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=16) (actual time=0.012..0.012 rows=0 loops=1)
+   ->  Materialize  (cost=165712.12..171712.12 rows=1200000 width=16) (never executed)
+         ->  Sort  (cost=165712.12..168712.12 rows=1200000 width=16) (never executed)
+               Sort Key: _age_default_alias_3.endid
+               ->  Nested Loop  (cost=12.50..24034.50 rows=1200000 width=16) (never executed)
+                     ->  Seq Scan on test _age_default_alias_2  (cost=0.00..22.00 rows=1200 width=8) (never executed)
+                     ->  Function Scan on edge_search _age_default_alias_3  (cost=12.50..22.50 rows=1000 width=16) (never executed)
+ Planning Time: 0.094 ms
+ Execution Time: 0.055 ms
+(17 rows)
+
+MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
+ ?column? 
+----------
+(0 rows)
+
+MATCH  ()-[*1]->()-[]->() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+(2 rows)
+
+EXPLAIN ANALYZE MATCH  ()-[*1]->()-[]->() RETURN 1;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=137.50..44150596.30 rows=1260000000 width=32) (actual time=0.353..0.449 rows=2 loops=1)
+   ->  Nested Loop  (cost=125.00..50583.80 rows=2520000 width=40) (actual time=0.035..0.336 rows=15 loops=1)
+         ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.002..0.011 rows=35 loops=1)
+               ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.002..0.007 rows=33 loops=1)
+               ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+               ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+         ->  Function Scan on variable_edge_search _age_default_alias_1  (cost=125.00..135.00 rows=1000 width=40) (actual time=0.009..0.009 rows=0 loops=35)
+   ->  Function Scan on edge_search _age_default_alias_2  (cost=12.50..25.00 rows=500 width=8) (actual time=0.007..0.007 rows=0 loops=15)
+         Filter: (_age_default_alias_1.hashset OPERATOR(postgraph.@>) id)
+ Planning Time: 0.081 ms
+ Execution Time: 0.472 ms
+(11 rows)
+
+SELECT * FROM cypher_create._adj__ag_label_vertex;
+   id    | start_id | end_id  |      properties       
+---------+----------+---------+-----------------------
+ (3, 1)  | (1, 3)   | (1, 4)  | 
+ (3, 2)  | (1, 5)   | (1, 6)  | 
+ (3, 3)  | (1, 7)   | (1, 8)  | 
+ (3, 4)  | (1, 9)   | (1, 10) | 
+ (3, 5)  | (1, 13)  | (1, 14) | 
+ (3, 6)  | (1, 15)  | (1, 16) | 
+ (3, 7)  | (1, 17)  | (1, 18) | 
+ (3, 8)  | (1, 19)  | (1, 20) | {"msg": "hello edge"}
+ (8, 1)  | (1, 21)  | (1, 22) | 
+ (3, 9)  | (1, 24)  | (1, 23) | {"msg": "Hello edge"}
+ (3, 10) | (1, 25)  | (1, 26) | {"msg": "Hello edge"}
+ (3, 11) | (1, 28)  | (1, 29) | 
+ (3, 12) | (1, 29)  | (1, 30) | 
+ (3, 13) | (1, 31)  | (1, 32) | 
+ (3, 14) | (1, 32)  | (1, 33) | 
+(15 rows)
+
+MATCH (a) RETURN a;
+                                        a                                        
+---------------------------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"msg": "Hello World"}}
+ {"id": 281474976710659, "label": "", "properties": {}}
+ {"id": 281474976710660, "label": "", "properties": {}}
+ {"id": 281474976710661, "label": "", "properties": {}}
+ {"id": 281474976710662, "label": "", "properties": {}}
+ {"id": 281474976710663, "label": "", "properties": {}}
+ {"id": 281474976710664, "label": "", "properties": {}}
+ {"id": 281474976710665, "label": "", "properties": {}}
+ {"id": 281474976710666, "label": "", "properties": {}}
+ {"id": 281474976710667, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710668, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710669, "label": "", "properties": {"msg": "hello vertex out"}}
+ {"id": 281474976710670, "label": "", "properties": {}}
+ {"id": 281474976710671, "label": "", "properties": {}}
+ {"id": 281474976710672, "label": "", "properties": {}}
+ {"id": 281474976710673, "label": "", "properties": {}}
+ {"id": 281474976710674, "label": "", "properties": {}}
+ {"id": 281474976710675, "label": "", "properties": {}}
+ {"id": 281474976710676, "label": "", "properties": {}}
+ {"id": 281474976710677, "label": "", "properties": {}}
+ {"id": 281474976710678, "label": "", "properties": {}}
+ {"id": 281474976710679, "label": "", "properties": {}}
+ {"id": 281474976710680, "label": "", "properties": {}}
+ {"id": 281474976710681, "label": "", "properties": {}}
+ {"id": 281474976710682, "label": "", "properties": {}}
+ {"id": 281474976710683, "label": "", "properties": {}}
+ {"id": 281474976710684, "label": "", "properties": {}}
+ {"id": 281474976710685, "label": "", "properties": {}}
+ {"id": 281474976710686, "label": "", "properties": {}}
+ {"id": 281474976710687, "label": "", "properties": {}}
+ {"id": 281474976710688, "label": "", "properties": {}}
+ {"id": 281474976710689, "label": "", "properties": {}}
+ {"id": 1125899906842625, "label": "test", "properties": {}}
+ {"id": 1688849860263937, "label": "test2", "properties": {}}
+(35 rows)
+
+--SELECT * FROM cypher_create.idx_hash__adj__ag_label_vertex;
+MATCH ()-[*1]->() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+(15 rows)
 
 MATCH ()-[]->() RETURN 1;
  ?column? 
 ----------
  1
  1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+(15 rows)
+
+MATCH ()-[*2]->() RETURN 1;
+WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x4048bfb0, chunk 0x4048c248
+WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x4048bfb0, chunk 0x4048c248
+WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x4048bfb0, chunk 0x4048c248
+WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x4048bfb0, chunk 0x4048c248
+ ?column? 
+----------
+ 1
+ 1
 (2 rows)
 
-SELECT * FROM cypher_create._ag_label_vertex;
-   id   | properties 
---------+------------
- (1, 1) | 
- (1, 2) | 
- (1, 3) | 
- (1, 4) | 
- (1, 5) | 
- (4, 1) | 
- (6, 1) | 
-(7 rows)
-
-SELECT * FROM cypher_create._adj__adj__ag_label_vertex;
-      id       | start_id | end_id | properties 
----------------+----------+--------+------------
- (0, 36327104) | (1, 2)   | (1, 3) | 
- (0, 35832480) | (1, 4)   | (1, 5) | 
-(2 rows)
-
-SELECT * FROM cypher_create._adj__ag_label_vertex;
-      id       | start_id | end_id | properties 
----------------+----------+--------+------------
- (0, 36327104) | (1, 2)   | (1, 3) | 
- (0, 35832480) | (1, 4)   | (1, 5) | 
-(2 rows)
-
-MATCH () RETURN 1;
+MATCH ()-[*1..2]->() RETURN 1;
  ?column? 
 ----------
  1
@@ -230,13 +1354,69 @@ MATCH () RETURN 1;
  1
  1
  1
-(7 rows)
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+(17 rows)
 
-CYPHER WITH 1 as a
-CREATE ();
-ERROR:  CREATE doesn't work with previous clauses
-CREATE () RETURN 1 as a;
-ERROR:  CREATE doesn't work with next clauses
+MATCH ()-[*..2]->() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+(17 rows)
+
+MATCH ()-[*2..]->() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+(2 rows)
+
+MATCH ()-[*1..]->() RETURN 1;
+ ?column? 
+----------
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+ 1
+(17 rows)
+
 --
 -- Clean up
 --

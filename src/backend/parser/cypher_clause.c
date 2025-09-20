@@ -1226,6 +1226,37 @@ add_edge_to_query_with_prev_edge(cypher_parsestate *cpstate, Query *query, cyphe
         list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
 }
 
+/*
+ * add_variable_edge_to_query
+ *
+ * Adds a variable-length edge traversal to the query for Cypher MATCH clauses.
+ * This function constructs a set-returning function (SRF) call to the
+ * 'variable_edge_search' function, which finds all paths between vertices
+ * with a variable number of edges (e.g., for patterns like (a)-[*1..3]->(b)).
+ *
+ * Parameters:
+ *   cpstate    - Cypher parser state containing context for parsing.
+ *   query      - The Query node being constructed.
+ *   edge       - The cypher_relationship structure representing the edge.
+ *   vertex_pnsi- The ParseNamespaceItem for the starting vertex.
+ *
+ * Behavior:
+ *   - Ensures the edge does not have a variable name or label (not supported).
+ *   - Assigns a default alias and label if necessary.
+ *   - Extracts the variable-length bounds from the edge's varlen field.
+ *   - Constructs a FuncCall node for 'variable_edge_search', passing:
+ *       * graph_oid (the graph's OID)
+ *       * vertex id (from the starting vertex)
+ *       * lower bound (lidx) or NULL
+ *       * upper bound (uidx) or NULL
+ *   - Adds the SRF to the query with the edge's alias and expected output columns:
+ *       * "edges"   - the list of traversed edge IDs
+ *       * "endid"   - the ID of the ending vertex
+ *       * "hashset" - a set of visited edge IDs for cycle prevention
+ *
+ * Returns:
+ *   The ParseNamespaceItem for the SRF, which can be used to reference its output columns.
+ */
 static ParseNamespaceItem *
 add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, ParseNamespaceItem *vertex_pnsi) {
     edge->has_variable = false;
@@ -1243,6 +1274,8 @@ add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_rela
                  errmsg("MATCH labels are not supported")));
     else
         edge->label = AG_DEFAULT_LABEL_EDGE;
+   
+    A_Indices *varlen = (A_Indices *)edge->varlen;
 
     return add_srf_to_query(
         cpstate, 
@@ -1251,8 +1284,8 @@ add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_rela
             list_make4(
                 make_int_const(cpstate->graph_oid, -1), 
                 scanNSItemForColumn(cpstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1), 
-                ((A_Indices *)edge->varlen)->lidx, 
-                ((A_Indices *)edge->varlen)->uidx),
+                varlen->lidx ? varlen->lidx : make_null_const(-1), 
+                varlen->uidx ? varlen->uidx : make_null_const(-1)),
             COERCE_EXPLICIT_CALL, -1),
         edge->name,
         list_make3(makeString("edges"), makeString("endid"), makeString("hashset")));

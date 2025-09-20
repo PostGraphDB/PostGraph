@@ -28,6 +28,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm VERSION '1.3';
 -- Basic Graph creation
 CREATE GRAPH new_cypher;
 NOTICE:  graph "new_cypher" has been created
+WARNING:  relcache reference leak: relation "_adj__adj__ag_label_vertex" not closed
  create_graph 
 --------------
  
@@ -52,6 +53,7 @@ USE GRAPH new_cypher;
 
 CREATE GRAPH new_cypher_2;
 NOTICE:  graph "new_cypher_2" has been created
+WARNING:  relcache reference leak: relation "_adj__adj__ag_label_vertex" not closed
  create_graph 
 --------------
  
@@ -72,8 +74,8 @@ USE GRAPH new_cypher;
 SELECT * FROM postgraph.ag_label WHERE name = '_ag_label_vertex';
        name       | graph | id | kind |           relation            |           vertex_adjlist           |    label_path    
 ------------------+-------+----+------+-------------------------------+------------------------------------+------------------
- _ag_label_vertex | 18790 |  1 | v    | new_cypher._ag_label_vertex   | new_cypher._adj__ag_label_vertex   | _ag_label_vertex
- _ag_label_vertex | 18826 |  1 | v    | new_cypher_2._ag_label_vertex | new_cypher_2._adj__ag_label_vertex | _ag_label_vertex
+ _ag_label_vertex | 18815 |  1 | v    | new_cypher._ag_label_vertex   | new_cypher._adj__ag_label_vertex   | _ag_label_vertex
+ _ag_label_vertex | 18853 |  1 | v    | new_cypher_2._ag_label_vertex | new_cypher_2._adj__ag_label_vertex | _ag_label_vertex
 (2 rows)
 
 \d+ new_cypher._adj__ag_label_vertex
@@ -84,6 +86,8 @@ SELECT * FROM postgraph.ag_label WHERE name = '_ag_label_vertex';
  start_id   | graphid |           | not null |                   | plain    |              | 
  end_id     | graphid |           | not null |                   | plain    |              | 
  properties | gtype   |           |          | gtype_build_map() | extended |              | 
+Indexes:
+    "idx_hash__adj__ag_label_vertex" btree (start_id)
 
 SELECT c.relname AS table_name,am.amname AS access_method
 FROM pg_class c

@@ -162,6 +162,14 @@ MATCH ()-[*2]->() RETURN 1;
 
 MATCH ()-[*1..2]->() RETURN 1;
 
+MATCH ()-[*..2]->() RETURN 1;
+
+
+
+MATCH ()-[*2..]->() RETURN 1;
+
+
+MATCH ()-[*1..]->() RETURN 1;
 --
 -- Clean up
 --

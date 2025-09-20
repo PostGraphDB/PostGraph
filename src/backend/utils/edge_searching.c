@@ -245,10 +245,7 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
 				RelationGetDescr(cxt->scan_desc->rs_rd),
 				&isnull));
 
-		//ereport(WARNING, errmsg("trying to push %lu with edge id %lu", new_id, edge_id));
         if (!contains(cxt->hashSet, edge_id)) {
-
-			//ereport(WARNING, errmsg("pushing %lu", new_id));
             cxt->current_path[cxt->current_path_length].count++;
 			variable_edge_stack_push(cxt->stack, new_id);
 			variable_edge_stack_push(cxt->edge_stack, edge_id);
@@ -262,7 +259,6 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
 PG_FUNCTION_INFO_V1(variable_edge_search);
 Datum variable_edge_search(PG_FUNCTION_ARGS)
 {
-	//ereport(WARNING, (errmsg("variable_edge_search called with graphid %lu and min %d", AG_GETARG_GRAPHID(1), GT_ARG_TO_INT4_DATUM(2))));
 	FuncCallContext *funcctx;
 	if (SRF_IS_FIRSTCALL()) {
 		MemoryContext oldcontext;
@@ -281,10 +277,14 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 
 		variable_edge_search_cxt *cxt= palloc(sizeof(variable_edge_search_cxt));
 		cxt->graph_oid = GT_ARG_TO_INT4_DATUM(0);
-		cxt->min = GT_ARG_TO_INT4_DATUM(2);
-		
+
+		if (PG_ARGISNULL(2))
+			cxt->min = 0;
+		else
+			cxt->min = GT_ARG_TO_INT4_DATUM(2);		
+
 		if (PG_ARGISNULL(3))
-			cxt->max = -1;
+			cxt->max = 1024;
 		else
 			cxt->max = GT_ARG_TO_INT4_DATUM(3);
 
@@ -306,7 +306,6 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 		cxt->current_path_length = 0;
 
 		cxt->hashSet = createHashSet(1024);
-		//insert(cxt->hashSet, GRAPHID_GET_DATUM(id));
 		scan_and_push_neighbors(cxt, id);
 		funcctx->user_fctx = cxt;
 
@@ -317,7 +316,6 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 	
 	variable_edge_search_cxt *cxt = (variable_edge_search_cxt *) funcctx->user_fctx;
 
-	//while (cxt->hashSet->size > 0) {
 	while (cxt->stack->top > 0) {
 		graphid id;
 		graphid edge_id;
@@ -330,7 +328,6 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 
 		
 		insert(cxt->hashSet, edge_id);
-		//ereport(WARNING, errmsg("cxt->hashSet->size %i, %lu", cxt->hashSet->size, id));
 		if (cxt->hashSet->size >= cxt->min) {
 			Datum values[3];
 			bool nulls[3];
@@ -351,7 +348,7 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 			} else {
 				removeElement(cxt->hashSet, edge_id);
 			}
-		    //ereport(WARNING, errmsg("sending %lu", id));
+
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
 		} else if (cxt->max == -1 || cxt->current_path_length < cxt->max) {
 			scan_and_push_neighbors(cxt, id);
