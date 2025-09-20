@@ -1099,8 +1099,6 @@ add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_n
 
         Var *var;
         if (var = colNameToVar(cpstate, make_id_alias(node->name), false, -1)) {
-//            ereport(WARNING,(errcode(ERRCODE_UNDEFINED_SCHEMA),
-//                errmsg("here")));
             node->declared_in_previous_clause = true;
 
             *quals = lappend(*quals,
@@ -1111,7 +1109,6 @@ add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_n
             return refnameNamespaceItem(cpstate, NULL, PREV_CYPHER_CLAUSE_ALIAS, -1, NULL);
         }
 
-        int sublevels_up;
         ParseNamespaceItem *pnsi = refnameNamespaceItem(cpstate, NULL, node->name, -1, NULL);
         if (pnsi) {
             node->in_join_tree = false;

@@ -442,13 +442,23 @@ AS 'MODULE_PATHNAME';
 
 
 CREATE FUNCTION retrieve_vertex(graph_oid gtype, id graphid)
-RETURNS TABLE (properties gtype)
+RETURNS gtype
 RETURNS NULL ON NULL INPUT
 STABLE
 PARALLEL SAFE
 LANGUAGE C
 COST 5000
 AS 'MODULE_PATHNAME';
+
+
+--CREATE FUNCTION retrieve_vertex(graph_oid gtype, id graphid)
+--RETURNS TABLE (properties gtype)
+--RETURNS NULL ON NULL INPUT
+--STABLE
+--PARALLEL SAFE
+--LANGUAGE C
+--COST 5000
+--AS 'MODULE_PATHNAME';
 
 --
 -- There are times when the optimizer might eliminate

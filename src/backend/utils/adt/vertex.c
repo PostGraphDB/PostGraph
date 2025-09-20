@@ -127,7 +127,7 @@ create_vertex(graphid id, Oid graph_oid, gtype *properties) {
     append_to_buffer(&buffer, (char *)&graph_oid, sizeof(Oid));
 
     // properties
-    if (properties == NULL) {   
+    if (!properties) {   
         gtype_in_state result;
         
         memset(&result, 0, sizeof(gtype_in_state));

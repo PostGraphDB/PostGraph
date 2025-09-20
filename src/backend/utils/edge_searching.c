@@ -70,7 +70,7 @@ static Datum get_vertex(Oid graph_oid, int64 graphid, bool *isnull)
         ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE), errmsg("id %lu does not exist", graphid)));
 
 	Datum properties = heap_getattr(tuple, 2, RelationGetDescr(rel), isnull);
-
+	//*isnull = false;
     table_endscan(scan_desc);
     table_close(rel, ShareLock);
 
@@ -79,6 +79,38 @@ static Datum get_vertex(Oid graph_oid, int64 graphid, bool *isnull)
 
 
 
+PG_FUNCTION_INFO_V1(retrieve_vertex);
+Datum retrieve_vertex(PG_FUNCTION_ARGS) {
+	Oid graph_oid = GT_ARG_TO_INT4_DATUM(0);
+	int64 graphid = AG_GETARG_GRAPHID(1);
+	bool isnull;
+
+    label_cache_data *lcd = search_label_graph_oid_cache(graph_oid, (graphid >> ENTRY_ID_BITS));
+
+	ScanKeyData scan_keys[1];
+    ScanKeyInit(&scan_keys[0], 1, BTEqualStrategyNumber, F_OIDEQ, Int64GetDatum(graphid));
+
+    Relation rel = table_open(lcd->relation, ShareLock);
+
+    TableScanDesc scan_desc = table_beginscan(rel, GetActiveSnapshot(), 1, scan_keys);
+
+	HeapTuple tuple;
+    if (!HeapTupleIsValid(tuple = heap_getnext(scan_desc, ForwardScanDirection)))
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE), errmsg("id %lu does not exist", graphid)));
+
+	Datum properties = heap_getattr(tuple, 2, RelationGetDescr(rel), &isnull);
+
+    table_endscan(scan_desc);
+    table_close(rel, ShareLock);
+
+	if (isnull) 
+		PG_RETURN_NULL();
+	
+	AG_RETURN_GTYPE_P(properties);
+
+}
+
+/*
 PG_FUNCTION_INFO_V1(retrieve_vertex);
 Datum retrieve_vertex(PG_FUNCTION_ARGS) {
     
@@ -100,7 +132,7 @@ Datum retrieve_vertex(PG_FUNCTION_ARGS) {
 
 	SRF_RETURN_DONE(funcctx);
 }
-
+*/
 
 typedef struct edge_search_cxt
 {
