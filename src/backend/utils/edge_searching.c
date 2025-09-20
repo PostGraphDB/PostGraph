@@ -51,33 +51,7 @@
 #include "utils/ag_cache.h"
 #include "utils/hashset.h"
 
-
 #include "ltree.h"
-
-static Datum get_vertex(Oid graph_oid, int64 graphid, bool *isnull)
-{
-    label_cache_data *lcd = search_label_graph_oid_cache(graph_oid, (graphid >> ENTRY_ID_BITS));
-
-	ScanKeyData scan_keys[1];
-    ScanKeyInit(&scan_keys[0], 1, BTEqualStrategyNumber, F_OIDEQ, Int64GetDatum(graphid));
-
-    Relation rel = table_open(lcd->relation, ShareLock);
-
-    TableScanDesc scan_desc = table_beginscan(rel, GetActiveSnapshot(), 1, scan_keys);
-
-	HeapTuple tuple;
-    if (!HeapTupleIsValid(tuple = heap_getnext(scan_desc, ForwardScanDirection)))
-        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE), errmsg("id %lu does not exist", graphid)));
-
-	Datum properties = heap_getattr(tuple, 2, RelationGetDescr(rel), isnull);
-	//*isnull = false;
-    table_endscan(scan_desc);
-    table_close(rel, ShareLock);
-
-    return properties;
-}
-
-
 
 PG_FUNCTION_INFO_V1(retrieve_vertex);
 Datum retrieve_vertex(PG_FUNCTION_ARGS) {
@@ -110,30 +84,6 @@ Datum retrieve_vertex(PG_FUNCTION_ARGS) {
 
 }
 
-/*
-PG_FUNCTION_INFO_V1(retrieve_vertex);
-Datum retrieve_vertex(PG_FUNCTION_ARGS) {
-    
-	FuncCallContext *funcctx;
-	if (SRF_IS_FIRSTCALL()) {
-		funcctx = SRF_FIRSTCALL_INIT();
-
-		TupleDesc tupdesc = CreateTemplateTupleDesc(1);
-		TupleDescInitEntry(tupdesc, 1, "properties", GTYPEOID, -1, 0);
-		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
-
-		funcctx = SRF_PERCALL_SETUP();
-	
-		Datum values[1];
-		bool nulls[1];
-		values[0] = get_vertex(GT_ARG_TO_INT4_DATUM(0), AG_GETARG_GRAPHID(1), &nulls[0]);
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
-	}
-
-	SRF_RETURN_DONE(funcctx);
-}
-*/
-
 typedef struct edge_search_cxt
 {
     ScanKey scanKey;
@@ -145,8 +95,6 @@ typedef struct edge_search_cxt
 PG_FUNCTION_INFO_V1(edge_search);
 Datum edge_search(PG_FUNCTION_ARGS)
 { 
-	//ereport(WARNING, (errmsg("edge_search called with graphid %lu", AG_GETARG_GRAPHID(1))));
-	
 	FuncCallContext *funcctx;
 	if (SRF_IS_FIRSTCALL()) {
 		MemoryContext oldcontext;
@@ -214,23 +162,6 @@ Datum edge_search(PG_FUNCTION_ARGS)
 	//ereport(WARNING, (errmsg("edge_search sending graphid %lu", DATUM_GET_GRAPHID(values[2]))));
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
 }
-/*
-// Node for the linked list to handle collisions (chaining)
-typedef struct HashSetNode {
-    graphid key;
-    struct HashSetNode* next;
-} HashSetNode;
-
-// The main Hash Set structure
-typedef struct HashSetValue {
-    HashSetNode** buckets; // Array of pointers to HashSetNodes (the buckets)
-    int capacity;          // The total number of buckets
-    int size;              // The current number of elements in the set
-} HashSetValue;
-*/
-
-
-
 
 typedef struct variable_edge_stack
 {
@@ -251,6 +182,7 @@ typedef struct variable_edge_search_cxt
 	Relation rel;
 	TupleTableSlot *slot;
 	int min;
+	int max;
 	Oid graph_oid;
 	HashSetValue *hashSet;
 	variable_edge_stack *stack;
@@ -351,6 +283,11 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 		cxt->graph_oid = GT_ARG_TO_INT4_DATUM(0);
 		cxt->min = GT_ARG_TO_INT4_DATUM(2);
 		
+		if (PG_ARGISNULL(3))
+			cxt->max = -1;
+		else
+			cxt->max = GT_ARG_TO_INT4_DATUM(3);
+
 		cxt->stack = palloc0(sizeof(variable_edge_stack));
 		cxt->stack->array = palloc0(sizeof(graphid) * (1024));
 		cxt->stack->top = 0;
@@ -361,8 +298,11 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 		cxt->edge_stack->top = 0;
 		cxt->edge_stack->capacity = 1024;
 
+		if (cxt->max == -1)
+			cxt->current_path = palloc(sizeof(graph_stack_count) * (cxt->min + 1));
+		else
+			cxt->current_path = palloc(sizeof(graph_stack_count) * (cxt->max + 1));
 
-		cxt->current_path = palloc(sizeof(graph_stack_count) * (cxt->min + 1));
 		cxt->current_path_length = 0;
 
 		cxt->hashSet = createHashSet(1024);
@@ -391,7 +331,7 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 		
 		insert(cxt->hashSet, edge_id);
 		//ereport(WARNING, errmsg("cxt->hashSet->size %i, %lu", cxt->hashSet->size, id));
-		if (cxt->hashSet->size == cxt->min) {
+		if (cxt->hashSet->size >= cxt->min) {
 			Datum values[3];
 			bool nulls[3];
 			values[0] = NULL;
@@ -406,10 +346,14 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 
 			values[2] = HASHSET_P_GET_DATUM(hset);
 			nulls[2] = false;
-			removeElement(cxt->hashSet, edge_id);
+			if (cxt->max == -1 || cxt->current_path_length < cxt->max) {
+				scan_and_push_neighbors(cxt, id);
+			} else {
+				removeElement(cxt->hashSet, edge_id);
+			}
 		    //ereport(WARNING, errmsg("sending %lu", id));
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
-		} else {
+		} else if (cxt->max == -1 || cxt->current_path_length < cxt->max) {
 			scan_and_push_neighbors(cxt, id);
 		}
 

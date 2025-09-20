@@ -1252,7 +1252,7 @@ add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_rela
                 make_int_const(cpstate->graph_oid, -1), 
                 scanNSItemForColumn(cpstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1), 
                 ((A_Indices *)edge->varlen)->lidx, 
-                make_null_const(-1)),
+                ((A_Indices *)edge->varlen)->uidx),
             COERCE_EXPLICIT_CALL, -1),
         edge->name,
         list_make3(makeString("edges"), makeString("endid"), makeString("hashset")));
