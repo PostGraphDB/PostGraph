@@ -6892,7 +6892,7 @@ CREATE OPERATOR @> (
     --JOIN = neqjoinsel
 );
 
-CREATE FUNCTION variable_edge_search(graph_oid gtype, id graphid, min gtype, max gtype)
+CREATE FUNCTION variable_edge_search(graph_oid gtype, id graphid, min gtype, max gtype, label_filter text[] DEFAULT NULL)
 RETURNS TABLE  (edges variable_edge, endid graphid, hset hashset)
 CALLED ON NULL INPUT
 STABLE

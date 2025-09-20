@@ -1168,12 +1168,19 @@ add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship 
         edge->name = get_next_default_alias(cpstate);
 
     bool is_default_label = true;
-    if (edge->label)
-        ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("MATCH labels are not supported")));
-    else
+    Node *label_filter = NULL;
+    if (edge->label) {
+        is_default_label = false;
+        label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
+        if (!lcd)
+            ereport(ERROR,
+                    (errcode(ERRCODE_UNDEFINED_OBJECT),
+                    errmsg("Edge label \"%s\" does not exist", edge->label)));
+
+            label_filter = make_int_const(lcd->id, -1);
+    }else {
         edge->label = AG_DEFAULT_LABEL_EDGE;
+    }
 
     return add_srf_to_query(
         cpstate, 
@@ -1184,8 +1191,9 @@ add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship 
                 vertex->declared_in_previous_clause ? 
                     colNameToVar(cpstate, make_id_alias(vertex->name), false, -1) : 
                     scanNSItemForColumn(cpstate, vertex->pnsi, 0, AG_VERTEX_COLNAME_ID, -1), 
-                make_null_const(-1), 
-                make_null_const(-1)),
+                !is_default_label ? (Node *)label_filter : make_null_const(-1) , 
+                make_null_const(-1)
+            ),
             COERCE_EXPLICIT_CALL, -1), 
         edge->name, 
         list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));
@@ -1205,12 +1213,19 @@ add_edge_to_query_with_prev_edge(cypher_parsestate *cpstate, Query *query, cyphe
         edge->name = get_next_default_alias(cpstate);
 
     bool is_default_label = true;
-    if (edge->label)
-        ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("MATCH labels are not supported")));
-    else
+    Node *label_filter = NULL;
+    if (edge->label) {
+        is_default_label = false;
+        label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
+        if (!lcd)
+            ereport(ERROR,
+                    (errcode(ERRCODE_UNDEFINED_OBJECT),
+                    errmsg("Edge label \"%s\" does not exist", edge->label)));
+
+        label_filter = make_int_const(lcd->id, -1);
+    }else {
         edge->label = AG_DEFAULT_LABEL_EDGE;
+    }
 
     if(edge->dir == CYPHER_REL_DIR_NONE) 
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1220,7 +1235,12 @@ add_edge_to_query_with_prev_edge(cypher_parsestate *cpstate, Query *query, cyphe
         cpstate, 
         makeFuncCall(
             list_make2(makeString("postgraph"), makeString("edge_search")),
-            list_make4(make_int_const(cpstate->graph_oid, -1), scanNSItemForColumn(cpstate, prev_pnsi, 0, "endid", -1), make_null_const(-1), make_null_const(-1)),
+            list_make4(
+                make_int_const(cpstate->graph_oid, -1), 
+                scanNSItemForColumn(cpstate, prev_pnsi, 0, "endid", -1), 
+                !is_default_label ? (Node *)label_filter : make_null_const(-1), 
+                make_null_const(-1)
+            ),
             COERCE_EXPLICIT_CALL, -1), 
         edge->name, 
         list_make4(makeString("id"), makeString("startid"), makeString("endid"), makeString("properties")));

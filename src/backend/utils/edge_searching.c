@@ -90,6 +90,7 @@ typedef struct edge_search_cxt
 	TableScanDesc scan_desc;
 	Relation rel;
 	TupleTableSlot *slot;
+	List *label_filter;
 } edge_search_cxt;
 
 PG_FUNCTION_INFO_V1(edge_search);
@@ -101,8 +102,12 @@ Datum edge_search(PG_FUNCTION_ARGS)
 		TupleDesc tupdesc;
         graphid id = AG_GETARG_GRAPHID(1);
 
+
+
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+
 
 		tupdesc = CreateTemplateTupleDesc(4);
 
@@ -126,6 +131,11 @@ Datum edge_search(PG_FUNCTION_ARGS)
 		List *empty = NIL;
 		cxt->slot = table_slot_create(cxt->rel, &empty);
 
+        cxt->label_filter = NIL;
+        if (!PG_ARGISNULL(2)) {
+			cxt->label_filter = lappend_oid(cxt->label_filter, GT_ARG_TO_INT4_DATUM(2));
+        }
+
 		funcctx->user_fctx = cxt;
 
 		MemoryContextSwitchTo(oldcontext);
@@ -134,17 +144,45 @@ Datum edge_search(PG_FUNCTION_ARGS)
 	funcctx = SRF_PERCALL_SETUP();
 	edge_search_cxt *cxt = (edge_search_cxt *) funcctx->user_fctx;
 	
+	while (table_scan_getnextslot(cxt->scan_desc, ForwardScanDirection, cxt->slot)) {
+		cxt->slot->tts_ops->materialize(cxt->slot);
+		HeapTuple heap_tuple = cxt->slot->tts_ops->get_heap_tuple(cxt->slot);
+		Relation rel = cxt->scan_desc->rs_rd;
+
+
+        if (cxt->label_filter != NIL) {
+            bool isnull;
+            Oid edge_label_oid = (DATUM_GET_GRAPHID(heap_getattr(heap_tuple, 1, RelationGetDescr(rel), &isnull)) >> ENTRY_ID_BITS);
+
+            bool found = false;
+            ListCell *lc;
+            foreach(lc, cxt->label_filter) {
+                if (edge_label_oid == lfirst_oid(lc)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                continue;
+        }
+
+		Datum values[4];
+		bool nulls[4];
+		values[0] = heap_getattr(heap_tuple, 1, RelationGetDescr(rel), &nulls[0]);
+		values[1] = heap_getattr(heap_tuple, 2, RelationGetDescr(rel), &nulls[1]);
+		values[2] = heap_getattr(heap_tuple, 3, RelationGetDescr(rel), &nulls[2]);
+		values[3] = heap_getattr(heap_tuple, 4, RelationGetDescr(rel), &nulls[3]);
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
+	}
+
+	ReleaseTupleDesc(RelationGetDescr(cxt->rel));
+	table_endscan(cxt->scan_desc);
+	table_close(cxt->rel, ShareLock);
+	SRF_RETURN_DONE(funcctx);
+/*
     if (!table_scan_getnextslot(cxt->scan_desc, ForwardScanDirection, cxt->slot)) {
 		ReleaseTupleDesc(RelationGetDescr(cxt->rel));
-		table_endscan(cxt->scan_desc);
-    	/*
-   		List *indexoidlist = RelationGetIndexList(cxt->rel);
-		if(list_length(indexoidlist) == 1) {
-			Oid idx = linitial_oid(indexoidlist);
-			index_close(idx, RowExclusiveLock);
-		}*/
 
-		table_close(cxt->rel, ShareLock);
 
 		SRF_RETURN_DONE(funcctx);
 	}
@@ -160,7 +198,7 @@ Datum edge_search(PG_FUNCTION_ARGS)
 	values[2] = heap_getattr(heap_tuple, 3, RelationGetDescr(rel), &nulls[2]);
 	values[3] = heap_getattr(heap_tuple, 4, RelationGetDescr(rel), &nulls[3]);
 	//ereport(WARNING, (errmsg("edge_search sending graphid %lu", DATUM_GET_GRAPHID(values[2]))));
-	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
+	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));*/
 }
 
 typedef struct variable_edge_stack
