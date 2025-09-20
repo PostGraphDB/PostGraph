@@ -227,6 +227,7 @@ typedef struct variable_edge_search_cxt
 	graph_stack_count *current_path;
 	variable_edge_stack *edge_stack;
 	int current_path_length;
+	List *label_filter;
 } variable_edge_search_cxt;
 
 static void
@@ -269,6 +270,7 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
     while (table_scan_getnextslot(cxt->scan_desc, ForwardScanDirection, cxt->slot)) {
         cxt->slot->tts_ops->materialize(cxt->slot);
 
+
 		bool isnull;
 		graphid edge_id = DATUM_GET_GRAPHID(
 			heap_getattr(
@@ -276,6 +278,24 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
 				1,
 				RelationGetDescr(cxt->scan_desc->rs_rd),
 				&isnull));	
+
+        if (cxt->label_filter != NIL) {
+            bool isnull;
+            Oid edge_label_oid = (edge_id >> ENTRY_ID_BITS);
+
+            bool found = false;
+            ListCell *lc;
+            foreach(lc, cxt->label_filter) {
+                if (edge_label_oid == lfirst_oid(lc)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                continue;
+        }
+
+
 		graphid new_id = DATUM_GET_GRAPHID(
 			heap_getattr(
 				cxt->slot->tts_ops->get_heap_tuple(cxt->slot),
@@ -344,7 +364,17 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 		cxt->current_path_length = 0;
 
 		cxt->hashSet = createHashSet(1024);
+		
+
+        cxt->label_filter = NIL;
+        if (!PG_ARGISNULL(4)) {
+			cxt->label_filter = lappend_oid(cxt->label_filter, GT_ARG_TO_INT4_DATUM(4));
+        }
+		
+		
 		scan_and_push_neighbors(cxt, id);
+
+
 		funcctx->user_fctx = cxt;
 
 		MemoryContextSwitchTo(oldcontext);

@@ -171,6 +171,16 @@ MATCH ()-[*1..]->() RETURN 1;
 
 MATCH ()-[:elabel]->() RETURN 1;
 
+MATCH ()-[:elabel*1]->() RETURN 1;
+
+MATCH ()-[:elabel*1..]->() RETURN 1;
+
+MATCH ()-[:elabel*1..2]->() RETURN 1;
+
+MATCH ()-[:elabel*2]->() RETURN 1;
+
+MATCH ()-[:elabel*..2]->() RETURN 1;
+
 --
 -- Clean up
 --

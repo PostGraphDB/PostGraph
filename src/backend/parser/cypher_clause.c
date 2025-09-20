@@ -1288,12 +1288,19 @@ add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_rela
         edge->name = get_next_default_alias(cpstate);
 
     bool is_default_label = true;
-    if (edge->label)
-        ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("MATCH labels are not supported")));
-    else
+    Node *label_filter = NULL;
+    if (edge->label) {
+        is_default_label = false;
+        label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
+        if (!lcd)
+            ereport(ERROR,
+                    (errcode(ERRCODE_UNDEFINED_OBJECT),
+                    errmsg("Edge label \"%s\" does not exist", edge->label)));
+
+            label_filter = make_int_const(lcd->id, -1);
+    }else {
         edge->label = AG_DEFAULT_LABEL_EDGE;
+    }
    
     A_Indices *varlen = (A_Indices *)edge->varlen;
 
@@ -1301,11 +1308,13 @@ add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_rela
         cpstate, 
         makeFuncCall(
             list_make2(makeString("postgraph"), makeString("variable_edge_search")),
-            list_make4(
+            list_make5(
                 make_int_const(cpstate->graph_oid, -1), 
                 scanNSItemForColumn(cpstate, vertex_pnsi, 0, AG_VERTEX_COLNAME_ID, -1), 
                 varlen->lidx ? varlen->lidx : make_null_const(-1), 
-                varlen->uidx ? varlen->uidx : make_null_const(-1)),
+                varlen->uidx ? varlen->uidx : make_null_const(-1),
+                !is_default_label ? (Node *)label_filter : make_null_const(-1)
+            ),
             COERCE_EXPLICIT_CALL, -1),
         edge->name,
         list_make3(makeString("edges"), makeString("endid"), makeString("hashset")));
