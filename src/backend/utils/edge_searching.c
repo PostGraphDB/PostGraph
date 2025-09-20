@@ -59,29 +59,54 @@ Datum retrieve_vertex(PG_FUNCTION_ARGS) {
 	int64 graphid = AG_GETARG_GRAPHID(1);
 	bool isnull;
 
-    label_cache_data *lcd = search_label_graph_oid_cache(graph_oid, (graphid >> ENTRY_ID_BITS));
-
 	ScanKeyData scan_keys[1];
     ScanKeyInit(&scan_keys[0], 1, BTEqualStrategyNumber, F_OIDEQ, Int64GetDatum(graphid));
 
+    label_cache_data *lcd = search_label_graph_oid_cache(graph_oid, (graphid >> ENTRY_ID_BITS));
     Relation rel = table_open(lcd->relation, ShareLock);
+    List *indexoidlist = RelationGetIndexList(rel);
 
-    TableScanDesc scan_desc = table_beginscan(rel, GetActiveSnapshot(), 1, scan_keys);
+    if(list_length(indexoidlist) == 1) {
+        Oid idx = linitial_oid(indexoidlist);
+		Relation idxrel = index_open(idx, ShareLock);
+        IndexScanDesc *desc = index_beginscan(rel, idxrel, GetActiveSnapshot(), 1, scan_keys);
+		TupleTableSlot *slot;
+		HeapTuple tuple;
+		if (!index_getnext_slot(desc, ForwardScanDirection, slot))
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE), errmsg("id %lu does not exist", graphid)));
 
-	HeapTuple tuple;
-    if (!HeapTupleIsValid(tuple = heap_getnext(scan_desc, ForwardScanDirection)))
-        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE), errmsg("id %lu does not exist", graphid)));
+		ereport(WARNING, (errmsg("here")));
+		tuple = ExecFetchSlotHeapTuple(slot, false, NULL);
 
-	Datum properties = heap_getattr(tuple, 2, RelationGetDescr(rel), &isnull);
+		Datum properties = heap_getattr(tuple, 2, RelationGetDescr(rel), &isnull);
 
-    table_endscan(scan_desc);
-    table_close(rel, ShareLock);
+		index_endscan(desc);
+		index_close(idxrel, ShareLock);
+		table_close(rel, ShareLock);
 
-	if (isnull) 
-		PG_RETURN_NULL();
-	
-	AG_RETURN_GTYPE_P(properties);
+		if (isnull) 
+			PG_RETURN_NULL();
+		
+		AG_RETURN_GTYPE_P(properties);
 
+
+	} else {
+		TableScanDesc scan_desc = table_beginscan(rel, GetActiveSnapshot(), 1, scan_keys);
+
+		HeapTuple tuple;
+		if (!HeapTupleIsValid(tuple = heap_getnext(scan_desc, ForwardScanDirection)))
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE), errmsg("id %lu does not exist", graphid)));
+
+		Datum properties = heap_getattr(tuple, 2, RelationGetDescr(rel), &isnull);
+
+		table_endscan(scan_desc);
+		table_close(rel, ShareLock);
+
+		if (isnull) 
+			PG_RETURN_NULL();
+		
+		AG_RETURN_GTYPE_P(properties);
+	}
 }
 
 typedef struct edge_search_cxt
@@ -102,12 +127,8 @@ Datum edge_search(PG_FUNCTION_ARGS)
 		TupleDesc tupdesc;
         graphid id = AG_GETARG_GRAPHID(1);
 
-
-
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-
 
 		tupdesc = CreateTemplateTupleDesc(4);
 
@@ -179,26 +200,6 @@ Datum edge_search(PG_FUNCTION_ARGS)
 	table_endscan(cxt->scan_desc);
 	table_close(cxt->rel, ShareLock);
 	SRF_RETURN_DONE(funcctx);
-/*
-    if (!table_scan_getnextslot(cxt->scan_desc, ForwardScanDirection, cxt->slot)) {
-		ReleaseTupleDesc(RelationGetDescr(cxt->rel));
-
-
-		SRF_RETURN_DONE(funcctx);
-	}
-	
-	Datum values[4];
-	bool nulls[4];
-	VertexHeapScanDesc vertex_desc = cxt->scan_desc;
-	cxt->slot->tts_ops->materialize(cxt->slot);
-	HeapTuple heap_tuple = cxt->slot->tts_ops->get_heap_tuple(cxt->slot);
-	Relation rel = vertex_desc->desc[0]->rs_rd;
-	values[0] = heap_getattr(heap_tuple, 1, RelationGetDescr(rel), &nulls[0]);
-	values[1] = heap_getattr(heap_tuple, 2, RelationGetDescr(rel), &nulls[1]);
-	values[2] = heap_getattr(heap_tuple, 3, RelationGetDescr(rel), &nulls[2]);
-	values[3] = heap_getattr(heap_tuple, 4, RelationGetDescr(rel), &nulls[3]);
-	//ereport(WARNING, (errmsg("edge_search sending graphid %lu", DATUM_GET_GRAPHID(values[2]))));
-	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));*/
 }
 
 typedef struct variable_edge_stack
@@ -233,21 +234,17 @@ typedef struct variable_edge_search_cxt
 static void
 variable_edge_stack_push(variable_edge_stack *stack, graphid value)
 {
-
-    if (stack->top >= stack->capacity)
-    {
+    if (stack->top >= stack->capacity) {
         int new_capacity = stack->capacity * 2;
         stack->array = repalloc(stack->array, sizeof(graphid) * (new_capacity + 1));
         stack->capacity = new_capacity;
     }
     stack->array[stack->top++] = value;
-   // ereport(WARNING, (errmsg("pushing to stack %i, %i, %lu, %lu", stack->top, stack->capacity, value, stack->array[stack->top-1])));
 }
 
 static bool
 variable_edge_stack_pop(variable_edge_stack *stack, graphid *result)
 {
-   // ereport(WARNING, (errmsg("popping from stack %i, %i ", stack->top, stack->capacity)));
     if (stack->top == 0)
         return false;
     *result = stack->array[--stack->top];
@@ -258,8 +255,7 @@ static void
 scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
 {
     label_cache_data *lcd = search_label_graph_oid_cache(cxt->graph_oid, (id >> ENTRY_ID_BITS));
-	//ereport(WARNING, (errmsg("here")));
-    cxt->scanKey = palloc(sizeof(ScanKeyData));
+	cxt->scanKey = palloc(sizeof(ScanKeyData));
     ScanKeyInit(cxt->scanKey, 1, BTEqualStrategyNumber, F_GRAPHIDEQ, GRAPHID_GET_DATUM(id));
 
     cxt->rel = table_open(lcd->vertex_adjlist, ShareLock);
@@ -269,8 +265,6 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
 
     while (table_scan_getnextslot(cxt->scan_desc, ForwardScanDirection, cxt->slot)) {
         cxt->slot->tts_ops->materialize(cxt->slot);
-
-
 		bool isnull;
 		graphid edge_id = DATUM_GET_GRAPHID(
 			heap_getattr(
@@ -280,9 +274,7 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
 				&isnull));	
 
         if (cxt->label_filter != NIL) {
-            bool isnull;
             Oid edge_label_oid = (edge_id >> ENTRY_ID_BITS);
-
             bool found = false;
             ListCell *lc;
             foreach(lc, cxt->label_filter) {
@@ -294,7 +286,6 @@ scan_and_push_neighbors(variable_edge_search_cxt *cxt, graphid id)
             if (!found)
                 continue;
         }
-
 
 		graphid new_id = DATUM_GET_GRAPHID(
 			heap_getattr(
@@ -360,20 +351,16 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 			cxt->current_path = palloc(sizeof(graph_stack_count) * (cxt->min + 1));
 		else
 			cxt->current_path = palloc(sizeof(graph_stack_count) * (cxt->max + 1));
-
 		cxt->current_path_length = 0;
 
-		cxt->hashSet = createHashSet(1024);
-		
+		cxt->hashSet = createHashSet(1024);		
 
         cxt->label_filter = NIL;
         if (!PG_ARGISNULL(4)) {
 			cxt->label_filter = lappend_oid(cxt->label_filter, GT_ARG_TO_INT4_DATUM(4));
         }
 		
-		
 		scan_and_push_neighbors(cxt, id);
-
 
 		funcctx->user_fctx = cxt;
 
