@@ -51,6 +51,7 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
     transform_cypher_clause_as_subquery(cpstate, transform_cypher_clause, \
                                         prev_clause, NULL, add_rte_to_query)
 static ParseNamespaceItem *transform_cypher_clause_as_subquery(cypher_parsestate *cpstate, transform_method transform, cypher_clause *clause, Alias *alias, bool add_rte_to_query);
+static void handle_prev_clause(cypher_parsestate *cpstate, Query *query, cypher_clause *clause, bool first_rte);
 static Query *analyze_cypher_clause(transform_method transform, cypher_clause *clause, cypher_parsestate *parent_cpstate);
 static List *make_target_list_from_join(ParseState *pstate, RangeTblEntry *rte);
 static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok);
@@ -306,6 +307,21 @@ static void validate_or_create_vlabel(cypher_parsestate *cpstate, cypher_node *n
 }
 
 
+static int get_target_entry_resno(cypher_parsestate *cpstate, List *target_list, char *name) {
+    ListCell *lc;
+
+    foreach (lc, target_list) {
+        TargetEntry *te = (TargetEntry *)lfirst(lc);
+ 
+        if (!strcmp(te->resname, name)) {
+            return te->resno;
+        }
+    }
+
+    return -1;
+}
+
+
 static void
 process_create_vertex(
     cypher_parsestate *cpstate,
@@ -316,17 +332,31 @@ process_create_vertex(
     ParseState *pstate = (ParseState *)cpstate;
     cypher_target_node *target = make_ag_node(cypher_target_node);
 
-    if (node->label)
-        validate_or_create_vlabel(cpstate, node);
-    else
-        node->label = AG_DEFAULT_LABEL_VERTEX;
+
 
     if (node->name) {
         // /ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
+        Var *var;
+        if (var = colNameToVar(cpstate, node->name, false, -1)) {
+        
+            if (var->vartype != VERTEXOID)
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("CREATE vertex variable %s already exists", node->name)));
+        
+            if (node->props)
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("previously declared nodes in a create clause cannot have properties")));
+            if (node->label)
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("previously declared variables cannot have a label")));
+      
+            target->flags |= EXISTING_VARAIBLE_DECLARED_SAME_CLAUSE;
+    
+            target->id_attr_num = get_target_entry_resno(cpstate, query->targetList, make_id_alias(node->name));
+            ccp->target_nodes = lappend(ccp->target_nodes, target);
+            return ;
+        }
 
-        if (colNameToVar(cpstate, node->name, false, -1))
-            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("CREATE vertex variable %s already exists", node->name)));
 
         target->variable_name = node->name;
         query->targetList = lappend(query->targetList,
@@ -378,6 +408,11 @@ process_create_vertex(
         }
 
     }
+    
+    if (node->label)
+        validate_or_create_vlabel(cpstate, node);
+    else
+        node->label = AG_DEFAULT_LABEL_VERTEX;
 
     label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
 
@@ -405,8 +440,6 @@ process_create_edge(
 
 
     if (edge->name) {
-        // /ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
-
         if (colNameToVar(cpstate, edge->name, false, -1))
             ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                     errmsg("CREATE edge variable %s already exists", edge->name)));
@@ -481,20 +514,23 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
     query->commandType = CMD_SELECT;
     query->targetList = NIL;
 
-    if (clause->prev != NULL)
-        ereport(ERROR, (errmsg_internal("CREATE doesn't work with previous clauses")));
-
-    //if (clause->next)
-      //  ereport(ERROR, (errmsg_internal("CREATE doesn't work with next clauses")));
-
-    if (list_length(self->pattern) != 1)
-        ereport(ERROR, (errmsg_internal("CREATE doesn't work with patterns")));
-
 
     cypher_create_target_nodes *target_nodes;
     target_nodes = make_ag_node(cypher_create_target_nodes);
     target_nodes->flags = CYPHER_CLAUSE_FLAG_NONE;
     target_nodes->graph_oid = cpstate->graph_oid;
+
+
+    if (clause->prev) {
+        handle_prev_clause(cpstate, query, clause->prev, true);
+
+        target_nodes->flags |= CYPHER_CLAUSE_FLAG_PREVIOUS_CLAUSE;
+    }
+
+    if (list_length(self->pattern) != 1)
+        ereport(ERROR, (errmsg_internal("CREATE doesn't work with patterns")));
+
+
 
     if (!clause->next)
         target_nodes->flags |= CYPHER_CLAUSE_FLAG_TERMINAL;
@@ -1863,4 +1899,25 @@ Query *cypher_parse_sub_analyze(Node *parseTree, cypher_parsestate *cpstate, Com
     free_cypher_parsestate(pstate);
 
     return query;
+}
+
+/*
+ * Utility function that helps a clause add the information needed to
+ * the query from the previous clause.
+ */
+static void handle_prev_clause(cypher_parsestate *cpstate, Query *query, cypher_clause *clause, bool first_rte) {
+    ParseState *pstate = (ParseState *) cpstate;
+    int rtindex;
+    ParseNamespaceItem *pnsi;
+
+    pnsi = transform_prev_cypher_clause(cpstate, clause, true);
+
+    rtindex = list_length(pstate->p_rtable);
+
+    // rte is the first RangeTblEntry in pstate
+    if (first_rte)
+        Assert(rtindex == 1);
+
+    // add all the rte's attributes to the current queries targetlist
+    query->targetList = list_concat(query->targetList, expandNSItemAttrs(pstate, pnsi, 0, -1));
 }

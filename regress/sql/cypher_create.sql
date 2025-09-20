@@ -181,6 +181,21 @@ MATCH ()-[:elabel*2]->() RETURN 1;
 
 MATCH ()-[:elabel*..2]->() RETURN 1;
 
+MATCH (n:test)
+CREATE ()-[:elabel]->(:test2)
+RETURN 1;
+
+MATCH (n:test)
+CREATE (n)-[:elabel]->(:test2)
+RETURN 1;
+MATCH (n)
+CREATE (n)-[:elabel2]->(:test3)
+RETURN 1;
+
+MATCH (n)
+CREATE (n)<-[:elabel2]-(:test3)
+RETURN 1;
+
 --
 -- Clean up
 --

@@ -75,7 +75,6 @@ Datum retrieve_vertex(PG_FUNCTION_ARGS) {
 		if (!index_getnext_slot(desc, ForwardScanDirection, slot))
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE), errmsg("id %lu does not exist", graphid)));
 
-		ereport(WARNING, (errmsg("here")));
 		tuple = ExecFetchSlotHeapTuple(slot, false, NULL);
 
 		Datum properties = heap_getattr(tuple, 2, RelationGetDescr(rel), &isnull);
@@ -88,8 +87,6 @@ Datum retrieve_vertex(PG_FUNCTION_ARGS) {
 			PG_RETURN_NULL();
 		
 		AG_RETURN_GTYPE_P(properties);
-
-
 	} else {
 		TableScanDesc scan_desc = table_beginscan(rel, GetActiveSnapshot(), 1, scan_keys);
 
@@ -398,12 +395,11 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 
 			values[2] = HASHSET_P_GET_DATUM(hset);
 			nulls[2] = false;
-			if (cxt->max == -1 || cxt->current_path_length < cxt->max) {
+			if (cxt->max == -1 || cxt->current_path_length < cxt->max)
 				scan_and_push_neighbors(cxt, id);
-			} else {
+			else 
 				removeElement(cxt->hashSet, edge_id);
-			}
-
+			
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
 		} else if (cxt->max == -1 || cxt->current_path_length < cxt->max) {
 			scan_and_push_neighbors(cxt, id);
@@ -415,6 +411,6 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 		 	removeElement(cxt->hashSet, edge_id);
 		}
 	}
-	//destroyHashSetValue(cxt->hashSet);
+
 	SRF_RETURN_DONE(funcctx);
 }
