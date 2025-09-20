@@ -188,14 +188,21 @@ RETURN 1;
 MATCH (n:test)
 CREATE (n)-[:elabel]->(:test2)
 RETURN 1;
-MATCH (n)
+MATCH (n:test)
 CREATE (n)-[:elabel2]->(:test3)
 RETURN 1;
 
-MATCH (n)
+MATCH (n:test)
 CREATE (n)<-[:elabel2]-(:test3)
 RETURN 1;
 
+MATCH (n:test)
+CREATE (n)<-[:elabel2]-(:test3)-[:elabel2]->(:test3)
+RETURN 1;
+
+MATCH (n:test)
+CREATE (n)-[:elabel2]->(:test3)<-[:elabel2]-(:test3)
+RETURN 1;
 --
 -- Clean up
 --

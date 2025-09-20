@@ -376,7 +376,7 @@ Datum variable_edge_search(PG_FUNCTION_ARGS)
 			SRF_RETURN_DONE(funcctx);
 
 		cxt->current_path[++cxt->current_path_length].count = 0;
-		cxt->current_path[cxt->current_path_length].count = id;
+		cxt->current_path[cxt->current_path_length].id = id;
 
 		
 		insert(cxt->hashSet, edge_id);
