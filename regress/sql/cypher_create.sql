@@ -185,9 +185,19 @@ MATCH (n:test)
 CREATE ()-[:elabel]->(:test2)
 RETURN 1;
 
+EXPLAIN
+MATCH (n:test)
+CREATE (n)-[:elabel]->(:test2)
+RETURN n;
+
+MATCH (n:test)
+CREATE (n)-[:elabel]->(:test2)
+RETURN n;
+
 MATCH (n:test)
 CREATE (n)-[:elabel]->(:test2)
 RETURN 1;
+
 MATCH (n:test)
 CREATE (n)-[:elabel2]->(:test3)
 RETURN 1;
@@ -203,6 +213,62 @@ RETURN 1;
 MATCH (n:test)
 CREATE (n)-[:elabel2]->(:test3)<-[:elabel2]-(:test3)
 RETURN 1;
+
+--CREATE (n:vlabel_loop)-[:elabel_loop]->(n) RETURN 1;
+
+MATCH (n)-[:elabel_loop]->(n) RETURN n;
+
+
+MATCH (n:test)
+CREATE (n)<-[:elabel2]-(:test3)-[:elabel2]->(:test3)
+RETURN n;
+
+MATCH (n:test)
+CREATE (n)-[:elabel2]->(:test3)<-[:elabel2]-(:test3)
+RETURN n;
+
+MATCH (n:test)
+CREATE (n)<-[:elabel2]-(m:test3)-[:elabel2]->(:test3)
+RETURN m;
+
+MATCH (n:test)
+CREATE (n)-[:elabel2]->(m:test3)<-[:elabel2]-(:test3)
+RETURN m;
+
+
+MATCH (n:test)
+CREATE (n)<-[:elabel2]-(:test3)-[:elabel2]->(m:test3)
+RETURN m;
+
+MATCH (n:test)
+CREATE (n)-[:elabel2]->(:test3)<-[:elabel2]-(m:test3)
+RETURN m;
+
+MATCH (n:test)
+CREATE (n)<-[m:elabel2]-(:test3)-[:elabel2]->(:test3)
+RETURN m;
+
+MATCH (n:test)
+CREATE (n)-[m:elabel2]->(:test3)<-[:elabel2]-(:test3)
+RETURN m;
+
+
+MATCH (n:test)
+CREATE (n)<-[:elabel2]-(:test3)-[m:elabel2]->(:test3)
+RETURN m;
+
+MATCH (n:test)
+CREATE (n)-[:elabel2]->(:test3)<-[m:elabel2]-(:test3)
+RETURN m;
+
+SELECT * FROM postgraph.ag_label;
+
+SELECT * FROM cypher_create._adj_vlabel_loop;
+SELECT * FROM cypher_create.vlabel_loop;
+
+SELECT * FROM cypher_create._adj_elabel_loop;
+SELECT * FROM cypher_create.elabel_loop;
+
 --
 -- Clean up
 --

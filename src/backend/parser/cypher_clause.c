@@ -314,13 +314,13 @@ static int get_target_entry_resno(cypher_parsestate *cpstate, List *target_list,
         TargetEntry *te = (TargetEntry *)lfirst(lc);
  
         if (!strcmp(te->resname, name)) {
+            //te->expr = add_volatile_wrapper(te->expr);
             return te->resno;
         }
     }
 
     return -1;
 }
-
 
 static void
 process_create_vertex(
@@ -333,13 +333,13 @@ process_create_vertex(
     cypher_target_node *target = make_ag_node(cypher_target_node);
 
 
-
     if (node->name) {
         // /ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
-        Var *var;
-        if (var = colNameToVar(cpstate, node->name, false, -1)) {
+        Var *var = NULL;
+        if ((var = colNameToVar(cpstate, node->name, false, -1)) ||
+        (target->id_attr_num = get_target_entry_resno(cpstate, query->targetList, make_id_alias(node->name))) != -1) {
         
-            if (var->vartype != VERTEXOID)
+            if (var && var->vartype != VERTEXOID)
                 ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                         errmsg("CREATE vertex variable %s already exists", node->name)));
         
@@ -353,8 +353,9 @@ process_create_vertex(
             target->flags |= EXISTING_VARAIBLE_DECLARED_SAME_CLAUSE;
     
             target->id_attr_num = get_target_entry_resno(cpstate, query->targetList, make_id_alias(node->name));
+    
             ccp->target_nodes = lappend(ccp->target_nodes, target);
-            return ;
+            return;
         }
 
 
@@ -375,12 +376,6 @@ process_create_vertex(
                     false));
         } else {
             target->prop_attr_num = InvalidAttrNumber;
-            /*query->targetList = lappend(query->targetList,
-                makeTargetEntry(
-                    make_gtype_placeholder(cpstate),
-                    target->prop_attr_num = pstate->p_next_resno++,
-                    make_property_alias(node->name),
-                    false));*/
         }
 
         query->targetList = lappend(query->targetList,
@@ -415,9 +410,11 @@ process_create_vertex(
         node->label = AG_DEFAULT_LABEL_VERTEX;
 
     label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
-
-    target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(lcd->relation), 1);
+    Relation *rel = RelationIdGetRelation(lcd->relation);
+    target->id_expr = (Expr *)build_column_default(rel, 1);
     target->relid = lcd->relation;
+    table_close(rel, NoLock);
+
     target->adj_relid = lcd->vertex_adjlist;
 
     ccp->target_nodes = lappend(ccp->target_nodes, target);
@@ -461,12 +458,6 @@ process_create_edge(
                     false));
         } else {
             target->prop_attr_num = InvalidAttrNumber;
-            /*query->targetList = lappend(query->targetList,
-                makeTargetEntry(
-                    make_gtype_placeholder(cpstate),
-                    target->prop_attr_num = pstate->p_next_resno++,
-                    make_property_alias(edge->name),
-                    false));*/
         }
 
         query->targetList = lappend(query->targetList,
@@ -500,8 +491,12 @@ process_create_edge(
 
     label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
     target->relid = lcd->relation;
+    
+    Relation *rel = RelationIdGetRelation(lcd->relation);
+    target->id_expr = (Expr *)build_column_default(rel, 1);
 
-    target->id_expr = (Expr *)build_column_default(RelationIdGetRelation(target->relid), 1);
+    table_close(rel, NoLock);
+
 
     ccp->target_nodes = lappend(ccp->target_nodes, target);
 }

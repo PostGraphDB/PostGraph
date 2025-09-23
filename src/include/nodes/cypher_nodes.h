@@ -369,6 +369,9 @@ typedef struct cypher_target_node
     char *variable_name;
     
     AttrNumber tuple_position;
+Relation rel;
+Relation adj_rel;
+
 } cypher_target_node;
 
 #define CYPHER_TARGET_NODE_FLAG_NONE 0x0000

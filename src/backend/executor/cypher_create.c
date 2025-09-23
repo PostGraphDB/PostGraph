@@ -171,24 +171,24 @@ static void begin_cypher_create(CustomScanState *node, EState *estate, int eflag
             continue;
         }
         
-        Relation rel = table_open(cypher_node->relid, RowExclusiveLock);
+        cypher_node->rel = table_open(cypher_node->relid, RowExclusiveLock);
         cypher_node->resultRelInfo = makeNode(ResultRelInfo);
-        InitResultRelInfo(cypher_node->resultRelInfo, rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
+        InitResultRelInfo(cypher_node->resultRelInfo, cypher_node->rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
         
         // Open all indexes for the relation
         ExecOpenIndices(cypher_node->resultRelInfo, false);
     
         // Setup the relation's tuple slot
-        cypher_node->elemTupleSlot = table_slot_create(rel, &estate->es_tupleTable); 
+        cypher_node->elemTupleSlot = table_slot_create(cypher_node->rel, &estate->es_tupleTable); 
 
-        Relation adj_rel = table_open(cypher_node->adj_relid, RowExclusiveLock);
+        cypher_node->adj_rel = table_open(cypher_node->adj_relid, RowExclusiveLock);
         cypher_node->adj_resultRelInfo = makeNode(ResultRelInfo);
-        InitResultRelInfo(cypher_node->adj_resultRelInfo, adj_rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
+        InitResultRelInfo(cypher_node->adj_resultRelInfo, cypher_node->adj_rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
         
         ExecOpenIndices(cypher_node->adj_resultRelInfo, false);
     
         // Setup the relation's tuple slot
-        cypher_node->adj_elemTupleSlot = table_slot_create(adj_rel, &estate->es_tupleTable); 
+        cypher_node->adj_elemTupleSlot = table_slot_create(cypher_node->adj_rel, &estate->es_tupleTable); 
 
         i++;
 
@@ -214,12 +214,10 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
 
         if (TupIsNull(return_slot))
             return return_slot;
-    //  if ((return_slot->tts_flags = return_slot & TTS_FLAG_EMPTY))
-        //    return NULL;
+
         econtext->ecxt_scantuple =
                 csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
-        TupleTableSlot *slot = econtext->ecxt_scantuple;//csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;
-        //slot->tts_ops->materialize(slot);
+        TupleTableSlot *slot = econtext->ecxt_scantuple;
 
         if (list_length(css->pattern) != 1)
             ereport(ERROR, (errmsg_internal("executor create found a multi pattern")));
@@ -278,7 +276,7 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
                     slot->tts_values[node->tuple_position - 1] = VERTEX_GET_DATUM(create_vertex(
                         slot->tts_values[node->id_attr_num - 1],
                         css->graph_oid,
-                        elemTupleSlot->tts_isnull[1] ?  NULL : DATUM_GET_GTYPE_P(elemTupleSlot->tts_values[1])));
+                        elemTupleSlot->tts_isnull[1] ? NULL : DATUM_GET_GTYPE_P(elemTupleSlot->tts_values[1])));
                     slot->tts_isnull[node->tuple_position - 1] = false;
                 }
 
@@ -287,82 +285,81 @@ static TupleTableSlot *exec_cypher_create(CustomScanState *csnode)
             }
             
 
-                if (list_length(path->target_nodes) > 1 && i < (list_length(path->target_nodes)/2)) {
-                    cypher_target_node *start_vertex;
-                    if (node->dir == CYPHER_REL_DIR_RIGHT) {
-                        start_vertex = list_nth(path->target_nodes, i * 2);
-                    } else {
-                        start_vertex = list_nth(path->target_nodes, (i * 2) + 2);
-                    }
+            if (list_length(path->target_nodes) > 1 && i < (list_length(path->target_nodes)/2)) {
+                cypher_target_node *start_vertex;
+                if (node->dir == CYPHER_REL_DIR_RIGHT) {
+                    start_vertex = list_nth(path->target_nodes, i * 2);
+                } else {
+                    start_vertex = list_nth(path->target_nodes, (i * 2) + 2);
+                }
 
-                    if(start_vertex->flags & EXISTING_VARAIBLE_DECLARED_SAME_CLAUSE){
-                        label_cache_data *lcd = search_label_name_graph_cache(DATUM_GET_GRAPHID(slot->tts_values[node->id_attr_num - 1])>> ENTRY_ID_BITS, css->graph_oid);
-                        start_vertex->adj_relid = lcd->relation;
-                        Relation adj_rel = table_open(node->adj_relid, RowExclusiveLock);
-                        start_vertex->adj_resultRelInfo = makeNode(ResultRelInfo);
-                        InitResultRelInfo(node->adj_resultRelInfo, adj_rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
-                        cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, i * 2);
-                        ExecOpenIndices(node->adj_resultRelInfo, false);
-                        start_vertex->adj_elemTupleSlot = table_slot_create(adj_rel, &estate->es_tupleTable); 
-                    }
+                if(start_vertex->flags & EXISTING_VARAIBLE_DECLARED_SAME_CLAUSE){
+                    label_cache_data *lcd = search_label_graph_oid_cache(
+                        css->graph_oid,
+                        DATUM_GET_GRAPHID(slot->tts_values[start_vertex->id_attr_num - 1]) >> ENTRY_ID_BITS);
+                    start_vertex->adj_relid = lcd->relation;
 
-                    resultRelInfo = start_vertex->adj_resultRelInfo;
-                    elemTupleSlot = start_vertex->adj_elemTupleSlot;
+                    Relation adj_rel = table_open(start_vertex->adj_relid, RowExclusiveLock);
 
-                    estate->es_result_relations = &resultRelInfo;
+                    start_vertex->adj_resultRelInfo = makeNode(ResultRelInfo);
+                    InitResultRelInfo(start_vertex->adj_resultRelInfo, adj_rel, list_length(estate->es_range_table), NULL, estate->es_instrument);
+                    ExecOpenIndices(start_vertex->adj_resultRelInfo, false);
 
-                    ExecClearTuple(elemTupleSlot);
-                    cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, (i * 2) + 1);
-                    // get the next graphid for this vertex.
-                    elemTupleSlot->tts_values[0] = css->edge_ids[0][i];
-                    elemTupleSlot->tts_isnull[0] = false;
+                    start_vertex->adj_elemTupleSlot = table_slot_create(adj_rel, &estate->es_tupleTable); 
+                }
+
+                resultRelInfo = start_vertex->adj_resultRelInfo;
+                elemTupleSlot = start_vertex->adj_elemTupleSlot;
+
+                estate->es_result_relations = &resultRelInfo;
+
+                ExecClearTuple(elemTupleSlot);
+                cypher_target_node *node = (cypher_target_node *)list_nth(path->target_nodes, (i * 2) + 1);
+                // get the next graphid for this vertex.
+                elemTupleSlot->tts_values[0] = css->edge_ids[0][i];
+                elemTupleSlot->tts_isnull[0] = false;
             
-                    elemTupleSlot->tts_values[1] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i : i + 1];
-                    elemTupleSlot->tts_isnull[1] = false;
+                elemTupleSlot->tts_values[1] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i : i + 1];
+                elemTupleSlot->tts_isnull[1] = false;
                     
-                    elemTupleSlot->tts_values[2] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i + 1 : i];
-                    elemTupleSlot->tts_isnull[2] = false;
+                elemTupleSlot->tts_values[2] = css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i + 1 : i];
+                elemTupleSlot->tts_isnull[2] = false;
 
 
-                    if (node->prop_attr_num == InvalidAttrNumber) {
-                        elemTupleSlot->tts_values[3] = NULL;
-                        elemTupleSlot->tts_isnull[3] = true;
-                    } else {
-                        //TupleTableSlot *scanTupleSlot = econtext->ecxt_scantuple;
-                        elemTupleSlot->tts_values[3] = slot->tts_values[node->prop_attr_num - 1];
-                        elemTupleSlot->tts_isnull[3] = slot->tts_isnull[node->prop_attr_num - 1];
-                    }
+                if (node->prop_attr_num == InvalidAttrNumber) {
+                    elemTupleSlot->tts_values[3] = NULL;
+                    elemTupleSlot->tts_isnull[3] = true;
+                } else {
+                    elemTupleSlot->tts_values[3] = slot->tts_values[node->prop_attr_num - 1];
+                    elemTupleSlot->tts_isnull[3] = slot->tts_isnull[node->prop_attr_num - 1];
+                }
 
-                    // Insert the new vertex
-                    insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
+                // Insert the new vertex
+                insert_entity_tuple(resultRelInfo, elemTupleSlot, estate);
 
-
-                    if (node->tuple_position != InvalidAttrNumber) {
-                        slot->tts_values[node->tuple_position - 1] = EDGE_GET_DATUM(create_edge(
+                if (node->tuple_position != InvalidAttrNumber) {
+                    slot->tts_values[node->tuple_position - 1] = EDGE_GET_DATUM(create_edge(
                             css->edge_ids[0][i],
                             css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i : i + 1],
                             css->vertex_ids[0][node->dir == CYPHER_REL_DIR_RIGHT ? i + 1 : i],
                             css->graph_oid,
                             elemTupleSlot->tts_isnull[3] ?  NULL : DATUM_GET_GTYPE_P(elemTupleSlot->tts_values[3])));
-                        slot->tts_isnull[node->tuple_position - 1] = false;
-                    }
-
-                    if(start_vertex->flags & EXISTING_VARAIBLE_DECLARED_SAME_CLAUSE){
-                        ExecCloseIndices(start_vertex->adj_resultRelInfo);
-                        table_close(start_vertex->adj_resultRelInfo->ri_RelationDesc, RowExclusiveLock);
-                    }
+                    slot->tts_isnull[node->tuple_position - 1] = false;
                 }
+
+                if(start_vertex->flags & EXISTING_VARAIBLE_DECLARED_SAME_CLAUSE){
+                    ExecCloseIndices(start_vertex->adj_resultRelInfo);
+                    table_close(start_vertex->adj_resultRelInfo->ri_RelationDesc, RowExclusiveLock);
+                }
+            }
             
-            /* restore the old result relation info */
+            // restore the old result relation info
             estate->es_result_relations = old_estate_es_result_relations_info;
         }
 
-    // if(CYPHER_CLAUSE_IS_TERMINAL(css->flags))
-        //   return NULL;
         if(!CYPHER_CLAUSE_IS_TERMINAL(css->flags)) {
             econtext->ecxt_scantuple = ExecProject(csnode->ss.ps.lefttree->ps_ProjInfo);
             return ExecProject(csnode->ss.ps.ps_ProjInfo);
-    //     return return_slot;
         }
 
     }
@@ -389,12 +386,11 @@ static void end_cypher_create(CustomScanState *node)
                 continue;
 
             ExecCloseIndices(cypher_node->resultRelInfo);
-            table_close(cypher_node->resultRelInfo->ri_RelationDesc, RowExclusiveLock);
+            table_close(cypher_node->rel, RowExclusiveLock);
             ExecCloseIndices(cypher_node->adj_resultRelInfo);
-            table_close(cypher_node->adj_resultRelInfo->ri_RelationDesc, RowExclusiveLock);
-
-
-
+            table_close(cypher_node->adj_rel, RowExclusiveLock);
+            //RelationDecrementReferenceCount(cypher_node->relation);
+            //RelationDecrementReferenceCount(lcd->relation);
         }
     }
 }
