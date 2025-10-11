@@ -44,7 +44,8 @@ static void set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, Index rti,
 static cypher_clause_kind get_cypher_clause_kind(RangeTblEntry *rte);
 static void handle_cypher_create_clause(PlannerInfo *root, RelOptInfo *rel,
                                         Index rti, RangeTblEntry *rte);
-
+static void handle_cypher_merge_clause(PlannerInfo *root, RelOptInfo *rel,
+                                        Index rti, RangeTblEntry *rte);
 void set_rel_pathlist_init(void)
 {
     prev_set_rel_pathlist_hook = set_rel_pathlist_hook;
@@ -59,6 +60,7 @@ void set_rel_pathlist_fini(void)
 static void set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, Index rti,
                              RangeTblEntry *rte)
 {
+
     if (prev_set_rel_pathlist_hook)
         prev_set_rel_pathlist_hook(root, rel, rti, rte);
 
@@ -66,6 +68,9 @@ static void set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, Index rti,
     {
     case CYPHER_CLAUSE_CREATE:
         handle_cypher_create_clause(root, rel, rti, rte);
+        break;
+    case CYPHER_CLAUSE_MERGE:
+        handle_cypher_merge_clause(root, rel, rti, rte);
         break;
     case CYPHER_CLAUSE_NONE:
         break;
@@ -103,6 +108,8 @@ static cypher_clause_kind get_cypher_clause_kind(RangeTblEntry *rte)
 
     if (is_oid_ag_func(fe->funcid, CREATE_CLAUSE_FUNCTION_NAME)) 
         return CYPHER_CLAUSE_CREATE;
+    else if (is_oid_ag_func(fe->funcid, MERGE_CLAUSE_FUNCTION_NAME))
+        return CYPHER_CLAUSE_MERGE;
     else
         return CYPHER_CLAUSE_NONE;
 }
@@ -128,5 +135,29 @@ static void handle_cypher_create_clause(PlannerInfo *root, RelOptInfo *rel,
     rel->partial_pathlist = NIL;
 
     // Add the new path to the rel.
+    add_path(rel, (Path *)cp);
+}
+
+// replace all possible paths with our CustomPath
+static void handle_cypher_merge_clause(PlannerInfo *root, RelOptInfo *rel,
+                                        Index rti, RangeTblEntry *rte)
+{
+    TargetEntry *te;
+    FuncExpr *fe;
+    List *custom_private;
+    CustomPath *cp;
+
+    // Add the pattern to the CustomPath
+    te = (TargetEntry *)llast(rte->subquery->targetList);
+    fe = (FuncExpr *)te->expr;
+    // pass the const that holds the data structure to the path.
+    custom_private = fe->args;
+
+    cp = create_cypher_merge_path(root, rel, custom_private);
+
+    // Discard any pre-existing paths
+    rel->pathlist = NIL;
+    rel->partial_pathlist = NIL;
+
     add_path(rel, (Path *)cp);
 }

@@ -29,5 +29,6 @@
 
 Node *create_cypher_create_plan_state(CustomScan *cscan);
 extern const CustomExecMethods cypher_create_exec_methods;
-
+Node *create_cypher_merge_plan_state(CustomScan *cscan);
+extern const CustomExecMethods cypher_merge_exec_methods;
 #endif

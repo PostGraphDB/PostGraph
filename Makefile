@@ -26,6 +26,7 @@ OBJS = src/backend/postgraph.o \
        src/backend/commands/graph_commands.o \
        src/backend/commands/label_commands.o \
        src/backend/executor/cypher_create.o \
+       src/backend/executor/cypher_merge.o \
        src/backend/nodes/ag_nodes.o \
        src/backend/nodes/cypher_copyfuncs.o \
        src/backend/nodes/cypher_outfuncs.o \
@@ -68,7 +69,8 @@ EXTENSION = postgraph
 DATA = postgraph--0.1.0.sql
 
 REGRESS = new_cypher \
-          cypher_create
+          cypher_create \
+          cypher_merge
 
 srcdir=`pwd`
 POSTGIS_DIR ?= postgis_dir

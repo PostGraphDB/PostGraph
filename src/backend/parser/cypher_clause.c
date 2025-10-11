@@ -22,6 +22,7 @@
 #include "utils/ag_func.h"
 #include "utils/gtype.h"
 #include "utils/graphid.h"
+#include "utils/variable_edge.h"
 #include "utils/vertex.h"
 #include "utils/edge.h"
 
@@ -42,7 +43,18 @@ static void get_res_cols(ParseState *pstate, ParseNamespaceItem *l_pnsi, ParseNa
 static Node *transform_srf_function(cypher_parsestate *cpstate, Node *n, List **namespace) ;
 // create clause
 static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause *clause);
-
+// merge
+static Query *transform_cypher_merge(cypher_parsestate *cpstate, cypher_clause *clause);
+static cypher_create_path *transform_merge_make_lateral_join(cypher_parsestate *cpstate, Query *query, cypher_clause *clause, cypher_clause *isolated_merge_clause);
+static cypher_create_path *transform_cypher_merge_path(cypher_parsestate *cpstate, Query *query, cypher_path *path);
+static cypher_target_node *transform_merge_cypher_node(cypher_parsestate *cpstate, Query *query, cypher_node *node);
+static cypher_target_node *transform_merge_cypher_edge(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge);
+static Node *transform_clause_for_join(cypher_parsestate *cpstate, cypher_clause *clause, RangeTblEntry **rte, ParseNamespaceItem **nsitem, Alias* alias);
+static cypher_clause *convert_merge_to_match(cypher_merge *merge);
+static void transform_cypher_merge_mark_tuple_position(cypher_parsestate *cpstate, List *target_list, cypher_create_path *path);
+static TargetEntry *placeholder_vertex(cypher_parsestate *cpstate, char *name);
+static TargetEntry *placeholder_edge(cypher_parsestate *cpstate, char *name);
+static TargetEntry *placeholder_traversal(cypher_parsestate *cpstate, char *name);
 
 // transform
 #define PREV_CYPHER_CLAUSE_ALIAS    "_"
@@ -51,11 +63,12 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
     transform_cypher_clause_as_subquery(cpstate, transform_cypher_clause, \
                                         prev_clause, NULL, add_rte_to_query)
 static ParseNamespaceItem *transform_cypher_clause_as_subquery(cypher_parsestate *cpstate, transform_method transform, cypher_clause *clause, Alias *alias, bool add_rte_to_query);
-static void handle_prev_clause(cypher_parsestate *cpstate, Query *query, cypher_clause *clause, bool first_rte);
+static void handle_prev_clause(cypher_parsestate *cpstate, Query *query, cypher_clause *clause);
 static Query *analyze_cypher_clause(transform_method transform, cypher_clause *clause, cypher_parsestate *parent_cpstate);
 static List *make_target_list_from_join(ParseState *pstate, RangeTblEntry *rte);
 static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok);
-
+static void
+transform_cypher_clause_as_subquery_2(cypher_parsestate *cpstate, Query *query);
 static char *make_id_alias(char *var_name);
 static char *make_property_alias(char *var_name);
 static char *make_startid_alias(char *var_name);
@@ -99,6 +112,8 @@ Query *transform_cypher_clause(cypher_parsestate *cpstate, cypher_clause *clause
         result = transform_cypher_match(cpstate, clause);
     } else if (is_ag_node(self, cypher_create)) {
         result = transform_cypher_create(cpstate, clause);
+    } else if (is_ag_node(self, cypher_merge)) {
+        result = transform_cypher_merge(cpstate, clause);
     } else {
         ereport(ERROR, (errmsg_internal("unexpected Node for cypher_clause")));
     }
@@ -280,7 +295,48 @@ transform_cypher_clause_as_subquery_2(cypher_parsestate *cpstate, Query *query) 
 static Expr *add_volatile_wrapper(Expr *node) {
     return (Expr *)makeFuncExpr(get_ag_func_oid("gtype_volatile_wrapper", 1, GTYPEOID), GTYPEOID, list_make1(node), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
 }
+static Expr *add_volatile_edge_wrapper(Expr *node) {
+    Oid oid = get_ag_func_oid("gtype_volatile_wrapper", 1, EDGEOID);
+    
+    return (Expr *)makeFuncExpr(oid, EDGEOID, list_make1(node), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+}   
 
+static Expr *add_volatile_vle_edge_wrapper(Expr *node) {
+    Oid oid = get_ag_func_oid("gtype_volatile_wrapper", 1, VARIABLEEDGEOID);
+            
+    return (Expr *)makeFuncExpr(oid, VARIABLEEDGEOID, list_make1(node), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+}           
+      
+static Expr *add_volatile_vertex_wrapper(Expr *node) {
+    Oid oid = get_ag_func_oid("gtype_volatile_wrapper", 1, VERTEXOID);
+
+    return (Expr *)makeFuncExpr(oid, VERTEXOID, list_make1(node), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+}
+/*
+static Expr *add_volatile_traversal_wrapper(Expr *node) {
+    Oid oid = get_ag_func_oid("gtype_volatile_wrapper", 1, TRAVERSALOID);
+
+    return (Expr *)makeFuncExpr(oid, TRAVERSALOID, list_make1(node), InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+}*/
+
+/*
+ * validate_or_create_elabel
+ *
+ * This function ensures that an edge label exists and is valid. If the label
+ * does not exist, it is created automatically.
+ *
+ * Parameters:
+ *   cpstate - The current Cypher parser state.
+ *   edge    - The `cypher_relationship` whose label is being validated.
+ *
+ * Behavior:
+ *   1. It searches the graph's label cache for the label name specified in the edge.
+ *   2. If the label is found, it verifies that it is an edge label. If it is
+ *      a vertex label, it throws an error.
+ *   3. If the label is not found, it calls `create_label` to create a new
+ *      edge label with the specified name. The new label inherits from the
+ *      default edge label.
+ */
 static void validate_or_create_elabel(cypher_parsestate *cpstate, cypher_relationship *edge) {
     label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
 
@@ -295,6 +351,24 @@ static void validate_or_create_elabel(cypher_parsestate *cpstate, cypher_relatio
     
 }
 
+/*
+ * validate_or_create_vlabel
+ *
+ * This function ensures that a vertex label exists and is valid. If the label
+ * does not exist, it is created automatically.
+ *
+ * Parameters:
+ *   cpstate - The current Cypher parser state.
+ *   node    - The `cypher_node` whose label is being validated.
+ *
+ * Behavior:
+ *   1. It searches the graph's label cache for the label name specified in the node.
+ *   2. If the label is found, it verifies that it is a vertex label. If it is
+ *      an edge label, it throws an error.
+ *   3. If the label is not found, it calls `create_label` to create a new
+ *      vertex label with the specified name. The new label inherits from the
+ *      default vertex label.
+ */
 static void validate_or_create_vlabel(cypher_parsestate *cpstate, cypher_node *node) {
     label_cache_data *lcd = search_label_name_graph_cache(node->label, cpstate->graph_oid);
 
@@ -306,7 +380,20 @@ static void validate_or_create_vlabel(cypher_parsestate *cpstate, cypher_node *n
         create_label(cpstate->graph_name, node->label, LABEL_TYPE_VERTEX, list_make1(get_label_range_var(cpstate->graph_name, cpstate->graph_oid, AG_DEFAULT_LABEL_VERTEX)), NULL);
 }
 
+static TargetEntry * get_target_entry(cypher_parsestate *cpstate, List *target_list, char *name) {
+    ListCell *lc;
 
+    foreach (lc, target_list) {
+        TargetEntry *te = (TargetEntry *)lfirst(lc);
+ 
+        if (!strcmp(te->resname, name)) {
+            //te->expr = add_volatile_wrapper(te->expr);
+            return te;
+        }
+    }
+
+    return NULL;
+}
 static int get_target_entry_resno(cypher_parsestate *cpstate, List *target_list, char *name) {
     ListCell *lc;
 
@@ -322,6 +409,49 @@ static int get_target_entry_resno(cypher_parsestate *cpstate, List *target_list,
     return -1;
 }
 
+/*
+ * process_create_vertex
+ *
+ * This function transforms a `cypher_node` from a CREATE clause into the
+ * necessary structures for execution. It handles both creating new vertices and
+ * referencing existing ones within the same query.
+ *
+ * Parameters:
+ *   cpstate - The current Cypher parser state.
+ *   query   - The Query node being constructed.
+ *   node    - The `cypher_node` from the CREATE pattern to be processed.
+ *   ccp     - The `cypher_create_path` struct that will hold the transformation's output.
+ *
+ * Behavior:
+ *   1. Handles Named vs. Anonymous Nodes:
+ *      - If the node has a variable name, it checks if the variable has been
+ *        previously defined in the query (e.g., in a MATCH clause).
+ *      - If it's an anonymous node, a default internal name is generated.
+ *
+ *   2. Handles Existing Variables:
+ *      - If a named variable already exists, it flags the node as a reference
+ *        to an existing entity.
+ *      - It validates that one cannot add new properties or labels to an
+ *        already-existing vertex within a CREATE clause.
+ *
+ *   3. Handles New Vertices:
+ *      - For new vertices (named or anonymous), it adds placeholder target
+ *        entries to the query's target list for the new vertex's ID, properties,
+ *        and the full vertex object itself. This ensures the created vertex's
+ *        data is available to subsequent clauses.
+ *      - It transforms any provided property maps.
+ *
+ *   4. Handles Labels and Storage:
+ *      - It validates the vertex's label, creating it if it doesn't exist.
+ *      - It looks up the label's metadata to determine the underlying storage
+ *        relation (`relid`) and its corresponding adjacency list relation
+ *        (`adj_relid`).
+ *
+ *   5. Output:
+ *      - It populates a `cypher_target_node` with all the collected information
+ *        (relation OIDs, attribute numbers in the target list, flags, etc.) and
+ *        appends it to the `cypher_create_path`.
+ */
 static void
 process_create_vertex(
     cypher_parsestate *cpstate,
@@ -420,6 +550,42 @@ process_create_vertex(
     ccp->target_nodes = lappend(ccp->target_nodes, target);
 }
 
+/*
+ * process_create_edge
+ *
+ * This function transforms a `cypher_relationship` from a CREATE clause into
+ * the necessary structures for execution. It is a helper function for
+ * `transform_cypher_create`.
+ *
+ * Parameters:
+ *   cpstate - The current Cypher parser state.
+ *   query   - The Query node being constructed, which this function modifies.
+ *   edge    - The `cypher_relationship` from the CREATE pattern to be processed.
+ *   ccp     - The `cypher_create_path` struct that will hold the transformation's output.
+ *
+ * Behavior:
+ *   1. Handles Named vs. Anonymous Edges:
+ *      - If the edge has a variable name, it validates that the name is not
+ *        already in use.
+ *      - If it's an anonymous edge, a default internal name is generated.
+ *
+ *   2. Adds Placeholders to Target List:
+ *      - For new edges, it adds placeholder target entries to the query's
+ *        target list for the new edge's ID, properties, and the full edge
+ *        object itself. This ensures the created edge's data is available to
+ *        subsequent clauses.
+ *      - It transforms any provided property maps.
+ *
+ *   3. Handles Labels and Storage:
+ *      - It validates the edge's label, creating it if it doesn't exist.
+ *      - It looks up the label's metadata to determine the underlying storage
+ *        relation (`relid`).
+ *
+ *   4. Output:
+ *      - It populates a `cypher_target_node` with all the collected information
+ *        (relation OID, attribute numbers in the target list, direction, etc.)
+ *        and appends it to the `cypher_create_path`.
+ */
 static void
 process_create_edge(
     cypher_parsestate *cpstate,
@@ -491,16 +657,48 @@ process_create_edge(
 
     label_cache_data *lcd = search_label_name_graph_cache(edge->label, cpstate->graph_oid);
     target->relid = lcd->relation;
-    
+
     Relation *rel = RelationIdGetRelation(lcd->relation);
     target->id_expr = (Expr *)build_column_default(rel, 1);
 
     table_close(rel, NoLock);
 
-
     ccp->target_nodes = lappend(ccp->target_nodes, target);
 }
 
+/*
+ * transform_cypher_create
+ *
+ * This function transforms a Cypher `CREATE` clause into a `Query` node. It
+ * orchestrates the processing of vertices and edges to be created and packages
+ * the creation logic into a placeholder function call for later execution.
+ *
+ * Parameters:
+ *   cpstate - The current Cypher parser state.
+ *   clause  - The `cypher_clause` containing the `cypher_create` node.
+ *
+ * Behavior:
+ *   1. Initializes a new `SELECT` query.
+ *   2. If the `CREATE` follows another clause (e.g., `MATCH`), it transforms
+ *      the preceding clause into a subquery and adds its output columns to the
+ *      current query's target list. This makes variables from the `MATCH`
+ *      available to the `CREATE`.
+ *   3. It iterates through each path pattern in the `CREATE` clause. For each
+ *      path, it calls `process_create_vertex` for each node and
+ *      `process_create_edge` for each relationship. These helpers add
+ *      placeholder target entries for the new entities and gather metadata.
+ *   4. It aggregates all the metadata from the helpers into a
+ *      `cypher_create_target_nodes` structure.
+ *   5. It serializes this structure and embeds it in a placeholder function
+ *      call (e.g., `_cypher_create_clause`), which is added as the final
+ *      entry in the query's target list. The actual creation logic is deferred
+ *      to the execution stage.
+ *   6. If `CREATE` is the final clause in the statement, it wraps the generated
+ *      query in an outer `SELECT` query to produce a clean final result set.
+ *
+ * Returns:
+ *   A `Query` node representing the transformed `CREATE` clause.
+ */
 static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause *clause) {
     ParseState *pstate = (ParseState *)cpstate;
     cypher_create *self = (cypher_create *)clause->self;
@@ -509,7 +707,6 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
     query->commandType = CMD_SELECT;
     query->targetList = NIL;
 
-
     cypher_create_target_nodes *target_nodes;
     target_nodes = make_ag_node(cypher_create_target_nodes);
     target_nodes->flags = CYPHER_CLAUSE_FLAG_NONE;
@@ -517,7 +714,7 @@ static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause 
 
 
     if (clause->prev) {
-        handle_prev_clause(cpstate, query, clause->prev, true);
+        handle_prev_clause(cpstate, query, clause->prev);
 
         target_nodes->flags |= CYPHER_CLAUSE_FLAG_PREVIOUS_CLAUSE;
     }
@@ -1082,8 +1279,6 @@ add_vertex_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node,
     if (node->name) {
         node->has_variable = true;
         if (colNameToVar(cpstate, node->name, false, -1)) {
-            ereport(WARNING,(errcode(ERRCODE_UNDEFINED_SCHEMA),
-                errmsg("here")));
             node->declared_in_previous_clause = true;
             return refnameNamespaceItem(cpstate, NULL, PREV_CYPHER_CLAUSE_ALIAS, -1, NULL);
         }
@@ -1121,6 +1316,38 @@ add_vertex_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node,
     return pnsi;
 }
 
+/*
+ * add_vertex_retrieval_to_query
+ *
+ * This function handles adding the end vertex of a relationship to a MATCH
+ * query. It determines how to retrieve or reference the vertex based on whether
+ * it's a new variable, an existing variable from a previous clause, or a
+ * variable already present in the current join tree.
+ *
+ * Parameters:
+ *   cpstate   - The current Cypher parser state.
+ *   query     - The Query node being constructed.
+ *   node      - The cypher_node representing the vertex to be added.
+ *   edge_pnsi - The ParseNamespaceItem for the incoming edge, used to get the
+ *               end vertex's ID.
+ *   quals     - A list of qualifications (WHERE clause conditions) to be updated.
+ *
+ * Behavior:
+ *   1. If the vertex variable already exists (from a previous clause or earlier
+ *      in the current path), it adds a qualification to join the edge's 'endid'
+ *      with the existing vertex's 'id'. It then returns the namespace item for
+ *      the existing variable.
+ *   2. If the vertex is new, it adds a call to the `retrieve_vertex`
+ *      set-returning function (SRF) to the query's FROM clause. This function
+ *      fetches the vertex's properties using the 'endid' from the edge.
+ *   3. If the vertex is anonymous (no variable name), it does nothing and
+ *      returns NULL, as there's no need to retrieve or reference it.
+ *
+ * Returns:
+ *   The ParseNamespaceItem for the vertex, which can be either a new SRF entry
+ *   or a reference to an existing entry in the query's namespace. Returns NULL
+ *   for anonymous vertices.
+ */
 static ParseNamespaceItem *
 add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node, ParseNamespaceItem *edge_pnsi, List **quals)
 {
@@ -1128,6 +1355,11 @@ add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_n
     if (node->name) {
         node->has_variable = true;
 
+        /*
+         * If the vertex variable has already been defined, create a join
+         * qualification to link the incoming edge's end ID to the existing
+         * vertex's ID.
+         */
         Var *var;
         if (var = colNameToVar(cpstate, make_id_alias(node->name), false, -1)) {
             node->declared_in_previous_clause = true;
@@ -1151,9 +1383,7 @@ add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_n
 
             return pnsi;
         }
-    }
-
-    else {
+    } else {
         node->in_join_tree = false;
         return NULL;
     }
@@ -1184,6 +1414,36 @@ add_vertex_retrieval_to_query(cypher_parsestate *cpstate, Query *query, cypher_n
     return pnsi;
 }
 
+
+/*
+ * add_edge_to_query
+ *
+ * This function adds a fixed-length edge to a MATCH query. It does this by
+ * constructing a call to the `edge_search` set-returning function (SRF) and
+ * adding it to the query's FROM clause as a lateral join.
+ *
+ * Parameters:
+ *   cpstate - The current Cypher parser state.
+ *   query   - The Query node being constructed.
+ *   edge    - The cypher_relationship representing the edge to be added.
+ *   vertex  - The cypher_node representing the start vertex for the edge search.
+ *
+ * Behavior:
+ *   1. Validates that if the edge has a variable name, it has not been
+ *      previously defined in the current scope. Assigns a default alias if
+ *      unnamed.
+ *   2. Processes the edge's label. If a label is specified, it looks up the
+ *      label's ID and creates a filter constant. If no label is given, it
+ *      defaults to the standard edge label.
+ *   3. Constructs a `FuncCall` to the `edge_search` SRF. The arguments include
+ *      the graph OID, the ID of the start `vertex`, and the label filter.
+ *   4. Adds the SRF to the query's join tree using `add_srf_to_query`. The
+ *      SRF is defined to return `id`, `startid`, `endid`, and `properties`.
+ *
+ * Returns:
+ *   The ParseNamespaceItem for the newly added SRF, allowing its output
+ *   columns to be referenced in subsequent transformations.
+ */
 static ParseNamespaceItem *
 add_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge, cypher_node *vertex)
 {
@@ -1351,6 +1611,22 @@ add_variable_edge_to_query(cypher_parsestate *cpstate, Query *query, cypher_rela
         list_make3(makeString("edges"), makeString("endid"), makeString("hashset")));
 }
 
+/*
+ * add_all_fields_to_target_list
+ *
+ * This function is responsible for adding all the necessary fields from a
+ * three-element path (left_vertex, edge, right_vertex) to the query's
+ * target list. This is typically called for the first segment of a path in a
+ * MATCH clause, ensuring that all variables and their properties are available
+ * for subsequent clauses.
+ *
+ * For each element (vertex or edge) that has a variable, it adds entries for
+ * its id, properties, and the complete entity expression (vertex or edge object)
+ * to the target list.
+ *
+ * Special handling is included for relationship direction and variable length
+ * edges.
+ */
 static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *query,
     cypher_node *left_vertex, cypher_relationship *edge, cypher_node *right_vertex) {
     ParseState *pstate = (ParseState *)cpstate;
@@ -1467,6 +1743,21 @@ static void add_all_fields_to_target_list(cypher_parsestate *cpstate, Query *que
     }
 }
 
+/*
+ * add_new_fields_to_target_list
+ *
+ * This function is responsible for adding fields from a path segment to the
+ * query's target list. It is intended for use on subsequent segments of a
+ * multi-hop path (e.g., for the `(b)-[r2]->(c)` part of `MATCH (a)-[r1]->(b)-[r2]->(c)`).
+ *
+ * Unlike `add_all_fields_to_target_list`, this function assumes the left_vertex
+ * of the segment has already been processed and its fields are present in the
+ * target list. It only adds the fields for the new edge and the new right_vertex.
+ *
+ * For the edge, it adds its id, start/end ids, and properties. For the right
+ * vertex, it adds its id and properties. If either has a variable, the full
+ * entity expression is also added.
+ */
 static void add_new_fields_to_target_list(cypher_parsestate *cpstate, Query *query,
     cypher_node *left_vertex, cypher_relationship *edge, cypher_node *right_vertex) {
     ParseState *pstate = (ParseState *)cpstate;
@@ -1552,6 +1843,27 @@ static void add_new_fields_to_target_list(cypher_parsestate *cpstate, Query *que
                                         false));     
     }
 }
+
+/*
+ * process_three_element_path
+ *
+ * This function handles the transformation of a simple Cypher path of length three,
+ * such as (a)-[r]->(b), into its corresponding SQL query components within a
+ * MATCH clause.
+ *
+ * It performs the following steps:
+ * 1. Determines the start and end vertices based on the relationship's direction.
+ * 2. Adds the start vertex to the query's FROM clause, either as a new table
+ *    scan or by referencing an existing variable.
+ * 3. Adds the edge to the query as a set-returning function (SRF)
+ *    call (e.g., edge_search or variable_edge_search), which is joined to the
+ *    start vertex.
+ * 4. Adds the end vertex by either retrieving it through a function call or by
+ *    adding qualifications to match an existing variable.
+ * 5. Populates the query's target list with all necessary fields (id, properties,
+ *    etc.) from all three path elements, making them available for subsequent
+ *    clauses.
+ */
 static void
 process_three_element_path(cypher_parsestate *cpstate, Query *query, cypher_path *path, List **quals)
 {
@@ -1588,6 +1900,28 @@ typedef struct path_parts {
     cypher_rel_dir dir;
 } path_parts;
 
+/*
+ * find_path_parts
+ *
+ * This function analyzes a Cypher MATCH path and breaks it down into
+ * continuous, single-direction segments. A complex path with changing
+ * directions, such as (a)-[]->(b)<-[]-(c), is not processed directly. Instead,
+ * this function identifies the points where the direction changes and divides
+ * the path into "parts," where each part has a consistent direction (either
+ * all right-directed `->` or all left-directed `<-`).
+ *
+ * It iterates through the relationships in the path, creating a new `path_parts`
+ * segment each time the direction of a relationship differs from the previous one.
+ *
+ * It also validates that no relationship is directionless (`-[]-`), as this is
+ * not supported in a MATCH clause, yet.
+ *
+ * Returns:
+ *   A List of `path_parts` structs. Each struct defines a segment with a
+ *   `start` index, an `end` index (within the original path list), and a `dir`
+ *   (direction). This allows the parser to process complex paths one simple,
+ *   unidirectional segment at a time.
+ */
 static List *find_path_parts(cypher_path *path) {
     cypher_relationship *start = list_nth(path->path,1);
 
@@ -1624,6 +1958,38 @@ static List *find_path_parts(cypher_path *path) {
     return parts;
 }
 
+/*
+ * process_path_part
+ *
+ * This function transforms a continuous, single-direction segment of a Cypher
+ * MATCH path into its corresponding SQL query components. A complex path with
+ * changing directions (e.g., (a)-->(b)<--(c)) is broken down into "parts" of
+ * consistent direction, and this function processes one such part at a time.
+ *
+ * It iterates through the vertices and edges of the path segment, building up
+ * the query by:
+ *
+ * 1. Adding Vertices and Edges:
+ *    - For the starting vertex of the segment, it adds a table scan.
+ *    - For each edge, it adds a set-returning function call (e.g., `edge_search`)
+ *      to the FROM clause, chaining it to the previous element in the path.
+ *    - For each subsequent vertex, it adds a function call to retrieve it or
+ *      a join condition if the vertex variable already exists.
+ *
+ * 2. Adding Qualifications:
+ *    - It generates join conditions to link the end of one path segment to the
+ *      start of another (e.g., to join `(a)->(b)` and `(c)->(b)` on `b`).
+ *    - It adds cycle-prevention qualifications to ensure that no edge is
+ *      traversed more than once within the same MATCH clause.
+ *
+ * 3. Populating the Target List:
+ *    - It calls `add_all_fields_to_target_list` or `add_new_fields_to_target_list`
+ *      to project all necessary columns (id, properties, etc.) for the new
+ *      elements, making them available to subsequent query clauses.
+ *
+ * The function handles both right-directed (`->`) and left-directed (`<-`)
+ * path segments by adjusting its iteration order accordingly.
+ */
 static void
 process_path_part(
     cypher_parsestate *cpstate,
@@ -1732,6 +2098,8 @@ process_path_part(
         }
     }
 }
+
+
 static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, List *pattern, Node *where) {
     ParseState *pstate = (ParseState *)cpstate;
     ListCell *lc;
@@ -1897,22 +2265,521 @@ Query *cypher_parse_sub_analyze(Node *parseTree, cypher_parsestate *cpstate, Com
 }
 
 /*
- * Utility function that helps a clause add the information needed to
- * the query from the previous clause.
+ * handle_prev_clause
+ *
+ * Utility function to bring the output of a previous Cypher clause (such as MATCH or WITH)
+ * into the current query context. This is used to chain clauses together so that variables
+ * and expressions projected by the previous clause are available in the current clause.
+ *
+ * Parameters:
+ *   cpstate   - The current Cypher parser state.
+ *   query     - The Query node being constructed (modified in-place).
+ *   clause    - The previous cypher_clause whose output should be made available.
+
+ * Behavior:
+ *   1. Transforms the previous clause as a subquery and adds it as a RangeTblEntry.
+ *   2. Expands all attributes from the subquery and appends them to the current query's target list,
+ *      making all projected variables/columns available for use in the current clause.
  */
-static void handle_prev_clause(cypher_parsestate *cpstate, Query *query, cypher_clause *clause, bool first_rte) {
+static void handle_prev_clause(cypher_parsestate *cpstate, Query *query, cypher_clause *clause) {
     ParseState *pstate = (ParseState *) cpstate;
-    int rtindex;
-    ParseNamespaceItem *pnsi;
 
-    pnsi = transform_prev_cypher_clause(cpstate, clause, true);
+    ParseNamespaceItem *pnsi = transform_prev_cypher_clause(cpstate, clause, true);
 
-    rtindex = list_length(pstate->p_rtable);
-
-    // rte is the first RangeTblEntry in pstate
-    if (first_rte)
-        Assert(rtindex == 1);
+    int rtindex = list_length(pstate->p_rtable);
 
     // add all the rte's attributes to the current queries targetlist
     query->targetList = list_concat(query->targetList, expandNSItemAttrs(pstate, pnsi, 0, -1));
+}
+
+
+
+/*
+ *
+ * There are two cases for the form Query that is returned from here will
+ * take:
+ *
+ * 1. If there is no previous clause, the query will have a subquery that
+ * represents the path as a select staement, similar to match with a targetList
+ * that is all declared variables and the FuncExpr that represents the MERGE
+ * clause with its needed metadata information, that will be caught in the
+ * planner phase and converted into a path.
+ *
+ * 2. If there is a previous clause then the query will have two subqueries.
+ * The first query will be for the previous clause that we recursively handle.
+ * The second query will be for the path that this MERGE clause defines. The
+ * two subqueries will be joined together using a LATERAL LEFT JOIN with the
+ * previous query on the left and the MERGE path subquery on the right. Like
+ * case 1 the targetList will have all the decalred variables and a FuncExpr
+ * that represents the MERGE clause with its needed metadata information, that
+ * will be caught in the planner phase and converted into a path.
+ *
+ * This will allow us to be capable of handling the 2 cases that exist with a
+ * MERGE clause correctly.
+ *
+ * Case 1: the path already exists. In this case we do not need to create
+ * the path and MERGE will simply pass the tuple information up the execution
+ * tree.
+ *
+ * Case 2: the path does not exist. In this case the LEFT part of the join
+ * will not prevent the tuples from the previous clause from being emitted. We
+ * can catch when this happens in the execution phase and create the missing
+ * data, before passing up the execution tree.
+ *
+ * It should be noted that both cases can happen in the same query. If the
+ * MERGE clause references a variable from a previous clause, it could be that
+ * for one tuple the path exists (or there is multiple paths that exist and all
+ * paths must be emitted) and for another the path does not exist. This is
+ * similar to OPTIONAL MATCH, however with the added feature of creating the
+ * path if not there, rather than just emiting NULL.
+ */
+static Query *transform_cypher_merge(cypher_parsestate *cpstate, cypher_clause *clause) {
+    ParseState *pstate = (ParseState *) cpstate;
+    cypher_clause *merge_clause_as_match;
+    cypher_create_path *merge_path;
+    cypher_merge *self = (cypher_merge *)clause->self;
+    cypher_merge_information *merge_information;
+    Query *query;
+    FuncExpr *func_expr;
+    TargetEntry *tle;
+
+    Assert(is_ag_node(self->path, cypher_path));
+
+    merge_information = make_ag_node(cypher_merge_information);
+
+    query = makeNode(Query);
+    query->commandType = CMD_SELECT;
+    query->targetList = NIL;
+
+    Const *null_const = makeNullConst(GTYPEOID, -1, InvalidOid);
+    tle = makeTargetEntry((Expr *)null_const, pstate->p_next_resno++, "_null", false);
+    query->targetList = lappend(query->targetList, tle);
+
+    merge_information->flags = CYPHER_CLAUSE_FLAG_NONE;
+
+    // make the merge node into a match node
+    merge_clause_as_match = convert_merge_to_match(self);
+
+    /*
+     * If there is a previous clause we need to turn this query into a lateral
+     * join. See the function transform_merge_make_lateral_join for details.
+     */
+    if (clause->prev != NULL) {
+        merge_path = transform_merge_make_lateral_join(cpstate, query, clause, merge_clause_as_match);
+
+        merge_information->flags |= CYPHER_CLAUSE_FLAG_PREVIOUS_CLAUSE;
+    } else {
+        // make the merge node into a match node
+        //cypher_clause *merge_clause_as_match = convert_merge_to_match(self);
+
+        // Create the metadata needed for creating missing paths.
+        merge_path = transform_cypher_merge_path(cpstate, query, (cypher_path *)self->path);
+
+        /*
+         * If there is not a previous clause, then treat the MERGE's path
+         * itself as the previous clause. We need to do this because if the
+         * pattern exists, then we need to path all paths that match the
+         * query patterns in the execution phase. WE way to do that by
+         * converting the merge to a match and have the match logic create the
+         * query. the merge execution phase will just pass the results up the
+         * execution tree if the path exists.
+         */
+        handle_prev_clause(cpstate, query, merge_clause_as_match);
+
+        /*
+         * For the metadata need to create paths, find the tuple position that
+         * will represent the entity in the execution phase.
+         */
+        transform_cypher_merge_mark_tuple_position(cpstate, query->targetList, merge_path);
+    }
+
+    merge_information->graph_oid = cpstate->graph_oid;
+    merge_information->path = merge_path;
+
+    if (!clause->next)
+        merge_information->flags |= CYPHER_CLAUSE_FLAG_TERMINAL;
+
+    // Creates the function expression that the planner will find and convert to a MERGE path.
+    query->targetList = lappend(query->targetList, 
+        makeTargetEntry(
+            (Expr *)make_write_clause_function_placeholder(MERGE_CLAUSE_FUNCTION_NAME, merge_information),
+            merge_information->merge_function_attr = pstate->p_next_resno++, 
+            "_merge_clause", 
+            false));
+
+    
+    markTargetListOrigins(pstate, query->targetList);
+
+    query->rtable = pstate->p_rtable;
+    query->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+
+    query->hasSubLinks = pstate->p_hasSubLinks;
+
+    assign_query_collations(pstate, query);
+
+    if (clause->next)
+        return query;
+        
+    {
+        Query *topquery;
+        cypher_parsestate *new_cpstate = make_cypher_parsestate(cpstate);
+        topquery = makeNode(Query);
+        topquery->commandType = CMD_SELECT;
+        topquery->targetList = NIL;
+
+        ParseState *pstate = (ParseState *) cpstate;
+        int rtindex;
+
+        transform_cypher_clause_as_subquery_2(new_cpstate, query);
+        topquery->rtable = new_cpstate->pstate.p_rtable;
+        topquery->jointree = makeFromExpr(new_cpstate->pstate.p_joinlist, NULL);
+
+        return topquery;
+    }
+}
+
+/*
+ * This function does the heavy lifting of transforming a MERGE clause that has
+ * a clause before it in the query of turning that into a lateral left join.
+ * The previous clause will still be able to emit tuples if the path defined in
+ * MERGE clause is not found. In that case variable assinged in the MERGE
+ * clause will be emitted as NULL (same as OPTIONAL MATCH).
+ */
+static cypher_create_path *
+transform_merge_make_lateral_join(cypher_parsestate *cpstate, Query *query, cypher_clause *clause,
+                                  cypher_clause *isolated_merge_clause) {
+    cypher_create_path *merge_path;
+    ParseState *pstate = (ParseState *) cpstate;
+    int i;
+    Alias *l_alias;
+    Alias *r_alias;
+    RangeTblEntry *l_rte, *r_rte;
+    ParseNamespaceItem *l_nsitem, *r_nsitem;
+    JoinExpr *j = makeNode(JoinExpr);
+    List *res_colnames = NIL, *res_colvars = NIL;
+    ParseNamespaceItem *jnsitem;
+    ParseExprKind tmp;
+    cypher_merge *self = (cypher_merge *)clause->self;
+    cypher_path *path;
+
+    Assert(is_ag_node(self->path, cypher_path));
+
+    path = (cypher_path *)self->path;
+
+    r_alias = makeAlias(CYPHER_OPT_RIGHT_ALIAS, NIL);
+    l_alias = makeAlias(PREV_CYPHER_CLAUSE_ALIAS, NIL);
+
+    j->jointype = JOIN_LEFT;
+
+    /*
+     * transform the previous clause
+     */
+    j->larg = transform_clause_for_join(cpstate, clause->prev, &l_rte, &l_nsitem, l_alias);
+    pstate->p_namespace = lappend(pstate->p_namespace, l_nsitem);
+
+    /*
+     * Get the merge path now. This is the only moment where it is simple
+     * to know if a variable was declared in the MERGE clause or a previous
+     * clause. Unlike create, we do not add these missing variables to the
+     * targetList, we just create all the metadata necessary to make the
+     * potentially missing parts of the path.
+     */
+    merge_path = transform_cypher_merge_path(cpstate, query, path);
+
+    /*
+     * Transform this MERGE clause as a match clause, mark the parsestate
+     * with the flag that a lateral join is active
+     */
+    pstate->p_lateral_active = true;
+    tmp = pstate->p_expr_kind;
+    pstate->p_expr_kind = EXPR_KIND_OTHER;
+
+    // transform MERGE
+    j->rarg = transform_clause_for_join(cpstate, isolated_merge_clause, &r_rte, &r_nsitem, r_alias);
+
+    // deactivate the lateral flag
+    pstate->p_lateral_active = false;
+
+    pstate->p_namespace = NIL;
+
+    /*
+     * Resolve the column names and variables between the two subqueries,
+     * in most cases, we can expect there to be overlap
+     */
+    get_res_cols(pstate, l_nsitem, r_nsitem, &res_colnames, &res_colvars);
+
+    // make the RTE for the join
+    jnsitem = addRangeTableEntryForJoin(pstate, res_colnames, NULL, j->jointype, 0, res_colvars, NIL,
+                        NIL, j->alias, NULL, true);
+
+    j->rtindex = jnsitem->p_rtindex;
+
+    /*
+     * The index of a node in the p_joinexpr list is expected to match the
+     * rtindex the join expression is for. Add NULLs for all the previous
+     * rtindexes and add the JoinExpr.
+     */
+    for (i = list_length(pstate->p_joinexprs) + 1; i < j->rtindex; i++)
+        pstate->p_joinexprs = lappend(pstate->p_joinexprs, NULL);
+
+    pstate->p_joinexprs = lappend(pstate->p_joinexprs, j);
+
+    Assert(list_length(pstate->p_joinexprs) == j->rtindex);
+
+    pstate->p_joinlist = lappend(pstate->p_joinlist, j);
+
+    pstate->p_expr_kind = tmp;
+
+    // add jnsitem to column namespace only 
+    addNSItemToQuery(pstate, jnsitem, false, true, true);
+
+    /*
+     * Create the targetList from the joined subqueries, add everything.
+     */
+    query->targetList = list_concat(query->targetList, make_target_list_from_join(pstate, jnsitem->p_rte));
+
+    /*
+     * For the metadata need to create paths, find the tuple position that
+     * will represent the entity in the execution phase.
+     */
+    transform_cypher_merge_mark_tuple_position(cpstate, query->targetList, merge_path);
+
+    return merge_path;
+}
+
+/*
+ * Iterate through the path and find the TargetEntry in the target_list
+ * that each cypher_target_node is referencing. Add the volatile wrapper
+ * function to keep the optimizer from removing the TargetEntry.
+ */
+static void transform_cypher_merge_mark_tuple_position(cypher_parsestate *cpstate, List *target_list, cypher_create_path *path) {
+    /*if (path->var_name) {
+        TargetEntry *te = findTarget(target_list, path->var_name);
+        te->expr = add_volatile_traversal_wrapper(te->expr);
+        path->path_attr_num = te->resno;
+    }*/
+
+    ListCell *lc;
+    foreach (lc, path->target_nodes) {
+        cypher_target_node *node = lfirst(lc);
+        
+        TargetEntry *te  = get_target_entry(cpstate, target_list, node->variable_name);
+        if (!IsA(te->expr, Var))
+            continue;
+        /*
+         * Add the volatile wrapper function around the expression, this
+         * ensures the optimizer will not remove the expression, if nothing
+         * other than a private data structure needs it.
+         */
+        if (((Var *)te->expr)->vartype == VERTEXOID) 
+            te->expr = add_volatile_vertex_wrapper(te->expr);
+        else if (((Var *)te->expr)->vartype == EDGEOID)
+            te->expr = add_volatile_edge_wrapper(te->expr);
+        else if (((Var *)te->expr)->vartype == VARIABLEEDGEOID)
+            te->expr = add_volatile_vle_edge_wrapper(te->expr);
+        else
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("internal error: unsupported type for MERGE clause")));
+
+        // Mark the tuple position the target_node is for.
+        node->tuple_position = te->resno;
+    }
+}
+
+/*
+ * Creates the target nodes for a merge path. If MERGE has a path that doesn't
+ * exist then in the MERGE clause we act like a CREATE clause. This function
+ * sets up the metadata needed for that process.
+ */
+static cypher_create_path *transform_cypher_merge_path(cypher_parsestate *cpstate, Query *query, cypher_path *path) {
+    cypher_create_path *ccp = make_ag_node(cypher_create_path);
+
+    ccp->target_nodes = NIL;
+    ListCell *lc;
+    foreach (lc, path->path) {
+        if (is_ag_node(lfirst(lc), cypher_node)) 
+            ccp->target_nodes = lappend(ccp->target_nodes,
+                transform_merge_cypher_node(cpstate, query, lfirst(lc)));
+        else
+            ccp->target_nodes = lappend(ccp->target_nodes, 
+                transform_merge_cypher_edge(cpstate, query, lfirst(lc)));
+    }
+
+    ccp->path_attr_num = InvalidAttrNumber;
+
+    return ccp;
+}
+
+/*
+ * Transforms the parse cypher_relationship to a target_entry for merge.
+ * All edges that have variables assigned in a merge must be declared in
+ * the merge. Throw an error otherwise.
+ */
+static cypher_target_node *transform_merge_cypher_edge(cypher_parsestate *cpstate, Query *query, cypher_relationship *edge) {
+    ParseState *pstate = (ParseState *)cpstate;
+    cypher_target_node *target_node = make_ag_node(cypher_target_node);
+
+    if (edge->name != NULL) 
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("MERGE does not support variables"),
+                 parser_errposition(get_parse_state(cpstate), edge->location)));
+    else 
+        edge->name = get_next_default_alias(cpstate);
+
+    target_node->type = LABEL_KIND_EDGE;
+    target_node->flags |= CYPHER_TARGET_NODE_FLAG_INSERT;
+    target_node->label_name = edge->label;
+    target_node->variable_name = edge->name;
+    target_node->resultRelInfo = NULL;
+    target_node->dir = edge->dir;
+
+    if (edge->label) {
+        validate_or_create_elabel(cpstate, edge);
+        target_node->label_name = edge->label;
+    } else {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("edges declared in a MERGE clause must have a label"),
+                 parser_errposition(get_parse_state(cpstate), edge->location)));
+    }
+
+    // id
+    label_cache_data *lcd = search_label_name_graph_cache(edge->label ? edge->label : AG_DEFAULT_LABEL_EDGE , cpstate->graph_oid);
+    Relation rel = RelationIdGetRelation(lcd->relation);
+    target_node->id_expr = (Expr *)build_column_default(rel, 1);
+    target_node->relid = lcd->relation;
+    table_close(rel, NoLock);
+
+    // props
+    if (edge->props) {
+      /*  query->targetList = lappend(query->targetList,
+            makeTargetEntry(//BlackPink
+                add_volatile_wrapper(transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET)),
+                target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
+                make_property_alias(edge->name),
+                false));
+*/
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    add_volatile_wrapper(scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_PROPERTIES, -1)), 
+                                    target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
+                                    make_property_alias(edge->name), 
+                                    false));
+    } else {
+        target_node->prop_attr_num = InvalidAttrNumber;
+    }
+
+    return target_node;
+}
+
+
+static cypher_target_node *transform_merge_cypher_node(cypher_parsestate *cpstate, Query *query, cypher_node *node) {
+    cypher_target_node *target_node = make_ag_node(cypher_target_node);
+
+    target_node->type = LABEL_KIND_VERTEX;
+    
+
+    if (node->name) {
+       /* ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("MERGE does not support variables"),
+                 parser_errposition(get_parse_state(cpstate), node->location)));
+*/
+        // /ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
+        Var *var = NULL;
+        if ((var = colNameToVar(cpstate, node->name, false, -1)) ||
+        (target_node->id_attr_num = get_target_entry_resno(cpstate, query->targetList, make_id_alias(node->name))) != -1) {
+        
+            if (var && var->vartype != VERTEXOID)
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("CREATE vertex variable %s already exists", node->name)));
+        
+            if (node->props)
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("previously declared nodes in a create clause cannot have properties")));
+            if (node->label)
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("previously declared variables cannot have a label")));
+      
+            target_node->flags |= EXISTING_VARAIBLE_DECLARED_SAME_CLAUSE;
+    
+            target_node->id_attr_num = get_target_entry_resno(cpstate, query->targetList, make_id_alias(node->name));
+   
+            return target_node;
+        }
+    } else {
+        target_node->tuple_position = InvalidAttrNumber;
+        node->name = get_next_default_alias(cpstate);
+    }
+
+    target_node->variable_name = node->name;
+
+    if (node->label) {
+        validate_or_create_vlabel(cpstate, node);
+        target_node->label_name = node->label;
+    } else {
+        target_node->label_name = "";
+        //node->label = AG_DEFAULT_LABEL_VERTEX;
+    }
+
+    target_node->flags |= CYPHER_TARGET_NODE_FLAG_INSERT;
+
+    // id
+    label_cache_data *lcd = search_label_name_graph_cache(node->label ? node->label : AG_DEFAULT_LABEL_VERTEX, cpstate->graph_oid);
+    Relation rel = RelationIdGetRelation(lcd->relation);
+    target_node->id_expr = (Expr *)build_column_default(rel, 1);
+    target_node->relid = lcd->relation;
+    table_close(rel, NoLock);
+    target_node->adj_relid = lcd->vertex_adjlist;
+    // props
+    if (node->props) {
+       /* query->targetList = lappend(query->targetList,
+            makeTargetEntry(
+                add_volatile_wrapper(transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
+                target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
+                make_property_alias(node->name),
+                false));*/
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    colNameToVar(cpstate, make_property_alias(node->name), false, -1), 
+                                    target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
+                                    make_property_alias(node->name), 
+                                    false));
+                                    /*
+        query->targetList = lappend(query->targetList, 
+                                makeTargetEntry(
+                                    add_volatile_wrapper(scanNSItemForColumn(get_parse_state(cpstate), refnameNamespaceItem(cpstate, NULL, node->name, -1, NULL), 0, AG_VERTEX_COLNAME_PROPERTIES, -1)), 
+                                    target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
+                                    make_property_alias(node->name), 
+                                    false));
+
+colNameToVar(cpstate, node->name, false, -1))
+*/
+
+
+    } else {
+        target_node->prop_attr_num = InvalidAttrNumber;
+    }
+
+    return target_node;
+}
+
+// Takes a MERGE parse node and converts it to a MATCH parse node
+static cypher_clause *convert_merge_to_match(cypher_merge *merge) {
+    cypher_match *match = make_ag_node(cypher_match);
+    cypher_clause *clause = palloc(sizeof(cypher_clause));
+
+    // match supports multiple paths, whereas merge only supports one.
+    match->pattern = list_make1(merge->path);
+    // MERGE does not support where
+    match->where = NULL;
+
+    /*
+     *  We do not want the transform logic to transform the previous clauses
+     *  with this, just handle this one clause.
+     */
+    clause->prev = NULL;
+    clause->self = (Node *)match;
+    clause->next = NULL;
+
+    return clause;
 }

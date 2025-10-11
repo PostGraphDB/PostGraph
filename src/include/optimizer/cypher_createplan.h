@@ -27,6 +27,9 @@ Plan *plan_cypher_create_path(PlannerInfo *root, RelOptInfo *rel,
                               CustomPath *best_path, List *tlist,
                               List *clauses, List *custom_plans);
 
+Plan *plan_cypher_merge_path(PlannerInfo *root, RelOptInfo *rel,
+                             CustomPath *best_path, List *tlist,
+                             List *clauses, List *custom_plans);
 
 
 #endif
