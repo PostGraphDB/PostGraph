@@ -1,0 +1,132 @@
+
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * 'License'); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * 'AS IS' BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+LOAD 'postgraph';
+SET search_path TO postgraph;
+
+CREATE GRAPH cypher_merge;
+NOTICE:  graph "cypher_merge" has been created
+WARNING:  relcache reference leak: relation "_adj__adj__ag_label_vertex" not closed
+ create_graph 
+--------------
+ 
+(1 row)
+
+USE GRAPH cypher_merge;
+ use_graph 
+-----------
+ 
+(1 row)
+
+
+/*
+ * Section 1: MERGE with single vertex
+ */
+/*
+ * test 1: Single MERGE Clause, path doesn't exist
+ */
+--test query
+MERGE ();
+--
+(0 rows)
+
+MATCH (n) RETURN n;
+                           n                            
+--------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {}}
+(1 row)
+
+
+EXPLAIN MERGE ({i: 1});
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Custom Scan (Cypher Merge)  (cost=0.00..0.00 rows=0 width=0)
+   ->  Subquery Scan on _  (cost=0.00..25.64 rows=1 width=0)
+         ->  Seq Scan on _ag_label_vertex _age_default_alias_0  (cost=0.00..25.63 rows=1 width=168)
+               Filter: (properties @> '{"i": 1}'::gtype)
+(4 rows)
+
+
+MERGE ({i: 1});
+--
+(0 rows)
+
+MATCH (n) RETURN n;
+                              n                               
+--------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"i": 1}}
+(2 rows)
+
+
+MATCH (n {i: 1}) RETURN n;
+                              n                               
+--------------------------------------------------------------
+ {"id": 281474976710658, "label": "", "properties": {"i": 1}}
+(1 row)
+
+
+MERGE ({i: 1});
+--
+(0 rows)
+
+MATCH (n) RETURN n;
+                              n                               
+--------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"i": 1}}
+(2 rows)
+
+
+MERGE (n {i: 'Hello Merge'});
+--
+(0 rows)
+
+MATCH (n) RETURN n;
+                                    n                                     
+--------------------------------------------------------------------------
+ {"id": 281474976710657, "label": "", "properties": {}}
+ {"id": 281474976710658, "label": "", "properties": {"i": 1}}
+ {"id": 281474976710659, "label": "", "properties": {"i": "Hello Merge"}}
+(3 rows)
+
+
+MERGE (n {i: 'Hello Merge'}) RETURN n;
+                                    n                                     
+--------------------------------------------------------------------------
+ {"id": 281474976710659, "label": "", "properties": {"i": "Hello Merge"}}
+(1 row)
+
+
+/*
+ * Clean up graph
+ */
+DROP GRAPH cypher_merge CASCADE;
+NOTICE:  drop cascades to 4 other objects
+DETAIL:  drop cascades to table cypher_merge._ag_label_vertex
+drop cascades to table cypher_merge._adj__ag_label_vertex
+drop cascades to table cypher_merge._adj__adj__ag_label_vertex
+drop cascades to table cypher_merge._ag_label_edge
+NOTICE:  graph "cypher_merge" has been dropped
+ drop_graph 
+------------
+ 
+(1 row)
+

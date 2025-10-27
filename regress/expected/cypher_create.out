@@ -342,22 +342,22 @@ MATCH  ()-[]->()-[]->() RETURN 1;
 EXPLAIN ANALYZE MATCH  (q)-[]->(q)-[]->() RETURN 1;
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
- Nested Loop  (cost=1025.00..298373.57 rows=12537000 width=32) (actual time=7.908..8.465 rows=0 loops=1)
-   ->  Gather  (cost=1012.50..15491.07 rows=12600 width=16) (actual time=7.908..8.464 rows=0 loops=1)
+ Nested Loop  (cost=1025.00..298373.57 rows=12537000 width=32) (actual time=7.344..8.064 rows=0 loops=1)
+   ->  Gather  (cost=1012.50..15491.07 rows=12600 width=16) (actual time=7.344..8.062 rows=0 loops=1)
          Workers Planned: 2
          Workers Launched: 2
-         ->  Nested Loop  (cost=12.50..13231.07 rows=5250 width=16) (actual time=0.173..0.174 rows=0 loops=3)
-               ->  Parallel Append  (cost=0.00..41.07 rows=1050 width=8) (actual time=0.002..0.008 rows=12 loops=3)
+         ->  Nested Loop  (cost=12.50..13231.07 rows=5250 width=16) (actual time=0.105..0.105 rows=0 loops=3)
+               ->  Parallel Append  (cost=0.00..41.07 rows=1050 width=8) (actual time=0.002..0.005 rows=12 loops=3)
                      ->  Parallel Seq Scan on test q_2  (cost=0.00..17.06 rows=706 width=8) (actual time=0.001..0.001 rows=1 loops=1)
                      ->  Parallel Seq Scan on test2 q_3  (cost=0.00..17.06 rows=706 width=8) (actual time=0.001..0.001 rows=1 loops=1)
-                     ->  Parallel Seq Scan on _ag_label_vertex q_1  (cost=0.00..1.71 rows=71 width=8) (actual time=0.005..0.014 rows=34 loops=1)
-               ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..25.00 rows=5 width=16) (actual time=0.013..0.013 rows=0 loops=36)
+                     ->  Parallel Seq Scan on _ag_label_vertex q_1  (cost=0.00..1.71 rows=71 width=8) (actual time=0.003..0.008 rows=34 loops=1)
+               ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..25.00 rows=5 width=16) (actual time=0.008..0.008 rows=0 loops=36)
                      Filter: (q.id OPERATOR(postgraph.=) endid)
                      Rows Removed by Filter: 0
    ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..25.00 rows=995 width=8) (never executed)
          Filter: (_age_default_alias_0.id OPERATOR(postgraph.<>) id)
- Planning Time: 0.130 ms
- Execution Time: 8.502 ms
+ Planning Time: 0.123 ms
+ Execution Time: 8.106 ms
 (16 rows)
 
 MATCH  (q)-[]->(q)-[]->() RETURN 1;
@@ -369,23 +369,21 @@ EXPLAIN ANALYZE
 MATCH (q)
 MATCH (q)-[]->()
 RETURN q;
-WARNING:  here
                                                                 QUERY PLAN                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------
- Nested Loop  (cost=12.50..365471.30 rows=2520000 width=32) (actual time=0.038..0.301 rows=15 loops=1)
+ Nested Loop  (cost=12.50..365471.30 rows=2520000 width=32) (actual time=0.038..0.298 rows=15 loops=1)
    ->  Append  (cost=0.00..58.80 rows=2520 width=40) (actual time=0.003..0.010 rows=36 loops=1)
          ->  Seq Scan on _ag_label_vertex q_1  (cost=0.00..2.20 rows=120 width=40) (actual time=0.002..0.005 rows=34 loops=1)
          ->  Seq Scan on test q_2  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
          ->  Seq Scan on test2 q_3  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
    ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..22.50 rows=1000 width=0) (actual time=0.007..0.007 rows=0 loops=36)
  Planning Time: 0.092 ms
- Execution Time: 0.317 ms
+ Execution Time: 0.314 ms
 (8 rows)
 
 MATCH (q)
 MATCH (q)-[]->()
 RETURN q;
-WARNING:  here
                                         q                                        
 ---------------------------------------------------------------------------------
  {"id": 281474976710659, "label": "", "properties": {}}
@@ -411,25 +409,25 @@ MATCH ()-[]->(q)
 RETURN q;
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Merge Join  (cost=387318.67..4839083.34 rows=31752000 width=32) (actual time=0.329..0.349 rows=15 loops=1)
+ Merge Join  (cost=387318.67..4839083.34 rows=31752000 width=32) (actual time=0.321..0.341 rows=15 loops=1)
    Merge Cond: (q.id OPERATOR(postgraph.=) _age_default_alias_1.endid)
-   ->  Merge Append  (cost=0.47..178.84 rows=2520 width=40) (actual time=0.010..0.019 rows=35 loops=1)
+   ->  Merge Append  (cost=0.47..178.84 rows=2520 width=40) (actual time=0.010..0.018 rows=35 loops=1)
          Sort Key: q.id
-         ->  Index Scan using idx_hash__ag_label_vertex on _ag_label_vertex q_1  (cost=0.14..13.94 rows=120 width=40) (actual time=0.002..0.008 rows=34 loops=1)
+         ->  Index Scan using idx_hash__ag_label_vertex on _ag_label_vertex q_1  (cost=0.14..13.94 rows=120 width=40) (actual time=0.002..0.007 rows=34 loops=1)
          ->  Index Scan using idx_hash_test on test q_2  (cost=0.15..66.15 rows=1200 width=40) (actual time=0.005..0.005 rows=1 loops=1)
          ->  Index Scan using idx_hash_test2 on test2 q_3  (cost=0.15..66.15 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
-   ->  Materialize  (cost=387318.20..399918.20 rows=2520000 width=8) (actual time=0.315..0.318 rows=15 loops=1)
-         ->  Sort  (cost=387318.20..393618.20 rows=2520000 width=8) (actual time=0.314..0.315 rows=15 loops=1)
+   ->  Materialize  (cost=387318.20..399918.20 rows=2520000 width=8) (actual time=0.307..0.311 rows=15 loops=1)
+         ->  Sort  (cost=387318.20..393618.20 rows=2520000 width=8) (actual time=0.306..0.307 rows=15 loops=1)
                Sort Key: _age_default_alias_1.endid
                Sort Method: quicksort  Memory: 25kB
-               ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=8) (actual time=0.050..0.309 rows=15 loops=1)
-                     ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.003..0.012 rows=36 loops=1)
+               ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=8) (actual time=0.044..0.301 rows=15 loops=1)
+                     ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.002..0.012 rows=36 loops=1)
                            ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.002..0.007 rows=34 loops=1)
                            ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
                            ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
-                     ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=8) (actual time=0.008..0.008 rows=0 loops=36)
- Planning Time: 0.215 ms
- Execution Time: 0.400 ms
+                     ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=8) (actual time=0.007..0.008 rows=0 loops=36)
+ Planning Time: 0.183 ms
+ Execution Time: 0.386 ms
 (19 rows)
 
 MATCH (q)
@@ -460,20 +458,20 @@ MATCH (b)-[]->()
 RETURN q;
                                                                    QUERY PLAN                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------
- Nested Loop  (cost=12.50..873230536.40 rows=6350400000 width=32) (actual time=0.039..0.478 rows=540 loops=1)
-   ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=0) (actual time=0.031..0.293 rows=15 loops=1)
-         ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.003..0.012 rows=36 loops=1)
-               ->  Seq Scan on _ag_label_vertex b_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.002..0.007 rows=34 loops=1)
+ Nested Loop  (cost=12.50..873230536.40 rows=6350400000 width=32) (actual time=0.039..0.528 rows=540 loops=1)
+   ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=0) (actual time=0.035..0.361 rows=15 loops=1)
+         ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.003..0.013 rows=36 loops=1)
+               ->  Seq Scan on _ag_label_vertex b_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.003..0.008 rows=34 loops=1)
                ->  Seq Scan on test b_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
                ->  Seq Scan on test2 b_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
-         ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..22.50 rows=1000 width=0) (actual time=0.007..0.007 rows=0 loops=36)
+         ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..22.50 rows=1000 width=0) (actual time=0.008..0.008 rows=0 loops=36)
    ->  Materialize  (cost=0.00..71.40 rows=2520 width=40) (actual time=0.000..0.002 rows=36 loops=15)
          ->  Append  (cost=0.00..58.80 rows=2520 width=40) (actual time=0.001..0.007 rows=36 loops=1)
                ->  Seq Scan on _ag_label_vertex q_1  (cost=0.00..2.20 rows=120 width=40) (actual time=0.001..0.003 rows=34 loops=1)
                ->  Seq Scan on test q_2  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
                ->  Seq Scan on test2 q_3  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.001..0.001 rows=1 loops=1)
- Planning Time: 0.115 ms
- Execution Time: 0.511 ms
+ Planning Time: 0.128 ms
+ Execution Time: 0.562 ms
 (14 rows)
 
 MATCH (q)
@@ -1050,10 +1048,10 @@ MATCH  (q)-[]->()<-[]-(q) RETURN 1;
 EXPLAIN ANALYZE MATCH  (q)<-[]-(q) RETURN 1;
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
- Gather  (cost=1012.50..15491.07 rows=12600 width=32) (actual time=6.408..6.934 rows=0 loops=1)
+ Gather  (cost=1012.50..15491.07 rows=12600 width=32) (actual time=6.575..7.097 rows=0 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Nested Loop  (cost=12.50..13231.07 rows=5250 width=32) (actual time=0.100..0.100 rows=0 loops=3)
+   ->  Nested Loop  (cost=12.50..13231.07 rows=5250 width=32) (actual time=0.104..0.104 rows=0 loops=3)
          ->  Parallel Append  (cost=0.00..41.07 rows=1050 width=8) (actual time=0.001..0.005 rows=12 loops=3)
                ->  Parallel Seq Scan on test q_2  (cost=0.00..17.06 rows=706 width=8) (actual time=0.001..0.001 rows=1 loops=1)
                ->  Parallel Seq Scan on test2 q_3  (cost=0.00..17.06 rows=706 width=8) (actual time=0.001..0.001 rows=1 loops=1)
@@ -1061,8 +1059,8 @@ EXPLAIN ANALYZE MATCH  (q)<-[]-(q) RETURN 1;
          ->  Function Scan on edge_search _age_default_alias_0  (cost=12.50..25.00 rows=5 width=8) (actual time=0.008..0.008 rows=0 loops=36)
                Filter: (q.id OPERATOR(postgraph.=) endid)
                Rows Removed by Filter: 0
- Planning Time: 0.086 ms
- Execution Time: 6.955 ms
+ Planning Time: 0.098 ms
+ Execution Time: 7.121 ms
 (13 rows)
 
 MATCH  (q)<-[]-(q) RETURN 1;
@@ -1098,31 +1096,31 @@ EXPLAIN MATCH  ()-[]->()<-[]-() RETURN 1;
 EXPLAIN ANALYZE MATCH  ()-[]->()<-[]-() RETURN 1;
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Merge Join  (cost=809090.41..556487990.41 rows=31593240000 width=32) (actual time=0.604..0.605 rows=0 loops=1)
+ Merge Join  (cost=809090.41..556487990.41 rows=31593240000 width=32) (actual time=0.663..0.664 rows=0 loops=1)
    Merge Cond: (_age_default_alias_1.endid OPERATOR(postgraph.=) _age_default_alias_3.endid)
    Join Filter: (_age_default_alias_1.id OPERATOR(postgraph.<>) _age_default_alias_3.id)
    Rows Removed by Join Filter: 15
-   ->  Sort  (cost=404545.20..410845.20 rows=2520000 width=16) (actual time=0.304..0.305 rows=15 loops=1)
+   ->  Sort  (cost=404545.20..410845.20 rows=2520000 width=16) (actual time=0.349..0.350 rows=15 loops=1)
          Sort Key: _age_default_alias_1.endid
          Sort Method: quicksort  Memory: 25kB
-         ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=16) (actual time=0.042..0.299 rows=15 loops=1)
-               ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.004..0.014 rows=36 loops=1)
-                     ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.003..0.008 rows=34 loops=1)
-                     ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+         ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=16) (actual time=0.039..0.343 rows=15 loops=1)
+               ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.003..0.018 rows=36 loops=1)
+                     ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.003..0.009 rows=34 loops=1)
+                     ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.003..0.003 rows=1 loops=1)
                      ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
-               ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=16) (actual time=0.007..0.007 rows=0 loops=36)
-   ->  Materialize  (cost=404545.20..417145.20 rows=2520000 width=16) (actual time=0.291..0.294 rows=15 loops=1)
-         ->  Sort  (cost=404545.20..410845.20 rows=2520000 width=16) (actual time=0.290..0.291 rows=15 loops=1)
+               ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=16) (actual time=0.008..0.008 rows=0 loops=36)
+   ->  Materialize  (cost=404545.20..417145.20 rows=2520000 width=16) (actual time=0.303..0.306 rows=15 loops=1)
+         ->  Sort  (cost=404545.20..410845.20 rows=2520000 width=16) (actual time=0.303..0.304 rows=15 loops=1)
                Sort Key: _age_default_alias_3.endid
                Sort Method: quicksort  Memory: 25kB
-               ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=16) (actual time=0.032..0.283 rows=15 loops=1)
-                     ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.001..0.010 rows=36 loops=1)
+               ->  Nested Loop  (cost=12.50..50471.30 rows=2520000 width=16) (actual time=0.033..0.295 rows=15 loops=1)
+                     ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.002..0.011 rows=36 loops=1)
                            ->  Seq Scan on _ag_label_vertex _age_default_alias_2_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.001..0.006 rows=34 loops=1)
                            ->  Seq Scan on test _age_default_alias_2_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
                            ->  Seq Scan on test2 _age_default_alias_2_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
                      ->  Function Scan on edge_search _age_default_alias_3  (cost=12.50..22.50 rows=1000 width=16) (actual time=0.007..0.007 rows=0 loops=36)
- Planning Time: 0.160 ms
- Execution Time: 0.642 ms
+ Planning Time: 0.144 ms
+ Execution Time: 0.703 ms
 (25 rows)
 
 MATCH  ()-[]->()<-[]-() RETURN 1;
@@ -1152,14 +1150,14 @@ EXPLAIN MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
 EXPLAIN ANALYZE MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
- Merge Join  (cost=331424.24..126340424.24 rows=7164000000 width=32) (actual time=0.018..0.019 rows=0 loops=1)
+ Merge Join  (cost=331424.24..126340424.24 rows=7164000000 width=32) (actual time=0.018..0.018 rows=0 loops=1)
    Merge Cond: (_age_default_alias_1.endid OPERATOR(postgraph.=) _age_default_alias_3.endid)
    Join Filter: (_age_default_alias_1.id OPERATOR(postgraph.<>) _age_default_alias_3.id)
    ->  Sort  (cost=165712.12..168712.12 rows=1200000 width=16) (actual time=0.018..0.018 rows=0 loops=1)
          Sort Key: _age_default_alias_1.endid
          Sort Method: quicksort  Memory: 25kB
-         ->  Nested Loop  (cost=12.50..24034.50 rows=1200000 width=16) (actual time=0.016..0.017 rows=0 loops=1)
-               ->  Seq Scan on test _age_default_alias_0  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.002..0.003 rows=1 loops=1)
+         ->  Nested Loop  (cost=12.50..24034.50 rows=1200000 width=16) (actual time=0.016..0.016 rows=0 loops=1)
+               ->  Seq Scan on test _age_default_alias_0  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.002..0.002 rows=1 loops=1)
                ->  Function Scan on edge_search _age_default_alias_1  (cost=12.50..22.50 rows=1000 width=16) (actual time=0.013..0.013 rows=0 loops=1)
    ->  Materialize  (cost=165712.12..171712.12 rows=1200000 width=16) (never executed)
          ->  Sort  (cost=165712.12..168712.12 rows=1200000 width=16) (never executed)
@@ -1167,8 +1165,8 @@ EXPLAIN ANALYZE MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
                ->  Nested Loop  (cost=12.50..24034.50 rows=1200000 width=16) (never executed)
                      ->  Seq Scan on test _age_default_alias_2  (cost=0.00..22.00 rows=1200 width=8) (never executed)
                      ->  Function Scan on edge_search _age_default_alias_3  (cost=12.50..22.50 rows=1000 width=16) (never executed)
- Planning Time: 0.128 ms
- Execution Time: 0.040 ms
+ Planning Time: 0.098 ms
+ Execution Time: 0.042 ms
 (17 rows)
 
 MATCH  (:test)-[]->()<-[]-(:test) RETURN 1;
@@ -1186,17 +1184,17 @@ MATCH  ()-[*1]->()-[]->() RETURN 1;
 EXPLAIN ANALYZE MATCH  ()-[*1]->()-[]->() RETURN 1;
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
- Nested Loop  (cost=137.50..44150596.30 rows=1260000000 width=32) (actual time=0.390..0.485 rows=2 loops=1)
-   ->  Nested Loop  (cost=125.00..50583.80 rows=2520000 width=40) (actual time=0.043..0.367 rows=15 loops=1)
-         ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.003..0.013 rows=36 loops=1)
-               ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.003..0.008 rows=34 loops=1)
+ Nested Loop  (cost=137.50..44150596.30 rows=1260000000 width=32) (actual time=0.369..0.485 rows=2 loops=1)
+   ->  Nested Loop  (cost=125.00..50583.80 rows=2520000 width=40) (actual time=0.038..0.370 rows=15 loops=1)
+         ->  Append  (cost=0.00..58.80 rows=2520 width=8) (actual time=0.003..0.012 rows=36 loops=1)
+               ->  Seq Scan on _ag_label_vertex _age_default_alias_0_1  (cost=0.00..2.20 rows=120 width=8) (actual time=0.002..0.007 rows=34 loops=1)
                ->  Seq Scan on test _age_default_alias_0_2  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
                ->  Seq Scan on test2 _age_default_alias_0_3  (cost=0.00..22.00 rows=1200 width=8) (actual time=0.001..0.001 rows=1 loops=1)
          ->  Function Scan on variable_edge_search _age_default_alias_1  (cost=125.00..135.00 rows=1000 width=40) (actual time=0.009..0.009 rows=0 loops=36)
    ->  Function Scan on edge_search _age_default_alias_2  (cost=12.50..25.00 rows=500 width=8) (actual time=0.007..0.007 rows=0 loops=15)
          Filter: (_age_default_alias_1.hashset OPERATOR(postgraph.@>) id)
- Planning Time: 0.096 ms
- Execution Time: 0.507 ms
+ Planning Time: 0.135 ms
+ Execution Time: 0.505 ms
 (11 rows)
 
 SELECT * FROM cypher_create._adj__ag_label_vertex;
@@ -1302,10 +1300,10 @@ MATCH ()-[]->() RETURN 1;
 (15 rows)
 
 MATCH ()-[*2]->() RETURN 1;
-WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x11f47fe0, chunk 0x11f48278
-WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x11f47fe0, chunk 0x11f48278
-WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x11f47fe0, chunk 0x11f48278
-WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x11f47fe0, chunk 0x11f48278
+WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x371a5df0, chunk 0x371a6088
+WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x371a5df0, chunk 0x371a6088
+WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x371a5df0, chunk 0x371a6088
+WARNING:  problem in alloc set SRF multi-call context: detected write past chunk end in block 0x371a5df0, chunk 0x371a6088
  ?column? 
 ----------
  1

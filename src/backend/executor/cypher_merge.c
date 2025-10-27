@@ -183,6 +183,9 @@ css->found_a_path = false;
     foreach (lc1, path->target_nodes) {
         cypher_target_node *cypher_node = (cypher_target_node *)lfirst(lc1);
 
+        if (cypher_node->prop_expr != NULL)
+            cypher_node->prop_expr_state = ExecInitExpr(cypher_node->prop_expr, (PlanState *)node);
+
         if (cypher_node->flags & EXISTING_VARAIBLE_DECLARED_SAME_CLAUSE) {
             i++;
             continue;
@@ -316,8 +319,9 @@ static void process_path(cypher_merge_custom_scan_state *css)
                     elemTupleSlot->tts_values[1] = NULL;
                     elemTupleSlot->tts_isnull[1] = true;
                 } else {
-                    elemTupleSlot->tts_values[1] = slot->tts_values[node->prop_attr_num - 1];
-                    elemTupleSlot->tts_isnull[1] = slot->tts_isnull[node->prop_attr_num - 1];
+                    bool isNull;
+                    elemTupleSlot->tts_values[1] = slot->tts_values[node->id_attr_num - 1] = ExecEvalExpr(node->prop_expr_state, econtext, &isNull);
+                    elemTupleSlot->tts_isnull[1] = slot->tts_isnull[node->id_attr_num - 1] = isNull;
                 }
 
                 if (node->tuple_position != InvalidAttrNumber) {
@@ -415,11 +419,9 @@ static void process_simple_merge(CustomScanState *node)
     cypher_merge_custom_scan_state *css =
         (cypher_merge_custom_scan_state *)node;
     EState *estate = css->css.ss.ps.state;
-    TupleTableSlot *slot;
 
-    /*Process the subtree first */
     RollbackCmdId(estate);
-    slot = ExecProcNode(node->ss.ps.lefttree);
+    TupleTableSlot *slot = ExecProcNode(node->ss.ps.lefttree);
     AdvanceCmdId(estate);
 
     if (TupIsNull(slot))
@@ -427,7 +429,8 @@ static void process_simple_merge(CustomScanState *node)
         ExprContext *econtext = node->ss.ps.ps_ExprContext;
 
         /* setup the scantuple that the process_path needs */
-        econtext->ecxt_scantuple = node->ss.ps.lefttree->ps_ResultTupleSlot;
+        econtext->ecxt_scantuple = node->ss.ps.lefttree->ps_ProjInfo->pi_state.resultslot;
+        //csnode->ss.ps.lefttree->ps_ProjInfo->pi_exprContext->ecxt_scantuple;// node->ss.ps.lefttree->ps_ResultTupleSlot;
         //econtext->ecxt_scantuple->tts_isempty = false;
 
         process_path(css);

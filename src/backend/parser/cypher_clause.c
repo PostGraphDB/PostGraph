@@ -28,6 +28,12 @@
 
 typedef Query *(*transform_method)(cypher_parsestate *cpstate, cypher_clause *clause);
 
+typedef struct path_parts {
+    int start;
+    int end;
+    cypher_rel_dir dir;
+} path_parts;
+
 // projection
 static TargetEntry *find_target_list_entry(cypher_parsestate *cpstate, Node *node, List **target_list, ParseExprKind expr_kind);
 static Node *transform_cypher_limit(cypher_parsestate *cpstate, Node *node, ParseExprKind expr_kind, const char *construct_name);
@@ -115,8 +121,6 @@ Alias *make_alias(char *name, List *colnames);
 
 static Node *make_int_const(int i, int location);
 static Node *make_null_const(int location);
-
-
 
 /*
  * transform a cypher_clause
@@ -345,7 +349,7 @@ process_create_vertex(
         query->targetList = lappend(query->targetList,
             makeTargetEntry(
                 make_graphid_placeholder(cpstate),
-                target->id_attr_num = pstate->p_next_resno++,
+                target->id_attr_num = get_parse_state(cpstate)->p_next_resno++,
                 make_id_alias(target->variable_name = node->name),
                 false));
 
@@ -353,7 +357,7 @@ process_create_vertex(
             query->targetList = lappend(query->targetList,
                 makeTargetEntry(
                     add_volatile_wrapper(transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
-                    target->prop_attr_num = pstate->p_next_resno++,
+                    target->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
                     make_property_alias(node->name),
                     false));
         } else {
@@ -363,7 +367,7 @@ process_create_vertex(
         query->targetList = lappend(query->targetList,
                 makeTargetEntry(
                     make_vertex_placeholder(cpstate),
-                    target->tuple_position = pstate->p_next_resno++,
+                    target->tuple_position = get_parse_state(cpstate)->p_next_resno++,
                     node->name,
                     false));
 
@@ -376,7 +380,7 @@ process_create_vertex(
                 makeTargetEntry(
                     (Expr *)add_volatile_wrapper(
                         transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
-                    target->prop_attr_num = pstate->p_next_resno++,
+                    target->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
                     make_property_alias(node->name = get_next_default_alias(cpstate)),
                     false));
         } else {
@@ -1126,6 +1130,51 @@ char *get_vertex_relation_name(cypher_parsestate *cpstate, char *label, bool is_
 
     return rel_name;
 }
+ParseNamespaceItem *find_pnsi(cypher_parsestate *cpstate, char *varname) {
+    ParseState *pstate = (ParseState *) cpstate;
+    ListCell *lc;
+
+    foreach (lc, pstate->p_namespace) {
+        ParseNamespaceItem *pnsi = (ParseNamespaceItem *)lfirst(lc);
+        Alias *alias = pnsi->p_rte->alias;
+        if (!alias)
+            continue;
+
+        if (!strcmp(alias->aliasname, varname))
+            return pnsi;
+    }
+
+    return NULL;
+}
+/*
+ * Creates the Contains operator to process property contraints for a vertex/
+ * edge in a MATCH clause. creates the gtype @> with the enitity's properties
+ * on the right and the contraints in the MATCH clause on the left.
+ */
+static Node *create_property_constraints(cypher_parsestate *cpstate, char *entity_name, Node *property_constraints) {
+    ParseState *pstate = (ParseState *)cpstate;
+    ColumnRef *cr;
+    Node *prop_expr, *const_expr;
+    Node *last_srf = pstate->p_last_srf;
+    ParseNamespaceItem *pnsi;
+
+    cr = makeNode(ColumnRef);
+
+
+    cr->fields = list_make2(makeString(entity_name), makeString("properties"));
+
+    // use Postgres to get the properties' transform node
+    if ((pnsi = find_pnsi(cpstate, entity_name)))
+        prop_expr = scanNSItemForColumn(pstate, pnsi, 0, AG_VERTEX_COLNAME_PROPERTIES, -1);
+    else
+        prop_expr = transform_cypher_expr(pstate, (Node *)cr, EXPR_KIND_WHERE);
+
+    // use cypher to get the constraints' transform node
+    const_expr = transform_cypher_expr(cpstate, property_constraints, EXPR_KIND_WHERE);
+
+    return (Node *)make_op(pstate, list_make2(makeString("postgraph"), makeString("@>")), prop_expr, const_expr, last_srf, -1);
+}
+
 
 static ParseNamespaceItem *
 add_vertex_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node, List **quals)
@@ -1158,6 +1207,8 @@ add_vertex_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node,
 
     node->in_join_tree = true;
 
+
+
     ParseNamespaceItem *pnsi = addRangeTableEntry(cpstate, 
                                     makeRangeVar(get_graph_namespace_name(cpstate->graph_name),
                                                  get_vertex_relation_name(cpstate, node->label, node->is_default_label),
@@ -1168,6 +1219,13 @@ add_vertex_to_query(cypher_parsestate *cpstate, Query *query, cypher_node *node,
     setNamespaceLateralState(pnsi, false, true);
 
     addNSItemToQuery(cpstate, pnsi, true, true, true);
+
+    // transform properties if they exist 
+    if (node->props)
+        cpstate->property_constraint_quals =
+            lappend(cpstate->property_constraint_quals, 
+                create_property_constraints(cpstate, node->name, node->props));
+
 
     return pnsi;
 }
@@ -1751,11 +1809,7 @@ process_three_element_path(cypher_parsestate *cpstate, Query *query, cypher_path
     add_all_fields_to_target_list(cpstate, query, linitial(path->path), edge, lthird(path->path));
 }
 
-typedef struct path_parts {
-    int start;
-    int end;
-    cypher_rel_dir dir;
-} path_parts;
+
 
 /*
  * find_path_parts
@@ -2019,6 +2073,13 @@ static void transform_match_pattern(cypher_parsestate *cpstate, Query *query, Li
     if (quals != NIL) 
         expr = (Expr *)transformExpr(cpstate, (Node *)makeBoolExpr(AND_EXPR, quals, -1), EXPR_KIND_WHERE);
 
+
+    if (cpstate->property_constraint_quals != NIL) {
+        Expr *prop_qual = makeBoolExpr(AND_EXPR, cpstate->property_constraint_quals, -1);
+
+        expr = expr == NULL ? prop_qual :
+            makeBoolExpr(AND_EXPR, list_make2(expr, prop_qual), -1);
+    }       
     // WHERE Clause
     /*
     if (where != NULL) {
@@ -2561,18 +2622,19 @@ static cypher_target_node *transform_merge_cypher_node(cypher_parsestate *cpstat
     target_node->adj_relid = lcd->vertex_adjlist;
     // props
     if (node->props) {
-       /* query->targetList = lappend(query->targetList,
+        target_node->prop_expr = transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET);
+        query->targetList = lappend(query->targetList,
             makeTargetEntry(
                 add_volatile_wrapper(transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
                 target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
                 make_property_alias(node->name),
-                false));*/
-        query->targetList = lappend(query->targetList, 
+                false));
+        /*query->targetList = lappend(query->targetList, 
                                 makeTargetEntry(
                                     colNameToVar(cpstate, make_property_alias(node->name), false, -1), 
                                     target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
                                     make_property_alias(node->name), 
-                                    false));
+                                    false));*/
                                     /*
         query->targetList = lappend(query->targetList, 
                                 makeTargetEntry(
