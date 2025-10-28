@@ -169,6 +169,7 @@ typedef struct cypher_load_csv
 {
     ExtensibleNode extensible;
     char *file;
+    char *alias
 } cypher_load_csv;
 
 

@@ -63,6 +63,7 @@ OBJS = src/backend/postgraph.o \
        src/backend/utils/ag_func.o \
        src/backend/utils/edge_searching.o \
        src/backend/utils/cache/ag_cache.o \
+       src/backend/utils/csv/csv.o 
 
 EXTENSION = postgraph
 
@@ -70,7 +71,8 @@ DATA = postgraph--0.1.0.sql
 
 REGRESS = new_cypher \
           cypher_create \
-          cypher_merge
+          cypher_merge \
+          csv_load
 
 srcdir=`pwd`
 POSTGIS_DIR ?= postgis_dir

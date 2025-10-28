@@ -84,6 +84,9 @@ static Node *transform_clause_for_join(cypher_parsestate *cpstate, cypher_clause
 static cypher_clause *convert_merge_to_match(cypher_merge *merge);
 static void transform_cypher_merge_mark_tuple_position(cypher_parsestate *cpstate, List *target_list, cypher_create_path *path);
 
+// load csv
+static Query *transform_cypher_load_csv(cypher_parsestate *cpstate, cypher_clause *clause);
+
 // transform
 #define PREV_CYPHER_CLAUSE_ALIAS    "_"
 #define CYPHER_OPT_RIGHT_ALIAS      "_R"
@@ -145,6 +148,8 @@ Query *transform_cypher_clause(cypher_parsestate *cpstate, cypher_clause *clause
         result = transform_cypher_create(cpstate, clause);
     } else if (is_ag_node(self, cypher_merge)) {
         result = transform_cypher_merge(cpstate, clause);
+    } else if (is_ag_node(self, cypher_load_csv)) {
+        result = transform_cypher_load_csv(cpstate, clause);
     } else {
         ereport(ERROR, (errmsg_internal("unexpected Node for cypher_clause")));
     }
@@ -153,6 +158,74 @@ Query *transform_cypher_clause(cypher_parsestate *cpstate, cypher_clause *clause
     result->canSetTag = true;
 
     return result;
+}
+
+
+static FuncExpr *make_load_csv_clause_function(char *file_name) {
+
+    return makeFuncExpr(
+        get_ag_func_oid("load_csv", 1, TEXTOID), 
+        GTYPEOID,
+        list_make1(makeConst(TEXTOID, -1, InvalidOid, strlen(file_name), PointerGetDatum(file_name), false, false)),
+        InvalidOid,
+        InvalidOid,
+        COERCE_EXPLICIT_CALL);
+}
+
+static Query *transform_cypher_load_csv(cypher_parsestate *cpstate, cypher_clause *clause) {
+    ParseState *pstate = (ParseState *)cpstate;
+    cypher_load_csv *self = (cypher_create *)clause->self;
+    
+    Query *query = makeNode(Query);
+    query->commandType = CMD_SELECT;
+    query->targetList = NIL;
+
+    if (clause->prev) {
+        query->targetList = list_concat(query->targetList,
+            expandNSItemAttrs(get_parse_state(cpstate),
+                transform_prev_cypher_clause(cpstate, clause->prev, true),
+                0,
+                -1));
+    }
+
+
+
+    ParseNamespaceItem *pnsi = add_srf_to_query(
+        cpstate, 
+        makeFuncCall(
+            list_make2(makeString("postgraph"), makeString("load_csv")),
+            list_make1(makeString(self->file)),
+            COERCE_EXPLICIT_CALL, -1), 
+        self->alias, 
+        list_make1(makeString("val")));
+
+    query->targetList = lappend(query->targetList, 
+        makeTargetEntry(
+            scanNSItemForColumn(pstate, pnsi, 0, "val", -1), 
+            pstate->p_next_resno++, 
+            self->alias, 
+             false));
+
+    query->rtable = pstate->p_rtable;
+    query->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+
+    if (clause->next)
+        return query;
+
+
+    {
+        cypher_parsestate *new_cpstate = make_cypher_parsestate(cpstate);
+        Query *topquery = makeNode(Query);
+        topquery->commandType = CMD_SELECT;
+        topquery->targetList = NIL;
+
+        transform_cypher_clause_as_subquery_2(new_cpstate, query);
+        
+        topquery->rtable = new_cpstate->pstate.p_rtable;
+        topquery->jointree = makeFromExpr(new_cpstate->pstate.p_joinlist, NULL);
+
+        return topquery;
+    }
 }
 
 
@@ -2541,23 +2614,15 @@ static cypher_target_node *transform_merge_cypher_edge(cypher_parsestate *cpstat
     table_close(rel, NoLock);
 
     // props
-    if (edge->props) {
-      /*  query->targetList = lappend(query->targetList,
-            makeTargetEntry(//BlackPink
-                add_volatile_wrapper(transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET)),
+    if (edge->props)
+        query->targetList = lappend(query->targetList,
+            makeTargetEntry(
+                add_volatile_wrapper(target_node->prop_expr = transform_cypher_expr(cpstate, edge->props, EXPR_KIND_INSERT_TARGET)),
                 target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
                 make_property_alias(edge->name),
                 false));
-*/
-        query->targetList = lappend(query->targetList, 
-                                makeTargetEntry(
-                                    add_volatile_wrapper(scanNSItemForColumn(pstate, edge->pnsi, 0, AG_EDGE_COLNAME_PROPERTIES, -1)), 
-                                    target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
-                                    make_property_alias(edge->name), 
-                                    false));
-    } else {
+    else
         target_node->prop_attr_num = InvalidAttrNumber;
-    }
 
     return target_node;
 }
@@ -2570,11 +2635,6 @@ static cypher_target_node *transform_merge_cypher_node(cypher_parsestate *cpstat
     
 
     if (node->name) {
-       /* ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("MERGE does not support variables"),
-                 parser_errposition(get_parse_state(cpstate), node->location)));
-*/
-        // /ereport(ERROR, (errmsg_internal("nodes in CREATE cannot be a variable")));
         Var *var = NULL;
         if ((var = colNameToVar(cpstate, node->name, false, -1)) ||
         (target_node->id_attr_num = get_target_entry_resno(cpstate, query->targetList, make_id_alias(node->name))) != -1) {
@@ -2608,7 +2668,6 @@ static cypher_target_node *transform_merge_cypher_node(cypher_parsestate *cpstat
         target_node->label_name = node->label;
     } else {
         target_node->label_name = "";
-        //node->label = AG_DEFAULT_LABEL_VERTEX;
     }
 
     target_node->flags |= CYPHER_TARGET_NODE_FLAG_INSERT;
@@ -2621,35 +2680,15 @@ static cypher_target_node *transform_merge_cypher_node(cypher_parsestate *cpstat
     table_close(rel, NoLock);
     target_node->adj_relid = lcd->vertex_adjlist;
     // props
-    if (node->props) {
-        target_node->prop_expr = transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET);
+    if (node->props)
         query->targetList = lappend(query->targetList,
             makeTargetEntry(
-                add_volatile_wrapper(transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
+                add_volatile_wrapper(target_node->prop_expr = transform_cypher_expr(cpstate, node->props, EXPR_KIND_INSERT_TARGET)),
                 target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
                 make_property_alias(node->name),
                 false));
-        /*query->targetList = lappend(query->targetList, 
-                                makeTargetEntry(
-                                    colNameToVar(cpstate, make_property_alias(node->name), false, -1), 
-                                    target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
-                                    make_property_alias(node->name), 
-                                    false));*/
-                                    /*
-        query->targetList = lappend(query->targetList, 
-                                makeTargetEntry(
-                                    add_volatile_wrapper(scanNSItemForColumn(get_parse_state(cpstate), refnameNamespaceItem(cpstate, NULL, node->name, -1, NULL), 0, AG_VERTEX_COLNAME_PROPERTIES, -1)), 
-                                    target_node->prop_attr_num = get_parse_state(cpstate)->p_next_resno++,
-                                    make_property_alias(node->name), 
-                                    false));
-
-colNameToVar(cpstate, node->name, false, -1))
-*/
-
-
-    } else {
+    else
         target_node->prop_attr_num = InvalidAttrNumber;
-    }
 
     return target_node;
 }

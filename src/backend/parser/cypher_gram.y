@@ -11849,11 +11849,12 @@ clause:
 
 
 load_stmt:
-	LOAD CSV Sconst
+	LOAD CSV Sconst AS ColId
 	{
 		cypher_load_csv *n = make_ag_node(cypher_load_csv);
         n->file = $3;
-
+		n->alias = $5;
+		
         $$ = n;
 	};
 
