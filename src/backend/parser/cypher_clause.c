@@ -7,6 +7,7 @@
 #include "nodes/parsenodes.h"
 #include "nodes/pg_list.h"
 #include "parser/parsetree.h"
+#include "parser/parse_relation.h"
 
 #include "parser/cypher_analyze.h"
 #include "catalog/ag_graph.h"
@@ -188,23 +189,21 @@ static Query *transform_cypher_load_csv(cypher_parsestate *cpstate, cypher_claus
                 -1));
     }
 
-
-
     ParseNamespaceItem *pnsi = add_srf_to_query(
         cpstate, 
         makeFuncCall(
             list_make2(makeString("postgraph"), makeString("load_csv")),
             list_make1(makeString(self->file)),
             COERCE_EXPLICIT_CALL, -1), 
-        self->alias, 
-        list_make1(makeString("val")));
+        "val", 
+        NIL);
 
     query->targetList = lappend(query->targetList, 
         makeTargetEntry(
             scanNSItemForColumn(pstate, pnsi, 0, "val", -1), 
             pstate->p_next_resno++, 
             self->alias, 
-             false));
+            false));
 
     query->rtable = pstate->p_rtable;
     query->jointree = makeFromExpr(pstate->p_joinlist, NULL);
@@ -235,13 +234,9 @@ static Query *transform_cypher_load_csv(cypher_parsestate *cpstate, cypher_claus
  */
 static void
 transform_cypher_clause_as_subquery_2(cypher_parsestate *cpstate, Query *query) {
-    ParseState *pstate = (ParseState *)cpstate;
-    ParseExprKind old_expr_kind = pstate->p_expr_kind;
-    bool lateral = pstate->p_lateral_active;
+    ParseNamespaceItem *pnsi = addRangeTableEntryForSubquery(cpstate, query, makeAlias(PREV_CYPHER_CLAUSE_ALIAS, NIL), get_parse_state(cpstate)->p_lateral_active, true);
 
-    ParseNamespaceItem *pnsi = addRangeTableEntryForSubquery(pstate, query, makeAlias(PREV_CYPHER_CLAUSE_ALIAS, NIL), lateral, true);
-
-    addNSItemToQuery(pstate, pnsi, true, false, true);
+    addNSItemToQuery(cpstate, pnsi, true, false, true);
 
     //query->targetList = list_concat(query->targetList, expandNSItemAttrs(pstate, pnsi, 0, -1));
 }

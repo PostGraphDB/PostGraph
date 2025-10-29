@@ -7,11 +7,106 @@
 #include "utils/memutils.h"
 #include "mb/pg_wchar.h"
 
+#include "miscadmin.h"
+
+#include "storage/fd.h"
+
 #include "access/relscan.h"
 
 #include "utils/gtype.h"
 #include "utils/gtype_typecasting.h"
 #define MAX_CSV_COLS 128
+typedef struct load_csv_cxt
+{
+    FILE *file;
+    TableScanDesc scan_desc;
+	char *line_buf;
+	char **fields;
+    TupleTableSlot *slot;
+} load_csv_cxt;
+
+static int parse_csv_line(char *line, char **fields, int max_fields);
+
+PG_FUNCTION_INFO_V1(load_csv);
+Datum load_csv(PG_FUNCTION_ARGS) {
+    char *file_path = GT_ARG_TO_STRING_DATUM(0);
+
+	load_csv_cxt *cxt = palloc(sizeof(load_csv_cxt));
+    cxt->line_buf = palloc(sizeof(char) * 16384);
+
+    //if (!(cxt->file = AllocateFile(file_path, "r")))
+    if (!(cxt->file = fopen(file_path, "r")))
+        ereport(ERROR, (errcode_for_file_access(), 
+            errmsg("could not open file \"%s\" in: %m",  file_path)));
+
+    cxt->fields = palloc(sizeof(char *) * MAX_CSV_COLS);
+    for (int i = 0; i < MAX_CSV_COLS; i++) {
+        cxt->fields[i] = palloc(sizeof(char) * 1024);
+    }
+
+    ReturnSetInfo *rsi = (ReturnSetInfo *) fcinfo->resultinfo;
+    rsi->returnMode = SFRM_Materialize;
+    TupleDesc tupdesc = rsi->expectedDesc;
+
+    MemoryContext old_cxt = MemoryContextSwitchTo(rsi->econtext->ecxt_per_query_memory);
+
+    TupleDesc ret_tdesc = CreateTupleDescCopy(tupdesc);
+    BlessTupleDesc(ret_tdesc);
+
+    Tuplestorestate *tuple_store = tuplestore_begin_heap(rsi->allowedModes & SFRM_Materialize_Random, false, work_mem);
+
+    MemoryContextSwitchTo(old_cxt);
+
+    MemoryContext tmp_cxt = AllocSetContextCreate(CurrentMemoryContext, "LOAD CSV temporary cxt", ALLOCSET_DEFAULT_SIZES);
+
+    /*if (fgets(line_buf, sizeof(line_buf), file) == NULL) {
+        fclose(file);
+        ereport(ERROR, (errmsg("could not read header line from file \"%s\"", file_path)));
+    }*/
+
+    while (fgets(cxt->line_buf, 16384, cxt->file) != NULL)
+    {
+        int nfields = parse_csv_line(cxt->line_buf, cxt->fields, MAX_CSV_COLS);
+
+        old_cxt = MemoryContextSwitchTo(tmp_cxt);
+
+        /* only care when headers are supplied
+        if (nfields != num_columns) {
+            SPI_finish();
+            fclose(file);
+            ereport(WARNING, (errmsg("skipping malformed CSV line with %d fields (expected %d)", nfields, num_columns)));
+            continue;
+        }*/
+        gtype_in_state result;
+        memset(&result, 0, sizeof(gtype_in_state));
+
+        result.res = push_gtype_value(&result.parse_state, WGT_BEGIN_ARRAY, NULL);
+        for (int i = 0; i < nfields; i++) {
+            add_gtype(string_to_gtype(cxt->fields[i]), false, &result, GTYPEOID, false);
+        }
+        result.res = push_gtype_value(&result.parse_state, WGT_END_ARRAY, NULL);
+
+        Datum values[1];
+        bool nulls[1] = {false};
+        values[0] = GTYPE_P_GET_DATUM(gtype_value_to_gtype(result.res));
+
+        HeapTuple tuple = heap_form_tuple(ret_tdesc, values, nulls);
+
+        tuplestore_puttuple(tuple_store, tuple);
+
+        MemoryContextSwitchTo(old_cxt);
+        MemoryContextReset(tmp_cxt);
+
+    }
+
+    MemoryContextDelete(tmp_cxt);
+
+    rsi->setResult = tuple_store;
+    rsi->setDesc = ret_tdesc;
+
+    PG_RETURN_NULL();
+
+}
 
 /*
  * A simple, state-machine based CSV line parser.
@@ -78,184 +173,3 @@ parse_csv_line(char *line, char **fields, int max_fields)
 
     return field_idx;
 }
-
-typedef struct load_csv_cxt
-{
-    FILE *file;
-    TableScanDesc scan_desc;
-	char *line_buf;
-	char **fields;
-    TupleTableSlot *slot;
-} load_csv_cxt;
-
-/*
- * SQL function: load_csv_manual(file_path TEXT)
- *
- * Description: Manually parses a CSV and inserts rows one-by-one.
- * Assumes the first line of the CSV is a header and skips it.
- */
-PG_FUNCTION_INFO_V1(load_csv);
-Datum load_csv(PG_FUNCTION_ARGS) {
-
-    int nrows = 0;
-	FuncCallContext *funcctx;
-	if (SRF_IS_FIRSTCALL()) {
-        char *file_path = GT_ARG_TO_STRING_DATUM(0);
-		
-        MemoryContext oldcontext;
-
-
-		funcctx = SRF_FIRSTCALL_INIT();
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		load_csv_cxt *cxt= palloc(sizeof(load_csv_cxt));
-
-        cxt->line_buf = palloc(sizeof(char) * 16384); // 16KB buffer for a single line
-
-        if ((cxt->file = fopen(file_path, "r")) == NULL)
-            ereport(ERROR, (errcode_for_file_access(), errmsg("could not open file \"%s\" for reading: %m", file_path)));
-
-        cxt->fields = palloc(sizeof(char *) * MAX_CSV_COLS);
-        for (int i = 0; i < MAX_CSV_COLS; i++) {
-            cxt->fields[i] = palloc(sizeof(char) * 1024); // Allocate 1KB per field
-        }
-
-		TupleDesc tupdesc = CreateTemplateTupleDesc(1);
-
-		TupleDescInitEntry(tupdesc, 1, "value", GTYPEOID, -1, 0);
-
-		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
-
-
-        funcctx->user_fctx = cxt;
-
-		MemoryContextSwitchTo(oldcontext);
-	}
-
-	funcctx = SRF_PERCALL_SETUP();
-	load_csv_cxt *cxt = (load_csv_cxt *) funcctx->user_fctx;
-    // 2. Read header line and discard it
-    /*if (fgets(line_buf, sizeof(line_buf), file) == NULL) {
-        fclose(file);
-        ereport(ERROR, (errmsg("could not read header line from file \"%s\"", file_path)));
-    }*/
-
-    // 4. Loop through the file, parsing and inserting each row
-    while (fgets(cxt->line_buf, sizeof(cxt->line_buf), cxt->file) != NULL)
-    {
-        int nfields = parse_csv_line(cxt->line_buf, cxt->fields, MAX_CSV_COLS);
-
-        /* only care when headers are supplied
-        if (nfields != num_columns) {
-            SPI_finish();
-            fclose(file);
-            ereport(WARNING, (errmsg("skipping malformed CSV line with %d fields (expected %d)", nfields, num_columns)));
-            continue;
-        }*/
-        gtype_in_state result;
-
-        memset(&result, 0, sizeof(gtype_in_state));
-
-        result.res = push_gtype_value(&result.parse_state, WGT_BEGIN_ARRAY, NULL);
-
-        for (int i = 0; i < nfields; i++)
-            add_gtype(string_to_gtype(cxt->fields[i]), false, &result, GTYPEOID, false);
-
-        result.res = push_gtype_value(&result.parse_state, WGT_END_ARRAY, NULL);
-
- 		Datum values[1];
-		bool nulls[1];
-		values[0] = GTYPE_P_GET_DATUM(gtype_value_to_gtype(result.res));
-        nulls[0] = false;
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(funcctx->tuple_desc, values, nulls)));
-    }
-    
-	SRF_RETURN_DONE(funcctx);
-}
-/*
- * SQL function: load_csv_manual(table_name TEXT, file_path TEXT)
- *
- * Description: Manually parses a CSV and inserts rows one-by-one.
- * Assumes the first line of the CSV is a header and skips it.
- */
-/*
-Datum
-load_csv_manual(PG_FUNCTION_ARGS)
-{
-    char *table_name = text_to_cstring(PG_GETARG_TEXT_PP(0));
-    char *file_path = text_to_cstring(PG_GETARG_TEXT_PP(1));
-
-    FILE *file;
-    char line_buf[16384]; // 16KB buffer for a single line
-    char *fields[MAX_CSV_COLS];
-    int nfields;
-    int nrows = 0;
-
-    SPIPlanPtr prep_plan;
-    Oid argtypes[MAX_CSV_COLS];
-    Datum values[MAX_CSV_COLS];
-    char nulls[MAX_CSV_COLS];
-
-    // 1. Open the CSV file from the server's filesystem
-    if ((file = fopen(file_path, "r")) == NULL)
-        ereport(ERROR, (errcode_for_file_access(), errmsg("could not open file \"%s\" for reading: %m", file_path)));
-
-    // 2. Read header line and discard it
-    if (fgets(line_buf, sizeof(line_buf), file) == NULL) {
-        fclose(file);
-        ereport(ERROR, (errmsg("could not read header line from file \"%s\"", file_path)));
-    }
-
-    // 3. Connect to SPI and prepare the INSERT statement
-    if (SPI_connect() != SPI_OK_CONNECT)
-        elog(ERROR, "SPI_connect failed");
-
-    // NOTE: This is a simplified example assuming a specific table structure.
-    // A more robust function would query pg_attribute and pg_type to get
-    // the actual column types and build the INSERT statement dynamically.
-    int num_columns = 3; // Hardcoded for 'users' table (id INT, name TEXT, city TEXT)
-    const char *insert_sql = "INSERT INTO users (id, name, city) VALUES ($1, $2, $3)";
-
-    argtypes[0] = INT4OID;   // OID for INTEGER
-    argtypes[1] = TEXTOID;   // OID for TEXT
-    argtypes[2] = TEXTOID;   // OID for TEXT
-
-    prep_plan = SPI_prepare(insert_sql, num_columns, argtypes);
-    if (prep_plan == NULL)
-        elog(ERROR, "SPI_prepare failed for command: %s", insert_sql);
-
-    // 4. Loop through the file, parsing and inserting each row
-    while (fgets(line_buf, sizeof(line_buf), file) != NULL)
-    {
-        nfields = parse_csv_line(line_buf, fields, MAX_CSV_COLS);
-
-        if (nfields != num_columns) {
-            SPI_finish();
-            fclose(file);
-            ereport(WARNING, (errmsg("skipping malformed CSV line with %d fields (expected %d)", nfields, num_columns)));
-            continue;
-        }
-
-        // Prepare values for insertion by calling the type's input function
-        values[0] = DirectFunctionCall1(int4in, CStringGetDatum(fields[0]));
-        values[1] = CStringGetTextDatum(fields[1]);
-        values[2] = CStringGetTextDatum(fields[2]);
-
-        // Assume no nulls for this example (' ' means not null)
-        memset(nulls, ' ', num_columns);
-
-        if (SPI_execute_plan(prep_plan, values, nulls, false, 0) != SPI_OK_INSERT) {
-            elog(ERROR, "SPI_execute_plan failed");
-        }
-
-        nrows++;
-    }
-
-    // 5. Clean up
-    SPI_finish();
-    fclose(file);
-    pfree(table_name);
-    pfree(file_path);
-
-    PG_RETURN_INT32(nrows);
-}*/
